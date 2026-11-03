@@ -45,6 +45,10 @@ const SHAKE_STEP: u32 = 5;
 const SHAKE_HIT: u32 = 2;
 const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
 
+/// Picking something up (frames): crouch, take hold on `PICK_GRAB`, rise.
+const PICK_GRAB: u32 = 7;
+const PICK_TOTAL: u32 = 16;
+
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
 /// blink), sitting up, getting onto one knee, standing and looking around.
 const WAKE_STIR: u32 = 110;
@@ -64,6 +68,8 @@ pub enum Action {
     WakeUp { t: u32 },
     /// Gripping a trunk and rocking it; `t` counts frames in this round.
     Shake { t: u32 },
+    /// Crouching to pick something up.
+    PickUp { t: u32 },
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -73,6 +79,8 @@ pub enum Deed {
     Chop((i32, i32)),
     /// A trunk was shaken.
     Shake((i32, i32)),
+    /// Hands closed on whatever lies within reach.
+    PickUp,
 }
 
 #[derive(Clone, Debug)]
@@ -112,8 +120,10 @@ impl Player {
     }
 
     /// Advances one frame. Returns what the castaway did to the world, on
-    /// the frame it happens (an axe blow landing, a trunk being shaken).
-    pub fn update(&mut self, input: &InputState, map: &WorldMap, has_axe: bool) -> Option<Deed> {
+    /// the frame it happens (an axe blow landing, a trunk being shaken, an
+    /// item taken). `item_in_reach` is where something lies close enough to
+    /// pick up; picking it up takes priority over shaking for A.
+    pub fn update(&mut self, input: &InputState, map: &WorldMap, has_axe: bool, item_in_reach: Option<(i32, i32)>) -> Option<Deed> {
         if let Action::WakeUp { t } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { WAKE_END } else { t + 1 };
@@ -132,6 +142,11 @@ impl Player {
             self.action = if t >= CHOP_TOTAL { Action::Idle } else { Action::Chop { t } };
             return (t == CHOP_STRIKE).then(|| Deed::Chop(self.reach_point()));
         }
+        if let Action::PickUp { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
+            return (t == PICK_GRAB).then_some(Deed::PickUp);
+        }
         if let Action::Shake { t } = self.action {
             let t = t + 1;
             if t < SHAKE_TOTAL {
@@ -148,6 +163,24 @@ impl Player {
             let (ax, ay) = input.axis();
             self.facing = facing_for(self.facing, ax, ay);
             self.action = Action::Chop { t: 0 };
+            self.moving = false;
+            self.walk_timer = 0;
+            return None;
+        }
+        if let Some((ix, iy)) = item_in_reach.filter(|_| input.pressed(Buttons::A)) {
+            // Turn toward it unless it's (nearly) underfoot.
+            let (fx, fy) = self.body.feet();
+            let (dx, dy) = (ix - fx, iy - fy);
+            if dx.abs() > 4 || dy.abs() > 4 {
+                self.facing = if dx.abs() > dy.abs() {
+                    if dx < 0 { Dir::Left } else { Dir::Right }
+                } else if dy < 0 {
+                    Dir::Up
+                } else {
+                    Dir::Down
+                };
+            }
+            self.action = Action::PickUp { t: 0 };
             self.moving = false;
             self.walk_timer = 0;
             return None;
@@ -170,8 +203,8 @@ impl Player {
     }
 
     /// The spot just in front of the feet that hands and tools reach: where
-    /// the axe blade lands or the trunk being shaken.
-    fn reach_point(&self) -> (i32, i32) {
+    /// the axe blade lands, the trunk being shaken, things picked up.
+    pub fn reach_point(&self) -> (i32, i32) {
         let (fx, fy) = self.body.feet();
         match self.facing {
             Dir::Up => (fx, fy - 12),
@@ -200,11 +233,6 @@ impl Player {
 
         // Keep walking in place against walls, like classic action RPGs.
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
-    }
-
-    /// Free-handed and on their feet: able to scoop up what they walk over.
-    pub fn can_pick_up(&self) -> bool {
-        matches!(self.action, Action::Idle)
     }
 
     /// Point the camera follows (roughly the torso).
@@ -240,6 +268,17 @@ impl Player {
 
         if let Action::Chop { t } = self.action {
             self.draw_chop(list, (sx, sy), (cx, cy), depth, sprites, t, prio);
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::PickUp { t } = self.action {
+            // Crouched for the middle of the move, standing at either end.
+            let low = (2..PICK_TOTAL - 3).contains(&t);
+            let gfx = if low { sprites.player.crouch[view] } else { sprites.player.walk[view][0].full };
+            list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }

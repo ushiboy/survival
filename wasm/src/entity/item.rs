@@ -1,6 +1,7 @@
-//! Coconuts knocked out of palms: they drop from the crown, bounce, roll a
-//! little and then wait on the ground to be picked up. Simulated in
-//! pseudo-3D (ground position + height) like particles.
+//! Things lying on the ground (or on their way there): coconuts knocked out
+//! of palms, timber from felled trees. They drop or are tossed, bounce, roll
+//! a little and then wait to be picked up. Simulated in pseudo-3D (ground
+//! position + height) like particles.
 
 use crate::assets::SpriteIds;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_SHADOW};
@@ -16,11 +17,20 @@ const ROLL_FRICTION: f32 = 0.88;
 /// Above this height the coconut is still among the fronds and drawn in
 /// front of the canopy, where it hung.
 const IN_CANOPY_Z: f32 = 18.0;
-/// How close (px) the castaway's feet must come to pick it up.
-const PICKUP_RANGE: f32 = 9.0;
+/// How close (px) an item must be to the castaway's feet or reach point to
+/// be picked up.
+const PICKUP_RANGE: f32 = 13.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemKind {
+    Coconut,
+    /// A squared length of palm wood.
+    Timber,
+}
 
 #[derive(Clone, Debug)]
-pub struct Coconut {
+pub struct Item {
+    pub kind: ItemKind,
     /// Ground position (world px) and height above it.
     x: f32,
     y: f32,
@@ -34,13 +44,13 @@ pub struct Coconut {
     anim: u32,
 }
 
-impl Coconut {
-    /// Drops from where it hung (`from`, world px) to land on the ground at
-    /// `to`, then rolls along `roll` (px per frame).
-    pub fn falling(from: (f32, f32), to: (f32, f32), roll: (f32, f32)) -> Self {
+impl Item {
+    /// Drops from `from` (world px, as seen on screen) to land on the ground
+    /// at `to`, then rolls along `roll` (px per frame).
+    pub fn falling(kind: ItemKind, from: (f32, f32), to: (f32, f32), roll: (f32, f32)) -> Self {
         let z = (to.1 - from.1).max(0.0);
         let frames = (2.0 * z / GRAVITY).sqrt().max(1.0);
-        Self { x: from.0, y: to.1, z, vx: (to.0 - from.0) / frames, vy: 0.0, vz: 0.0, bounces: 0, roll, anim: 0 }
+        Self { kind, x: from.0, y: to.1, z, vx: (to.0 - from.0) / frames, vy: 0.0, vz: 0.0, bounces: 0, roll, anim: 0 }
     }
 
     pub fn update(&mut self, map: &WorldMap) {
@@ -87,10 +97,12 @@ impl Coconut {
         self.z <= 0.0 && self.vz <= 0.0 && self.vx == 0.0 && self.vy == 0.0 && self.bounces > BOUNCES.len()
     }
 
-    /// Whether feet at `(fx, fy)` are close enough to pick it up.
-    pub fn reachable_from(&self, (fx, fy): (i32, i32)) -> bool {
-        let (dx, dy) = (fx as f32 - self.x, fy as f32 - self.y);
-        self.resting() && dx * dx + dy * dy < PICKUP_RANGE * PICKUP_RANGE
+    /// Squared distance from a world point, if it lies within pickup range
+    /// of it and has come to rest.
+    pub fn reach(&self, (px, py): (i32, i32)) -> Option<f32> {
+        let (dx, dy) = (px as f32 - self.x, py as f32 - self.y);
+        let d = dx * dx + dy * dy;
+        (self.resting() && d < PICKUP_RANGE * PICKUP_RANGE).then_some(d)
     }
 
     pub fn ground(&self) -> (i32, i32) {
@@ -98,8 +110,12 @@ impl Coconut {
     }
 
     pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, night: bool) {
-        let (wx, wy) = (self.x as i32 - 4, (self.y - self.z) as i32 - 7);
-        if !camera.sees(wx, wy, 8, 8 + self.z as i32) {
+        let (w, gfx, shadow) = match self.kind {
+            ItemKind::Coconut => (8, sprites.coconut, sprites.shadow_coconut),
+            ItemKind::Timber => (16, [sprites.timber; 2], sprites.shadow_player),
+        };
+        let (wx, wy) = (self.x as i32 - w / 2, (self.y - self.z) as i32 - 7);
+        if !camera.sees(wx, wy, w, 8 + self.z as i32) {
             return;
         }
         let (sx, sy) = camera.to_screen(wx, wy);
@@ -108,10 +124,10 @@ impl Coconut {
         let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
         let priority = if self.z > IN_CANOPY_Z { 3 } else { 2 };
         let flip = airborne && self.anim / 8 % 2 == 1;
-        list.actor(self.y as i32, ObjEntry::new(sx, sy, sprites.coconut[frame], palette, priority).flipped(flip));
+        list.actor(self.y as i32, ObjEntry::new(sx, sy, gfx[frame], palette, priority).flipped(flip));
         if !night {
-            let (gx, gy) = camera.to_screen(self.x as i32 - 4, self.y as i32 - 4);
-            list.shadow(ObjEntry::new(gx, gy, sprites.shadow_coconut, OBJ_SHADOW, 2));
+            let (gx, gy) = camera.to_screen(self.x as i32 - w / 2, self.y as i32 - 4);
+            list.shadow(ObjEntry::new(gx, gy, shadow, OBJ_SHADOW, 2));
         }
     }
 }

@@ -196,7 +196,7 @@ pub fn base_cgram() -> Cgram {
     let crab = [
         c(56, 16, 20), c(136, 32, 28), c(200, 64, 40), c(240, 120, 72),
         c(252, 186, 130), c(248, 248, 248), c(24, 8, 8),
-        // Coconuts share the crab palettes (COCONUT_LEGEND).
+        // Items share the crab palettes (ITEM_LEGEND).
         c(40, 26, 18), c(92, 60, 34), c(140, 96, 52), c(186, 140, 84), c(228, 196, 140),
     ];
     cg.set_obj_palette(OBJ_CRAB, &crab);
@@ -233,7 +233,7 @@ pub fn set_player_palettes(cg: &mut Cgram, outfit: &Outfit) {
 }
 
 pub const CRAB_LEGEND: &[(char, u8)] = &[('o', 1), ('r', 2), ('R', 3), ('q', 4), ('l', 5), ('w', 6), ('e', 7)];
-pub const COCONUT_LEGEND: &[(char, u8)] = &[('o', 8), ('d', 9), ('w', 10), ('W', 11), ('h', 12)];
+pub const ITEM_LEGEND: &[(char, u8)] = &[('o', 8), ('d', 9), ('w', 10), ('W', 11), ('h', 12)];
 pub const FX_LEGEND: &[(char, u8)] = &[
     ('o', 1), ('w', 2), ('W', 3), ('m', 4), ('M', 5), ('L', 6), ('c', 7),
     ('g', 8), ('G', 9), ('h', 10), ('y', 11), ('Y', 12),

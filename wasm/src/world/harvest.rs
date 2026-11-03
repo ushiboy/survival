@@ -8,7 +8,7 @@ use crate::common::rng::hash_unit;
 
 /// Axe hits needed to fell a palm.
 pub const PALM_HP: u8 = 3;
-/// Wood gained from a felled palm.
+/// Pieces of timber a felled palm breaks into.
 pub const PALM_WOOD: u32 = 3;
 /// Most coconuts a palm carries (they don't grow back yet).
 pub const PALM_COCONUTS: u8 = 3;

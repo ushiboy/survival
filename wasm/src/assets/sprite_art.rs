@@ -2,7 +2,7 @@
 //! (see `palettes::*_LEGEND`); `.` is transparent.
 
 use super::paint::{bayer, fill_ellipse};
-use super::palettes::{COCONUT_LEGEND, CRAB_LEGEND, FX_LEGEND, GULL_LEGEND};
+use super::palettes::{ITEM_LEGEND, CRAB_LEGEND, FX_LEGEND, GULL_LEGEND};
 use crate::ppu::pattern::PixelArt;
 
 // Crab, 16x16. o outline · r/R/q/l shell dark→light · w eye · e pupil.
@@ -226,11 +226,28 @@ pub fn spark_frames() -> [PixelArt; 2] {
     ]
 }
 
-/// Coconut, 8x8 (crab palette, so it darkens at night like the crabs).
+/// Coconut, 8x8 (items share the crab palette, so they darken at night
+/// like the crabs).
 /// o outline · d/w/W husk dark→light · h highlight. The second frame is
 /// turned a quarter for tumbling.
 pub fn coconut_frames() -> [PixelArt; 2] {
     let rest = ["........", "..oooo..", ".oWhWwo.", "oWhWwwdo", "oWWwwwdo", "owwwwddo", ".odddddo", "..ooooo."];
     let turned = ["........", "..oooo..", ".owWWWo.", "odwWhWWo", "odwwWWWo", "oddwwwwo", ".oddddo.", "..oooo.."];
-    [PixelArt::parse(&rest, COCONUT_LEGEND), PixelArt::parse(&turned, COCONUT_LEGEND)]
+    [PixelArt::parse(&rest, ITEM_LEGEND), PixelArt::parse(&turned, ITEM_LEGEND)]
+}
+
+/// Timber (a squared length of palm wood) lying on its side, 16x8, cut end
+/// to the right. Same legend as the coconut.
+pub fn timber() -> PixelArt {
+    let rows = [
+        "................",
+        ".oooooooooooooo.",
+        "oWWWWWWhWWWWohho",
+        "owwwwwwwwwwwohWo",
+        "owwdwwwwwdwwoWho",
+        "odddddddddddohho",
+        ".oooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, ITEM_LEGEND)
 }

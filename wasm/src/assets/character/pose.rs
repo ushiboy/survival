@@ -423,6 +423,47 @@ pub fn shake(view: View, stage: usize) -> Pose {
     }
 }
 
+// ---------------------------------------------------------------- picking up
+
+/// Squatting to scoop something off the ground in front of the feet.
+pub fn crouch(view: View) -> Pose {
+    match view {
+        View::Side => {
+            let mut p = side_stand().shift_upper(3.4);
+            p.head.0 += 2.4;
+            p.neck.0 += 1.6;
+            p.legs = [
+                limb((12.0, 24.8), (15.4, 26.0), (12.8, 29.6), false),
+                limb((11.2, 24.8), (14.6, 26.4), (11.6, 29.6), false),
+            ];
+            p.arms = [
+                limb((13.6, 18.2), (15.6, 22.6), (18.0, 27.6), false),
+                limb((12.8, 18.4), (15.0, 23.0), (17.4, 28.0), true),
+            ];
+            p
+        }
+        View::Front | View::Back => {
+            let front = view == View::Front;
+            let mut p = front_stand(view).shift_upper(3.4);
+            // Bending forward: toward the viewer (lower) from the front,
+            // away (higher) from the back.
+            let bow = if front { 0.8 } else { -0.8 };
+            p.head.1 += bow;
+            p.neck.1 += bow * 0.6;
+            p.legs = [
+                limb((10.0, 24.9), (7.4, 26.6), (8.6, 29.6), false),
+                limb((14.0, 24.9), (16.6, 26.6), (15.4, 29.6), false),
+            ];
+            let hand_y = if front { 28.0 } else { 25.6 };
+            p.arms = [
+                limb((7.9, 18.2), (8.0, 22.4), (10.6, hand_y), front),
+                limb((16.1, 18.2), (16.0, 22.4), (13.4, hand_y), front),
+            ];
+            p
+        }
+    }
+}
+
 // ---------------------------------------------------------------- waking up
 
 /// Sprawled on his back, one arm flung above the head. Rendered front-on and

@@ -10,7 +10,7 @@ use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
-use crate::entity::{Coconut, Crab, Deed, Gull, Particles, Player};
+use crate::entity::{Crab, Deed, Gull, Item, ItemKind, Particles, Player};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
@@ -77,7 +77,8 @@ pub struct Game {
     visual: VisualMap,
     harvest: Harvest,
     particles: Particles,
-    coconuts: Vec<Coconut>,
+    /// Things lying on (or falling to) the ground, waiting to be picked up.
+    items: Vec<Item>,
     rng: Rng,
     hitstop: u32,
     tree_shake: Option<TreeShake>,
@@ -124,7 +125,7 @@ impl Game {
             visual,
             harvest: Harvest::default(),
             particles: Particles::new(seed ^ 0xFA57),
-            coconuts: Vec::new(),
+            items: Vec::new(),
             rng: Rng::new(seed ^ 0xC0C0),
             hitstop: 0,
             tree_shake: None,
@@ -184,13 +185,17 @@ impl Game {
             self.hitstop -= 1;
             return;
         }
-        match self.player.update(&self.input, &self.map, self.inventory.axe) {
+        let in_reach = self.item_in_reach().map(|i| self.items[i].ground());
+        match self.player.update(&self.input, &self.map, self.inventory.axe, in_reach) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
+            Some(Deed::PickUp) => self.pick_up(),
             None => {}
         }
         self.particles.update();
-        self.update_coconuts();
+        for item in &mut self.items {
+            item.update(&self.map);
+        }
         let pc = self.player.center();
         for crab in &mut self.crabs {
             crab.update(&self.map, pc);
@@ -230,7 +235,12 @@ impl Game {
                 let (canopy, ground) = palm_canopy(anchor);
                 self.particles.leaves(canopy, ground, 14);
                 self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
-                self.inventory.wood += wood;
+                // The trunk falls apart into timber around the stump.
+                let (ax, ay) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
+                let from = (ax as f32 + PALM_W as f32 / 2.0, (ay + 3 * TILE_SIZE) as f32);
+                for _ in 0..wood {
+                    self.drop_item(ItemKind::Timber, anchor, from);
+                }
                 // Whatever coconuts were left come down with the crown.
                 let flip = palm_flip(&self.map, anchor);
                 for slot in 0..fruit {
@@ -267,13 +277,18 @@ impl Game {
         self.start_sway(anchor, sway);
     }
 
-    /// Sends the coconut hanging in `slot` of the palm at `anchor` falling
-    /// to a free spot of ground at the foot of the tree.
+    /// Sends the coconut hanging in `slot` of the palm at `anchor` falling.
     fn drop_coconut(&mut self, anchor: (i32, i32), slot: u8, flip: bool) {
-        let (ax, ay) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
         let (hx, hy) = coconut_spots()[slot as usize];
         let hx = if flip { PALM_W as f32 - hx } else { hx };
-        let from = (ax as f32 + hx, ay as f32 + hy);
+        let from = ((anchor.0 * TILE_SIZE) as f32 + hx, (anchor.1 * TILE_SIZE) as f32 + hy);
+        self.drop_item(ItemKind::Coconut, anchor, from);
+    }
+
+    /// Sends an item from `from` (world px, as seen on screen) to a free spot
+    /// of dry ground at the foot of the palm at `anchor`.
+    fn drop_item(&mut self, kind: ItemKind, anchor: (i32, i32), from: (f32, f32)) {
+        let (ax, ay) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
         // Below the tree or beside the trunk (whose cell is solid).
         let trunk_x = ax as f32 + PALM_W as f32 / 2.0;
         let base_y = (ay + 3 * TILE_SIZE) as f32;
@@ -293,27 +308,36 @@ impl Game {
             }
         }
         let roll = (((to.0 - trunk_x) * 0.04).clamp(-0.6, 0.6), self.rng.between(0, 4) as f32 * 0.1);
-        self.coconuts.push(Coconut::falling(from, to, roll));
+        self.items.push(Item::falling(kind, from, to, roll));
     }
 
-    /// Moves falling coconuts and picks up the ones the castaway walks over.
-    fn update_coconuts(&mut self) {
-        let feet = self.player.body.feet();
-        let can_pick = self.player.can_pick_up();
-        for c in &mut self.coconuts {
-            c.update(&self.map);
+    /// The resting item nearest the castaway's feet or reach point, if any
+    /// is close enough to pick up.
+    fn item_in_reach(&self) -> Option<usize> {
+        let (feet, reach) = (self.player.body.feet(), self.player.reach_point());
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| {
+                let d = [item.reach(feet), item.reach(reach)].into_iter().flatten().reduce(f32::min)?;
+                Some((i, d))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
+    /// Takes the item within reach (if it hasn't rolled away) into the bag.
+    fn pick_up(&mut self) {
+        let Some(i) = self.item_in_reach() else {
+            return;
+        };
+        let item = self.items.swap_remove(i);
+        let (x, y) = item.ground();
+        self.particles.sparks((x, y - 4), 1);
+        match item.kind {
+            ItemKind::Coconut => self.inventory.coconuts += 1,
+            ItemKind::Timber => self.inventory.wood += 1,
         }
-        let before = self.coconuts.len();
-        let particles = &mut self.particles;
-        self.coconuts.retain(|c| {
-            let taken = can_pick && c.reachable_from(feet);
-            if taken {
-                let (x, y) = c.ground();
-                particles.sparks((x, y - 4), 1);
-            }
-            !taken
-        });
-        self.inventory.coconuts += (before - self.coconuts.len()) as u32;
     }
 
     /// Sways the palm at `anchor` for `frames`, settling any other tree
@@ -374,8 +398,8 @@ impl Game {
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }
-        for c in &self.coconuts {
-            c.draw(list, &camera, sprites, night);
+        for item in &self.items {
+            item.draw(list, &camera, sprites, night);
         }
         self.particles.draw(list, &camera, sprites, self.frame_count);
         if !night {
