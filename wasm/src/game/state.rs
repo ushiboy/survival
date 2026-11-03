@@ -82,8 +82,17 @@ impl Default for Vitals {
 }
 
 /// Items the castaway carries. Placeholder until an item system exists.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Inventory {
+    /// Lets the castaway chop trees.
+    pub axe: bool,
     /// Lights the surroundings at night.
     pub lantern: bool,
+    pub wood: u32,
+}
+
+impl Default for Inventory {
+    fn default() -> Self {
+        Self { axe: true, lantern: false, wood: 0 }
+    }
 }

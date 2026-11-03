@@ -207,6 +207,39 @@ pub fn flowers() -> PropTile {
 
 // ---------------------------------------------------------------- palm tree (32x48)
 
+/// Stump left after felling a palm: 32x16 over sand (PAL_FOLIAGE), split
+/// into left/right cells like the trunk base.
+pub fn stump() -> (PropTile, PropTile) {
+    let mut a = PixelArt::filled(32, 16, 0);
+    shadow_ellipse(&mut a, 17.5, 12.5, 8.0, 2.6);
+    let mut s = PixelArt::filled(32, 16, 0);
+    let (cx, top, bottom) = (16.0f32, 7.0f32, 13.0f32);
+    for y in top as i32..=bottom as i32 {
+        let hw = 3.6 + (y as f32 - top) * 0.25 + if y as f32 > bottom - 2.0 { 1.0 } else { 0.0 };
+        for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
+            let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
+            if (0.0..=1.0).contains(&u) {
+                let i = if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 };
+                s.put(x, y, foliage::BARK[i]);
+            }
+        }
+    }
+    // Cut face with growth rings.
+    fill_ellipse(&mut s, cx, top, 3.8, 1.8, |_, _, nx, ny| {
+        let r = (nx * nx + ny * ny).sqrt();
+        Some(if r > 0.75 { foliage::BARK[2] } else if r > 0.4 { foliage::SAND[1] } else if r > 0.25 { foliage::BARK[3] } else { foliage::SAND[1] })
+    });
+    a.overlay(&s.outlined(foliage::BARK[0]), 0, 0);
+    // Wood chips scattered around.
+    for &(x, y) in &[(9, 13), (24, 12), (11, 9), (22, 14)] {
+        a.put(x, y, foliage::BARK[3]);
+    }
+    (
+        PropTile { palette: PAL_FOLIAGE, ground: Ground::Sand, overlay: a.sub(0, 0, 16, 16) },
+        PropTile { palette: PAL_FOLIAGE, ground: Ground::Sand, overlay: a.sub(16, 0, 16, 16) },
+    )
+}
+
 /// Palm tree art. `upper` (32x32) goes on BG2 above sprites; `lower`
 /// (32x16, overlay) is the trunk base on BG1; `shade` (32x16, mask) is the
 /// canopy's shadow on the BG1 row under the canopy.

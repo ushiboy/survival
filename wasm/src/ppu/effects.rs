@@ -81,6 +81,8 @@ pub struct LineTables {
     /// BG3 enabled on the main screen / sub-screen per line (TM/TS writes).
     pub bg3_main: Vec<bool>,
     pub bg3_sub: Vec<bool>,
+    /// Extra BG2 horizontal scroll per line (e.g. shaking a tree canopy).
+    pub bg2_hofs: Vec<i32>,
 }
 
 impl Default for LineTables {
@@ -91,6 +93,7 @@ impl Default for LineTables {
             bg3_scroll: vec![(0, 0); SCREEN_H],
             bg3_main: vec![true; SCREEN_H],
             bg3_sub: vec![false; SCREEN_H],
+            bg2_hofs: vec![0; SCREEN_H],
         }
     }
 }
@@ -102,6 +105,7 @@ impl LineTables {
         self.bg3_scroll.fill((0, 0));
         self.bg3_main.fill(true);
         self.bg3_sub.fill(false);
+        self.bg2_hofs.fill(0);
     }
 
     #[inline]

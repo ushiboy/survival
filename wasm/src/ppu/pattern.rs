@@ -104,6 +104,44 @@ impl PixelArt {
         out
     }
 
+    pub fn flipped_v(&self) -> Self {
+        let mut out = self.clone();
+        for y in 0..self.h {
+            for x in 0..self.w {
+                out.set(x, y, self.get(x, self.h - 1 - y));
+            }
+        }
+        out
+    }
+
+    /// Swaps rows and columns.
+    pub fn transposed(&self) -> Self {
+        let mut out = Self::filled(self.h, self.w, 0);
+        for y in 0..self.h {
+            for x in 0..self.w {
+                out.set(y, x, self.get(x, y));
+            }
+        }
+        out
+    }
+
+    /// Shifts the given rows horizontally by `dx` (pixels pushed off an edge
+    /// are lost). Used to lean a sprite's upper body over its hips.
+    pub fn shift_rows(&self, rows: std::ops::Range<usize>, dx: i32) -> Self {
+        let mut out = self.clone();
+        for y in rows.start..rows.end.min(self.h) {
+            for x in 0..self.w as i32 {
+                out.set(x as usize, y, self.at(x - dx, y as i32));
+            }
+        }
+        out
+    }
+
+    /// Rotated 90° clockwise.
+    pub fn rotated_cw(&self) -> Self {
+        self.transposed().flipped_h()
+    }
+
     /// Copy with every row outside `rows` cleared.
     pub fn keep_rows(&self, rows: std::ops::Range<usize>) -> Self {
         let mut out = self.clone();

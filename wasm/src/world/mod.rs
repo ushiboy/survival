@@ -1,6 +1,7 @@
 //! Game world data: terrain, map features and their gameplay properties.
 //! Pure logic — nothing here knows about graphics.
 
+pub mod harvest;
 pub mod island;
 pub mod map;
 pub mod noise;

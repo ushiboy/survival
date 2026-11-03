@@ -22,6 +22,8 @@ pub const PAL_ROCK: u8 = 7;
 pub const OBJ_PLAYER: u8 = 0;
 pub const OBJ_CRAB: u8 = 1;
 pub const OBJ_GULL: u8 = 2;
+/// Tools and effects: axe, wood chips, leaves, sparks.
+pub const OBJ_FX: u8 = 3;
 /// Palettes 4+ are blended by colour math.
 pub const OBJ_SHADOW: u8 = 4;
 pub const OBJ_WATER_FX: u8 = 5;
@@ -201,6 +203,17 @@ pub fn base_cgram() -> Cgram {
             c(255, 255, 255), c(244, 176, 48), c(176, 96, 24), c(32, 32, 44),
         ],
     );
+    cg.set_obj_palette(
+        OBJ_FX,
+        &[
+            c(40, 24, 28),                                   // o outline
+            c(108, 68, 40), c(162, 112, 62),                 // w/W wood
+            c(88, 94, 110), c(160, 168, 182), c(232, 238, 246), // m/M/L metal
+            c(226, 186, 128),                                // c fresh-cut wood
+            c(36, 96, 44), c(88, 158, 58), c(164, 212, 92),  // g/G/h leaf
+            c(255, 226, 112), c(255, 255, 240),              // y/Y spark
+        ],
+    );
     cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
     cg.set_obj_palette(OBJ_WATER_FX, &[c(176, 232, 244), c(250, 255, 255), c(110, 190, 222)]);
     // Submerged legs: the player's colours pulled toward sea green, then blended.
@@ -224,8 +237,15 @@ fn player_colors() -> [Rgb555; 15] {
 pub const PLAYER_LEGEND: &[(char, u8)] = &[
     ('o', 1), ('h', 2), ('H', 3), ('i', 4), ('s', 5), ('S', 6), ('k', 7),
     ('r', 8), ('R', 9), ('q', 10), ('t', 11), ('T', 12), ('W', 13), ('b', 14), ('B', 15),
+    // Hand pixels (skin / outline) in action poses; also extracted as an
+    // overlay so hands can be drawn over a held tool.
+    ('K', 6), ('O', 1),
 ];
 pub const CRAB_LEGEND: &[(char, u8)] = &[('o', 1), ('r', 2), ('R', 3), ('q', 4), ('l', 5), ('w', 6), ('e', 7)];
+pub const FX_LEGEND: &[(char, u8)] = &[
+    ('o', 1), ('w', 2), ('W', 3), ('m', 4), ('M', 5), ('L', 6), ('c', 7),
+    ('g', 8), ('G', 9), ('h', 10), ('y', 11), ('Y', 12),
+];
 pub const GULL_LEGEND: &[(char, u8)] =
     &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
 

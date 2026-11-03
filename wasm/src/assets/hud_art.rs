@@ -135,6 +135,19 @@ pub fn icon_lantern() -> PixelArt {
     ])
 }
 
+pub fn icon_wood() -> PixelArt {
+    art([
+        "........",
+        ".11111..",
+        "1333311.",
+        "12222131",
+        "12222131",
+        "1222211.",
+        ".11111..",
+        "........",
+    ])
+}
+
 /// Gauge middle segment with `fill` (0..=8) pixels filled.
 pub fn gauge_segment(fill: usize) -> PixelArt {
     let mut a = PixelArt::filled(8, 8, 0);

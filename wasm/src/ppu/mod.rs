@@ -217,8 +217,8 @@ impl Ppu {
         let shift = 15 - frame.brightness.min(15) as u32;
 
         for y in 0..SCREEN_H {
-            Self::bg_line(vram, frame, bg1, y, &mut l1);
-            Self::bg_line(vram, frame, bg2, y, &mut l2);
+            Self::bg_line(vram, frame, bg1, y, 0, &mut l1);
+            Self::bg_line(vram, frame, bg2, y, frame.lines.bg2_hofs[y], &mut l2);
             Self::bg3_line(vram, frame, y, &mut l3);
             let (bg3_main, bg3_sub) = (frame.lines.bg3_main[y], frame.lines.bg3_sub[y]);
             self.obj_line(vram, frame, y, &mut obj);
@@ -303,12 +303,12 @@ impl Ppu {
         }
     }
 
-    fn bg_line(vram: &Vram, frame: &FrameState, bg: &dyn BgLayer, y: usize, out: &mut [BgPx; SCREEN_W]) {
+    fn bg_line(vram: &Vram, frame: &FrameState, bg: &dyn BgLayer, y: usize, hofs: i32, out: &mut [BgPx; SCREEN_W]) {
         let wy = frame.scroll_y + y as i32;
         let my = wy.div_euclid(16);
         let fy = wy.rem_euclid(16) as usize;
         let mut x = 0usize;
-        let mut wx = frame.scroll_x;
+        let mut wx = frame.scroll_x + hofs;
         while x < SCREEN_W {
             let mx = wx.div_euclid(16);
             let fx = wx.rem_euclid(16) as usize;

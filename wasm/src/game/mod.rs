@@ -7,7 +7,7 @@ pub mod state;
 use crate::assets::Assets;
 use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram};
 use crate::common::input::{Buttons, InputState};
-use crate::entity::{Crab, Gull, Player};
+use crate::entity::{Crab, Gull, Particles, Player};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
@@ -15,13 +15,22 @@ use crate::render::camera::Camera;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::lighting::{self, Light, Lighting};
 use crate::render::sprites::DrawList;
-use crate::render::tileset::{VisualMap, build_visual_map};
-use crate::world::{WorldMap, island};
+use crate::render::tileset::{Tileset, VisualMap};
+use crate::world::harvest::{Harvest, Strike};
+use crate::world::{TILE_SIZE, WorldMap, island};
 use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
+/// Frames the action freezes when a blow lands (hit-stop).
+const HITSTOP_TREE: u32 = 4;
+const HITSTOP_FELL: u32 = 7;
+const HITSTOP_HARD: u32 = 3;
+/// Frames a struck canopy wobbles, and the wobble offsets (BG2 line scroll).
+const TREE_SHAKE_FRAMES: u32 = 16;
+const TREE_SHAKE: [i32; 8] = [0, 1, -1, 1, -2, 2, -2, 2];
+const CAMERA_SHAKE_FRAMES: u32 = 10;
 /// Four 4bpp 8x8 tiles.
 const METATILE_BYTES: usize = 128;
 
@@ -49,10 +58,24 @@ const MATH_NIGHT: ColorMath = ColorMath {
     sub_layers: layer::BG3,
 };
 
+/// A palm canopy wobbling after a hit: world-space rows and frames left.
+#[derive(Clone, Copy, Debug)]
+struct TreeShake {
+    top: i32,
+    bottom: i32,
+    frames: u32,
+}
+
 pub struct Game {
     assets: Assets,
     map: WorldMap,
+    tileset: Tileset,
     visual: VisualMap,
+    harvest: Harvest,
+    particles: Particles,
+    hitstop: u32,
+    tree_shake: Option<TreeShake>,
+    camera_shake: u32,
     player: Player,
     crabs: Vec<Crab>,
     gulls: Vec<Gull>,
@@ -73,7 +96,8 @@ impl Game {
     pub fn new(seed: u32) -> Self {
         let mut assets = Assets::load();
         let map = island::generate(seed);
-        let visual = build_visual_map(&map, &mut assets);
+        let mut tileset = Tileset::default();
+        let visual = tileset.build(&map, &mut assets);
         let player = Player::at_feet(map.spawn.0, map.spawn.1);
         let crabs = map
             .crab_spawns
@@ -89,7 +113,13 @@ impl Game {
         let mut game = Self {
             assets,
             map,
+            tileset,
             visual,
+            harvest: Harvest::default(),
+            particles: Particles::new(seed ^ 0xFA57),
+            hitstop: 0,
+            tree_shake: None,
+            camera_shake: 0,
             player,
             crabs,
             gulls,
@@ -132,7 +162,17 @@ impl Game {
         if self.clock.tick() {
             self.vitals.on_minute(&self.clock);
         }
-        self.player.update(&self.input, &self.map);
+        self.tree_shake = self.tree_shake.filter(|s| s.frames > 0).map(|s| TreeShake { frames: s.frames - 1, ..s });
+        self.camera_shake = self.camera_shake.saturating_sub(1);
+        if self.hitstop > 0 {
+            // Freeze the action for a few frames so the impact is felt.
+            self.hitstop -= 1;
+            return;
+        }
+        if let Some(point) = self.player.update(&self.input, &self.map, self.inventory.axe) {
+            self.resolve_axe(point);
+        }
+        self.particles.update();
         let pc = self.player.center();
         for crab in &mut self.crabs {
             crab.update(&self.map, pc);
@@ -143,14 +183,52 @@ impl Game {
         self.camera.follow(pc, self.map.pixel_size());
     }
 
+    /// Applies an axe blow landing at `point` (world px).
+    fn resolve_axe(&mut self, point: (i32, i32)) {
+        let (fx, fy) = self.player.body.feet();
+        // Chips fly back toward the swinger.
+        let toward = ((fx - point.0).signum(), (fy - point.1).signum());
+        match self.harvest.axe(&mut self.map, point) {
+            Strike::TreeHit { anchor, .. } => {
+                self.hitstop = HITSTOP_TREE;
+                self.particles.chips(point, toward, 4);
+                let (canopy, ground) = palm_canopy(anchor);
+                self.particles.leaves(canopy, ground, 2);
+                self.tree_shake = Some(TreeShake { top: canopy.1, bottom: canopy.1 + canopy.3, frames: TREE_SHAKE_FRAMES });
+            }
+            Strike::TreeFelled { anchor, changed, wood } => {
+                self.hitstop = HITSTOP_FELL;
+                self.camera_shake = CAMERA_SHAKE_FRAMES;
+                self.tree_shake = None;
+                self.particles.chips(point, toward, 7);
+                let (canopy, ground) = palm_canopy(anchor);
+                self.particles.leaves(canopy, ground, 14);
+                self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+                self.inventory.wood += wood;
+            }
+            Strike::Brush => {
+                self.particles.leaves((point.0 - 6, point.1 - 10, 12, 8), point.1 + 2, 3);
+            }
+            Strike::Hard { .. } => {
+                self.hitstop = HITSTOP_HARD;
+                self.particles.sparks(point, 2);
+            }
+            Strike::Miss => {}
+        }
+    }
+
     /// Sets up PPU state for this frame and renders it to the RGBA buffer.
     pub fn render(&mut self) {
         let lighting = Lighting::at(self.clock.minute_f());
         let night = lighting.darkness > NIGHT_THRESHOLD;
+        let mut camera = self.camera;
+        if self.camera_shake > 0 {
+            camera.y += if self.camera_shake % 4 < 2 { 1 } else { -1 };
+        }
         let f = &mut self.frame;
         f.clock = self.frame_count;
-        f.scroll_x = self.camera.x;
-        f.scroll_y = self.camera.y;
+        f.scroll_x = camera.x;
+        f.scroll_y = camera.y;
 
         // CGRAM: base palette → water cycling → time-of-day tint.
         f.cgram.clone_from(&self.base_cgram);
@@ -160,7 +238,7 @@ impl Game {
         // Colour math + HDMA tables.
         if night {
             let (cx, cy) = self.player.center();
-            let light = self.inventory.lantern.then(|| Light { center: self.camera.to_screen(cx, cy) });
+            let light = self.inventory.lantern.then(|| Light { center: camera.to_screen(cx, cy) });
             let t = ((lighting.darkness - NIGHT_THRESHOLD) / (1.0 - NIGHT_THRESHOLD)).clamp(0.0, 1.0);
             let strength = t * t * (3.0 - 2.0 * t);
             lighting::night(&mut f.lines, &mut f.cgram, light, HUD_LINES, strength, self.frame_count);
@@ -168,6 +246,14 @@ impl Game {
         } else {
             f.lines.clear();
             f.math = MATH_TRANSLUCENT;
+        }
+        if let Some(shake) = self.tree_shake {
+            // HDMA: wobble BG2 only on the lines covering the struck canopy.
+            let dx = TREE_SHAKE[(shake.frames / 2) as usize % TREE_SHAKE.len()];
+            let (top, bottom) = ((shake.top - camera.y).max(0), (shake.bottom - camera.y).min(SCREEN_H as i32));
+            for y in top..bottom {
+                f.lines.bg2_hofs[y as usize] = dx;
+            }
         }
 
         hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
@@ -177,13 +263,14 @@ impl Game {
         let list = &mut self.draw_list;
         list.clear();
         let sprites = &self.assets.sprites;
-        self.player.draw(list, &self.camera, sprites, self.frame_count, shadows);
+        self.player.draw(list, &camera, sprites, self.frame_count, shadows);
         for crab in &self.crabs {
-            crab.draw(list, &self.camera, sprites, night);
+            crab.draw(list, &camera, sprites, night);
         }
+        self.particles.draw(list, &camera, sprites, self.frame_count);
         if !night {
             for gull in &self.gulls {
-                gull.draw(list, &self.camera, sprites, shadows);
+                gull.draw(list, &camera, sprites, shadows);
             }
         }
         f.oam.clear();
@@ -240,4 +327,11 @@ impl Game {
         let vram = &self.assets.vram;
         ids.len() * METATILE_BYTES + vram.hud_tiles.vram_bytes() + vram.sprites.vram_bytes()
     }
+}
+
+/// Canopy box (x, y, w, h) and the ground row leaves fall to, for the palm
+/// whose top-left cell is `anchor`.
+fn palm_canopy(anchor: (i32, i32)) -> ((i32, i32, i32, i32), i32) {
+    let (x, y) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
+    ((x + 2, y + 4, 28, 22), y + 2 * TILE_SIZE + 4)
 }

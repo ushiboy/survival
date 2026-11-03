@@ -9,7 +9,7 @@ use crate::ppu::Bg3Layer as HudLayer;
 const GAUGE_TILES: usize = 8;
 /// The HUD occupies the top-left of the BG3 map.
 pub const HUD_COLS: usize = 32;
-pub const HUD_ROWS: usize = 4;
+pub const HUD_ROWS: usize = 5;
 /// Lines at the top of the screen where BG3 shows the HUD.
 pub const HUD_LINES: usize = HUD_ROWS * 8;
 
@@ -40,6 +40,9 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &I
     gauge(hud, tiles, 2, 2, vitals.food, Vitals::MAX, HUD_FOOD);
     hud.put(1, 3, tiles.water, HUD_WATER);
     gauge(hud, tiles, 2, 3, vitals.water, Vitals::MAX, HUD_WATER);
+
+    hud.put(1, 4, tiles.wood, HUD_FOOD);
+    text(hud, tiles, 2, 4, &format!("{:02}", inventory.wood.min(99)));
 
     if inventory.lantern {
         hud.put(21, 1, tiles.lantern, HUD_SKY);

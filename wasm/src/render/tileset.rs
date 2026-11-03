@@ -135,7 +135,7 @@ enum Key {
 struct Builder<'a> {
     tex: &'a TerrainTextures,
     bank: &'a mut MetatileBank,
-    cache: HashMap<Key, MetatileId>,
+    cache: &'a mut HashMap<Key, MetatileId>,
 }
 
 impl Builder<'_> {
@@ -266,45 +266,80 @@ impl Builder<'_> {
     }
 }
 
-pub fn build_visual_map(map: &WorldMap, assets: &mut Assets) -> VisualMap {
-    let props: &PropSet = &assets.props;
-    let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: HashMap::new() };
-    let border = BgCell::new(b.interior(Terrain::DeepWater, 0, 0));
-    let mut ground = TileGrid::new(map.width(), map.height(), border);
-    let mut overhead = TileGrid::new(map.width(), map.height(), BgCell::EMPTY);
+/// Owns the tile cache so cells can be rebuilt when the world changes
+/// (e.g. a tree is felled); new tiles go into VRAM like streamed CHR.
+#[derive(Default)]
+pub struct Tileset {
+    cache: HashMap<Key, MetatileId>,
+}
 
-    for y in 0..map.height() {
-        for x in 0..map.width() {
-            let tile = match map.feature(x, y) {
-                Feature::Palm(p) => {
-                    // Mirrored trees swap columns; BG2 uses the PPU's h-flip.
-                    let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
-                    if p.dy < 2 {
-                        let id = props.palm_upper[p.dy as usize * 2 + col];
-                        overhead.set(x, y, BgCell { tile: id, hflip: p.flip, high: true });
-                    }
-                    match p.dy {
-                        0 => b.interior(map.terrain(x, y), x, y),
-                        1 => {
-                            let shade = if col == 0 { &props.palm.shade } else { &props.palm.shade_right };
-                            b.prop(10 + col as u8, shade, p.flip, x, y)
-                        }
-                        _ => {
-                            let lower = if col == 0 { &props.palm.lower } else { &props.palm.lower_right };
-                            b.prop(12 + col as u8, lower, p.flip, x, y)
-                        }
-                    }
-                }
-                Feature::Rock => b.prop(0, &props.boulder, false, x, y),
-                Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
-                Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
-                Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
-                Feature::Bush => b.prop(4, &props.bush, false, x, y),
-                Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
-                Feature::None => b.terrain(map, x, y),
-            };
-            ground.set(x, y, BgCell::new(tile));
+impl Tileset {
+    pub fn build(&mut self, map: &WorldMap, assets: &mut Assets) -> VisualMap {
+        let props: &PropSet = &assets.props;
+        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut self.cache };
+        let border = BgCell::new(b.interior(Terrain::DeepWater, 0, 0));
+        let mut visual = VisualMap {
+            ground: TileGrid::new(map.width(), map.height(), border),
+            overhead: TileGrid::new(map.width(), map.height(), BgCell::EMPTY),
+        };
+        for y in 0..map.height() {
+            for x in 0..map.width() {
+                let (g, o) = cell_tiles(&mut b, props, map, x, y);
+                visual.ground.set(x, y, g);
+                visual.overhead.set(x, y, o);
+            }
+        }
+        visual
+    }
+
+    /// Re-derives the tiles of the given cells from the current world state.
+    pub fn refresh(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, cells: &[(i32, i32)]) {
+        let props: &PropSet = &assets.props;
+        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut self.cache };
+        for &(x, y) in cells {
+            if map.in_bounds(x, y) {
+                let (g, o) = cell_tiles(&mut b, props, map, x, y);
+                visual.ground.set(x, y, g);
+                visual.overhead.set(x, y, o);
+            }
         }
     }
-    VisualMap { ground, overhead }
+}
+
+/// BG1 and BG2 cells for one map cell.
+fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) -> (BgCell, BgCell) {
+    let mut overhead = BgCell::EMPTY;
+    let tile = match map.feature(x, y) {
+        Feature::Palm(p) => {
+            // Mirrored trees swap columns; BG2 uses the PPU's h-flip.
+            let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
+            if p.dy < 2 {
+                let id = props.palm_upper[p.dy as usize * 2 + col];
+                overhead = BgCell { tile: id, hflip: p.flip, high: true };
+            }
+            match p.dy {
+                0 => b.interior(map.terrain(x, y), x, y),
+                1 => {
+                    let shade = if col == 0 { &props.palm.shade } else { &props.palm.shade_right };
+                    b.prop(10 + col as u8, shade, p.flip, x, y)
+                }
+                _ => {
+                    let lower = if col == 0 { &props.palm.lower } else { &props.palm.lower_right };
+                    b.prop(12 + col as u8, lower, p.flip, x, y)
+                }
+            }
+        }
+        Feature::Stump(p) => {
+            let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
+            b.prop(14 + col as u8, &props.stump[col], p.flip, x, y)
+        }
+        Feature::Rock => b.prop(0, &props.boulder, false, x, y),
+        Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
+        Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
+        Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
+        Feature::Bush => b.prop(4, &props.bush, false, x, y),
+        Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
+        Feature::None => b.terrain(map, x, y),
+    };
+    (BgCell::new(tile), overhead)
 }

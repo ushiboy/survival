@@ -28,6 +28,21 @@ pub struct PlayerFrame {
     pub legs: SpriteId,
 }
 
+/// An action pose: body and a hands-only overlay for gripping tools.
+#[derive(Clone, Copy, Debug)]
+pub struct PoseSprite {
+    pub body: SpriteId,
+    pub hands: SpriteId,
+}
+
+/// Axe swing poses, `[pulled back, strike]`; side views face right.
+#[derive(Clone, Copy, Debug)]
+pub struct ChopSprites {
+    pub down: [PoseSprite; 2],
+    pub up: [PoseSprite; 2],
+    pub side: [PoseSprite; 2],
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerSprites {
     /// `[stand, step]`; the second step is the mirror image.
@@ -35,6 +50,7 @@ pub struct PlayerSprites {
     pub up: [PlayerFrame; 2],
     /// `[stand, step A, step B]`, facing right.
     pub side: [PlayerFrame; 3],
+    pub chop: ChopSprites,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -46,6 +62,14 @@ pub struct SpriteIds {
     pub shadow_crab: SpriteId,
     pub shadow_gull: SpriteId,
     pub ripples: [SpriteId; 3],
+    pub axe_side: SpriteId,
+    pub axe_up: SpriteId,
+    pub axe_diag: SpriteId,
+    /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
+    pub swoosh: [SpriteId; 4],
+    pub chip: [SpriteId; 2],
+    pub leaf: [SpriteId; 2],
+    pub spark: [SpriteId; 2],
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +82,7 @@ pub struct HudTiles {
     pub sun: HudTileId,
     pub moon: HudTileId,
     pub lantern: HudTileId,
+    pub wood: HudTileId,
     /// Gauge segments indexed by filled pixels (0..=8).
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
@@ -83,6 +108,8 @@ pub struct PropSet {
     pub bush: PropTile,
     pub flowers: PropTile,
     pub palm: PalmArt,
+    /// Stump `[left, right]` left after felling a palm.
+    pub stump: [PropTile; 2],
     /// Palm canopy + upper trunk on BG2: `[TL, TR, ML, MR]`.
     pub palm_upper: [MetatileId; 4],
 }
@@ -117,6 +144,10 @@ fn load_props(vram: &mut Vram) -> PropSet {
         bush: props::bush(),
         flowers: props::flowers(),
         palm,
+        stump: {
+            let (l, r) = props::stump();
+            [l, r]
+        },
         palm_upper,
     }
 }
@@ -133,6 +164,14 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         down: [frame(player_down_stand()), frame(player_down_step())],
         up: [frame(player_up_stand()), frame(player_up_step())],
         side: [frame(player_side_stand()), frame(player_side_step_a()), frame(player_side_step_b())],
+        chop: {
+            let mut pose = |p: ActionPose| PoseSprite { body: bank.add(&p.body), hands: bank.add(&p.hands) };
+            ChopSprites {
+                down: [pose(chop_down_back()), pose(chop_down_strike())],
+                up: [pose(chop_up_back()), pose(chop_up_strike())],
+                side: [pose(chop_side_back()), pose(chop_side_strike())],
+            }
+        },
     };
     let [c0, c1] = crab_frames();
     let [g0, g1] = gull_frames();
@@ -145,6 +184,13 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         shadow_crab: bank.add(&shadow(16, 8, 6.5, 2.2)),
         shadow_gull: bank.add(&shadow(16, 8, 5.0, 1.8)),
         ripples: [bank.add(&r0), bank.add(&r1), bank.add(&r2)],
+        axe_side: bank.add(&axe_side()),
+        axe_up: bank.add(&axe_up()),
+        axe_diag: bank.add(&axe_diag()),
+        swoosh: swooshes().map(|a| bank.add(&a)),
+        chip: chip_frames().map(|a| bank.add(&a)),
+        leaf: leaf_frames().map(|a| bank.add(&a)),
+        spark: spark_frames().map(|a| bank.add(&a)),
     }
 }
 
@@ -163,6 +209,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         sun: bank.add(&hud_art::icon_sun()),
         moon: bank.add(&hud_art::icon_moon()),
         lantern: bank.add(&hud_art::icon_lantern()),
+        wood: bank.add(&hud_art::icon_wood()),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
         gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),

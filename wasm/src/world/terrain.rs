@@ -31,11 +31,19 @@ impl PalmPart {
     pub const H: i32 = 3;
 }
 
+/// One of the two cells of a palm stump (the old trunk-base row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StumpPart {
+    pub dx: u8,
+    pub flip: bool,
+}
+
 /// Objects placed on top of terrain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Feature {
     None,
     Palm(PalmPart),
+    Stump(StumpPart),
     Rock,
     Pebbles,
     Bush,
@@ -58,7 +66,7 @@ impl TileProps {
 pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
         Feature::Palm(p) => p.dy as i32 == PalmPart::H - 1,
-        Feature::Rock | Feature::Bush | Feature::Driftwood => true,
+        Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood => true,
         _ => false,
     };
     TileProps {
