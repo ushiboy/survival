@@ -18,6 +18,10 @@ pub enum ItemKind {
     Stone,
     /// A length of vine pulled from a climbing plant, coiled up.
     Vine,
+    /// A branch whittled to a point against a stone.
+    WoodSpear,
+    /// A crab caught with the spear.
+    Crab,
 }
 
 /// What using an item does.
@@ -31,8 +35,9 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
+            ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber => (2, 2),
         }
     }
@@ -47,15 +52,33 @@ impl ItemKind {
             ItemKind::Branch => "BRANCH",
             ItemKind::Stone => "STONE",
             ItemKind::Vine => "VINE",
+            ItemKind::WoodSpear => "WOOD SPEAR",
+            ItemKind::Crab => "CRAB",
         }
     }
 
     pub fn usage(self) -> Option<Use> {
         match self {
-            ItemKind::Coconut => Some(Use::Eat),
+            ItemKind::Coconut | ItemKind::Crab => Some(Use::Eat),
             ItemKind::RawWater => Some(Use::Drink),
             _ => None,
         }
+    }
+
+    /// How much eating it fills the food and water gauges: a coconut's
+    /// flesh about a third and its milk a little thirst; a crab more food
+    /// but hardly any water.
+    pub fn nourishment(self) -> (u32, u32) {
+        match self {
+            ItemKind::Coconut => (22, 6),
+            ItemKind::Crab => (30, 2),
+            _ => (0, 0),
+        }
+    }
+
+    /// Tools are held in hand and used with B.
+    pub fn is_tool(self) -> bool {
+        matches!(self, ItemKind::StoneAxe | ItemKind::WoodSpear)
     }
 
     /// Whether it can lie on the ground (water can only be poured away).

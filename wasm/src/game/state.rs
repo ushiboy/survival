@@ -1,6 +1,7 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
 use super::bag::Bag;
+use crate::items::ItemKind;
 use crate::assets::character::Outfit;
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
@@ -102,10 +103,26 @@ pub struct Inventory {
     pub lantern: bool,
     /// What the castaway is wearing.
     pub outfit: Outfit,
+    /// The tool held in hand (one carried in the bag), used with B.
+    pub tool: Option<ItemKind>,
+}
+
+impl Inventory {
+    /// Keeps the tool in hand one that's still carried: lets go of one
+    /// that left the bag, and takes up the first tool carried if the hands
+    /// are empty.
+    pub fn settle_tool(&mut self) {
+        if self.tool.is_some_and(|t| !self.bag.has(t)) {
+            self.tool = None;
+        }
+        if self.tool.is_none() {
+            self.tool = self.bag.items().iter().map(|p| p.kind).find(|k| k.is_tool());
+        }
+    }
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY }
+        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY, tool: None }
     }
 }

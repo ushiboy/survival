@@ -164,6 +164,39 @@ pub fn stone_axe_side() -> PixelArt {
     )
 }
 
+/// Wooden spear lying horizontally, 32x8: a straight branch with its end
+/// whittled to a pale point (right). The hands hold it 8px from the butt.
+pub fn spear_side() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            "................................",
+            "oooooooooooooooooooooooooooooo..",
+            "oWWWWWWWWWWWWWWWWWWWWWWWWWcccco.",
+            "owwwwwwwwwwwwwwwwwwwwwwwwwccoo..",
+            "oooooooooooooooooooooooooooo....",
+            "................................",
+            "................................",
+        ],
+        FX_LEGEND,
+    )
+}
+
+/// A crab lying on its back, legs curled up, 16x8.
+pub fn crab_caught() -> PixelArt {
+    let rows = [
+        "................",
+        ".o.o.oooooo.o.o.",
+        "o.oooqllllqooo.o",
+        "..oRqllqqllqRo..",
+        ".oRRqqllllqqRRo.",
+        ".orRRRRRRRRRRro.",
+        "..oorrrrrrrroo..",
+        "................",
+    ];
+    PixelArt::parse(&rows, CRAB_LEGEND)
+}
+
 /// An axe (given lying side-on) held upright, head at the top with the
 /// edge facing up.
 pub fn axe_up(side: PixelArt) -> PixelArt {

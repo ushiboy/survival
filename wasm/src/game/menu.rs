@@ -39,6 +39,8 @@ pub struct HeldItem {
 pub enum Command {
     Use(Use),
     Move,
+    /// Take a tool in hand.
+    Wield,
     /// Put it down on the ground (or pour it away).
     Drop,
 }
@@ -49,6 +51,7 @@ impl Command {
             Command::Use(Use::Eat) => "EAT",
             Command::Use(Use::Drink) => "DRINK",
             Command::Move => "MOVE",
+            Command::Wield => "TAKE IN HAND",
             Command::Drop if kind.can_put_down() => "PUT DOWN",
             Command::Drop => "POUR OUT",
         }
@@ -94,6 +97,8 @@ pub enum Outcome {
     Use(ItemKind),
     /// An item was taken out to leave on the ground.
     Drop(ItemKind),
+    /// A tool was chosen to hold in hand.
+    Wield(ItemKind),
 }
 
 #[derive(Clone, Debug)]
@@ -106,9 +111,11 @@ pub struct BagMenu {
     held_frames: u32,
 }
 
-/// Commands offered for an item, in menu order.
-pub fn commands_for(kind: ItemKind) -> Vec<Command> {
-    kind.usage().map(Command::Use).into_iter().chain([Command::Move, Command::Drop]).collect()
+/// Commands offered for an item, in menu order. `in_hand` is whether it's
+/// the tool already held.
+pub fn commands_for(kind: ItemKind, in_hand: bool) -> Vec<Command> {
+    let wield = (kind.is_tool() && !in_hand).then_some(Command::Wield);
+    kind.usage().map(Command::Use).into_iter().chain(wield).chain([Command::Move, Command::Drop]).collect()
 }
 
 impl BagMenu {
@@ -146,7 +153,8 @@ impl BagMenu {
         };
     }
 
-    pub fn update(&mut self, input: &InputState, bag: &mut Bag) -> Outcome {
+    /// `tool` is the tool in hand.
+    pub fn update(&mut self, input: &InputState, bag: &mut Bag, tool: Option<ItemKind>) -> Outcome {
         let step = self.direction(input);
         if input.pressed(Buttons::X) && !matches!(self.mode, Mode::Holding(_)) {
             return Outcome::Close;
@@ -193,7 +201,7 @@ impl BagMenu {
             }
             Mode::Commands { item, choice } => {
                 let kind = bag.items()[item].kind;
-                let commands = commands_for(kind);
+                let commands = commands_for(kind, tool == Some(kind));
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
                     self.mode = Mode::Commands { item, choice: (choice as i32 + dy).rem_euclid(commands.len() as i32) as usize };
                 }
@@ -209,6 +217,10 @@ impl BagMenu {
                     Command::Use(_) => {
                         bag.remove(item);
                         Outcome::Use(kind)
+                    }
+                    Command::Wield => {
+                        self.notice = Some("TOOK IT IN HAND");
+                        Outcome::Wield(kind)
                     }
                     Command::Move => {
                         let p = bag.remove(item);

@@ -43,6 +43,9 @@ pub struct PlayerSprites {
     pub walk: [[CharFrame; 4]; 3],
     pub chop: [[CharFrame; 3]; 3],
     pub chop_poses: [[Pose; 3]; 3],
+    /// Spear thrust: drawn back, lunging.
+    pub thrust: [[CharFrame; 2]; 3],
+    pub thrust_poses: [[Pose; 2]; 3],
     /// Shaking a tree trunk: push, pull.
     pub shake: [[SpriteId; 2]; 3],
     /// Crouching to pick something up (or to scoop water).
@@ -65,27 +68,31 @@ fn render_frame(pose: &Pose, outfit: &Outfit) -> [PixelArt; 4] {
 }
 
 impl PlayerSprites {
-    fn poses() -> ([[Pose; 4]; 3], [[Pose; 3]; 3]) {
+    fn poses() -> ([[Pose; 4]; 3], [[Pose; 3]; 3], [[Pose; 2]; 3]) {
         (
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::walk(v, i))),
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::chop(v, i))),
+            VIEWS.map(|v| std::array::from_fn(|i| character::pose::thrust(v, i))),
         )
     }
 
     pub fn build(bank: &mut SpriteBank, outfit: &Outfit) -> Self {
-        let (walk, chop) = Self::poses();
+        let (walk, chop, thrust) = Self::poses();
         let mut add = |pose: &Pose| {
             let [full, top, legs, hands] = render_frame(pose, outfit).map(|a| bank.add(&a));
             CharFrame { full, top, legs, hands }
         };
         let walk_frames = walk.map(|v| v.map(|p| add(&p)));
         let chop_frames = chop.map(|v| v.map(|p| add(&p)));
+        let thrust_frames = thrust.map(|v| v.map(|p| add(&p)));
         let [lying, sitting, kneeling] = Self::wake_art(outfit);
         let lying = lying.map(|a| bank.add(&a));
         Self {
             walk: walk_frames,
             chop: chop_frames,
             chop_poses: chop,
+            thrust: thrust_frames,
+            thrust_poses: thrust,
             shake: Self::shake_art(outfit).map(|v| v.map(|a| bank.add(&a))),
             crouch: Self::crouch_art(outfit).map(|a| bank.add(&a)),
             drink: Self::drink_art(outfit).map(|a| bank.add(&a)),
@@ -120,8 +127,13 @@ impl PlayerSprites {
 
     /// Re-renders every frame in place for a new outfit (equipment change).
     pub fn rebuild(&self, bank: &mut SpriteBank, outfit: &Outfit) {
-        let (walk, chop) = Self::poses();
-        let pairs = walk.iter().flatten().zip(self.walk.iter().flatten()).chain(chop.iter().flatten().zip(self.chop.iter().flatten()));
+        let (walk, chop, thrust) = Self::poses();
+        let pairs = walk
+            .iter()
+            .flatten()
+            .zip(self.walk.iter().flatten())
+            .chain(chop.iter().flatten().zip(self.chop.iter().flatten()))
+            .chain(thrust.iter().flatten().zip(self.thrust.iter().flatten()));
         for (pose, f) in pairs {
             let arts = render_frame(pose, outfit);
             for (id, art) in [f.full, f.top, f.legs, f.hands].into_iter().zip(arts.iter()) {
@@ -154,6 +166,9 @@ pub struct BagSprites {
     pub stone_axe: [SpriteId; 2],
     pub fire_drill: SpriteId,
     /// Upright, turned.
+    pub wood_spear: [SpriteId; 2],
+    pub crab: SpriteId,
+    /// Upright, turned.
     pub branch: [SpriteId; 2],
     pub stone: SpriteId,
     pub vine: SpriteId,
@@ -170,6 +185,8 @@ impl BagSprites {
             ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
             ItemKind::StoneAxe => (self.stone_axe[turned as usize], palettes::OBJ_FX),
             ItemKind::FireDrill => (self.fire_drill, palettes::OBJ_FX),
+            ItemKind::WoodSpear => (self.wood_spear[turned as usize], palettes::OBJ_FX),
+            ItemKind::Crab => (self.crab, palettes::OBJ_CRAB),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -192,6 +209,10 @@ pub struct SpriteIds {
     pub axe_side: SpriteId,
     pub axe_up: SpriteId,
     pub axe_diag: SpriteId,
+    /// The wooden spear: lying point right, point up, point down.
+    pub spear_side: SpriteId,
+    pub spear_up: SpriteId,
+    pub spear_down: SpriteId,
     /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
     pub swoosh: [SpriteId; 4],
     pub chip: [SpriteId; 2],
@@ -210,6 +231,7 @@ pub struct SpriteIds {
     pub stone: SpriteId,
     pub vine_coil: SpriteId,
     pub fire_drill: SpriteId,
+    pub crab_caught: SpriteId,
 }
 
 #[derive(Clone, Debug)]
@@ -328,6 +350,11 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         raw_water: bank.add(&item_art::icon_raw_water()),
         stone_axe: [bank.add(&stone_axe), bank.add(&stone_axe.rotated_cw())],
         fire_drill: bank.add(&item_art::fire_drill(16)),
+        wood_spear: {
+            let s = item_art::icon_wood_spear();
+            [bank.add(&s), bank.add(&s.rotated_cw())]
+        },
+        crab: bank.add(&c0),
         branch: {
             let b = item_art::icon_branch();
             [bank.add(&b), bank.add(&b.rotated_cw())]
@@ -349,6 +376,9 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         axe_side: bank.add(&stone_axe_side()),
         axe_up: bank.add(&axe_up(stone_axe_side())),
         axe_diag: bank.add(&axe_diag(stone_axe_side())),
+        spear_side: bank.add(&spear_side()),
+        spear_up: bank.add(&spear_side().transposed().flipped_v()),
+        spear_down: bank.add(&spear_side().transposed()),
         swoosh: swooshes().map(|a| bank.add(&a)),
         chip: chip_frames().map(|a| bank.add(&a)),
         leaf: leaf_frames().map(|a| bank.add(&a)),
@@ -362,6 +392,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         stone: bank.add(&stone()),
         vine_coil: bank.add(&vine_coil()),
         fire_drill: bank.add(&item_art::fire_drill(16)),
+        crab_caught: bank.add(&crab_caught()),
     }
 }
 

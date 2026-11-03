@@ -31,16 +31,15 @@ use state::{GameClock, Inventory, Vitals};
 const START_HOUR: u32 = 7;
 /// Water gauge restored by drinking one draw of water (a quarter).
 const DRINK_WATER: u32 = 16;
-/// A coconut's flesh fills the food gauge by about a third, and its milk
-/// quenches a little thirst.
-const COCONUT_FOOD: u32 = 22;
-const COCONUT_WATER: u32 = 6;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
 /// Frames the action freezes when a blow lands (hit-stop).
 const HITSTOP_TREE: u32 = 4;
 const HITSTOP_FELL: u32 = 7;
 const HITSTOP_HARD: u32 = 3;
+const HITSTOP_CRAB: u32 = 5;
+/// How close to the spear's line a crab must be to be caught (px).
+const CRAB_HIT_RADIUS: f32 = 9.0;
 /// Frames a struck canopy wobbles, and the wobble offsets (BG2 line scroll).
 const TREE_SHAKE_FRAMES: u32 = 16;
 const TREE_SHAKE: [i32; 8] = [0, 1, -1, 1, -2, 2, -2, 2];
@@ -191,8 +190,9 @@ impl Game {
 
         self.frame_count = self.frame_count.wrapping_add(1);
         if let Some(menu) = &mut self.menu {
-            let outcome = menu.update(&self.input, &mut self.inventory.bag);
+            let outcome = menu.update(&self.input, &mut self.inventory.bag, self.inventory.tool);
             self.resolve_menu(outcome);
+            self.inventory.settle_tool();
             return;
         }
         if self.input.pressed(Buttons::X) && self.player.is_idle() {
@@ -210,7 +210,7 @@ impl Game {
             return;
         }
         let situation = Situation {
-            has_axe: self.inventory.bag.has(ItemKind::StoneAxe),
+            tool: self.inventory.tool,
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
         };
         match self.player.update(&self.input, &self.map, situation) {
@@ -220,7 +220,8 @@ impl Game {
             Some(Deed::PullVine(point)) => self.pull_vine(point),
             Some(Deed::DrawWater) => self.take(ItemKind::RawWater),
             Some(Deed::Drink) => self.drink_water(),
-            Some(Deed::Eat) => self.eat_coconut(),
+            Some(Deed::Thrust(from, to)) => self.resolve_thrust(from, to),
+            Some(Deed::Eat(food)) => self.eat(food),
             None => {}
         }
         self.particles.update();
@@ -228,8 +229,9 @@ impl Game {
             item.update(&self.map);
         }
         let pc = self.player.center();
+        let (feet, moving) = (self.player.body.feet(), self.player.moving);
         for crab in &mut self.crabs {
-            crab.update(&self.map, pc);
+            crab.update(&self.map, feet, moving);
         }
         for gull in &mut self.gulls {
             gull.update();
@@ -287,6 +289,20 @@ impl Game {
             }
             Strike::Miss => {}
         }
+    }
+
+    /// Applies a spear jab sweeping the ground from `from` to `to`: the
+    /// first crab on that line is caught and drops where it was.
+    fn resolve_thrust(&mut self, from: (i32, i32), to: (i32, i32)) {
+        let hit = self.crabs.iter().position(|c| near_line(c.center(), from, to, CRAB_HIT_RADIUS));
+        let Some(i) = hit else {
+            return;
+        };
+        let crab = self.crabs.swap_remove(i);
+        let (x, y) = crab.center();
+        self.hitstop = HITSTOP_CRAB;
+        self.particles.sparks((x, y - 4), 2);
+        self.items.push(Item::falling(ItemKind::Crab, (x as f32, y as f32 - 8.0), (x as f32, y as f32 + 1.0), (0.0, 0.3)));
     }
 
     /// Applies one shake of the trunk at `point` (world px).
@@ -385,6 +401,7 @@ impl Game {
         if !self.inventory.bag.stow(kind) {
             self.menu = Some(BagMenu::holding(kind));
         }
+        self.inventory.settle_tool();
     }
 
     /// Acts on what happened in the bag screen.
@@ -394,11 +411,10 @@ impl Game {
             Outcome::Close => self.menu = None,
             Outcome::Use(kind) => {
                 self.menu = None;
-                if let Some(how) = kind.usage() {
-                    self.player.consume(how);
-                }
+                self.player.consume(kind);
             }
             Outcome::Drop(kind) => self.put_down(kind),
+            Outcome::Wield(kind) => self.inventory.tool = Some(kind),
         }
     }
 
@@ -421,11 +437,12 @@ impl Game {
         self.vitals.drink(DRINK_WATER);
     }
 
-    /// Finishes a coconut taken from the bag, with a few bits of husk
-    /// falling from the castaway's mouth.
-    fn eat_coconut(&mut self) {
-        self.vitals.eat(COCONUT_FOOD);
-        self.vitals.drink(COCONUT_WATER);
+    /// Finishes some food taken from the bag, with a few bits of husk or
+    /// shell falling from the castaway's mouth.
+    fn eat(&mut self, food: ItemKind) {
+        let (fill, quench) = food.nourishment();
+        self.vitals.eat(fill);
+        self.vitals.drink(quench);
         let (fx, fy) = self.player.body.feet();
         self.particles.chips((fx, fy - 2), (0, 1), 2);
     }
@@ -473,7 +490,7 @@ impl Game {
             hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
             let list = &mut self.draw_list;
             list.clear();
-            bag_screen::draw(&mut f.bg3, list, &self.assets.hud, &self.assets.sprites, &self.inventory.bag, menu, self.frame_count);
+            bag_screen::draw(&mut f.bg3, list, &self.assets.hud, &self.assets.sprites, &self.inventory, menu, self.frame_count);
             f.oam.clear();
             list.flush(&mut f.oam);
             self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
@@ -538,9 +555,19 @@ impl Game {
         self.camera.follow(self.player.center(), self.map.pixel_size());
     }
 
+    /// Dev tools: sets a crab down `dx` px to the right of the castaway's
+    /// feet.
+    pub fn debug_crab_ahead(&mut self, dx: i32) {
+        let (fx, fy) = self.player.body.feet();
+        if let Some(crab) = self.crabs.first_mut() {
+            *crab = Crab::new(fx + dx - 8, fy - 11, 7);
+        }
+    }
+
     /// Dev tools: puts an item straight into the bag (if it fits).
     pub fn debug_give(&mut self, kind: ItemKind) {
         self.inventory.bag.stow(kind);
+        self.inventory.settle_tool();
     }
 
     pub fn rgba(&self) -> &[u8] {
@@ -623,4 +650,14 @@ fn player_in_front_of_canopy(map: &WorldMap, player: &Player) -> bool {
         }
     }
     false
+}
+
+/// Whether `p` lies within `r` px of the segment from `a` to `b`.
+fn near_line(p: (i32, i32), a: (i32, i32), b: (i32, i32), r: f32) -> bool {
+    let (px, py) = (p.0 as f32, p.1 as f32);
+    let (ax, ay, bx, by) = (a.0 as f32, a.1 as f32, b.0 as f32, b.1 as f32);
+    let (dx, dy) = (bx - ax, by - ay);
+    let t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    let (qx, qy) = (ax + dx * t - px, ay + dy * t - py);
+    qx * qx + qy * qy <= r * r
 }

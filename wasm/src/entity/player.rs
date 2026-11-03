@@ -10,7 +10,7 @@ use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
-use crate::items::Use;
+use crate::items::{ItemKind, Use};
 use crate::world::harvest::{can_pull_vine, can_shake};
 
 pub const SPRITE_W: i32 = 16;
@@ -39,6 +39,13 @@ const CHOP_STRIKE: u32 = 8;
 const CHOP_TOTAL: u32 = 22;
 /// How long the swoosh trail shows around the strike.
 const SWOOSH_FRAMES: u32 = 6;
+
+/// Spear thrust (frames): drawn back, then jabbing out from `THRUST_JAB`;
+/// the point strikes on `THRUST_HIT` and is held out until `THRUST_BACK`.
+const THRUST_JAB: u32 = 6;
+const THRUST_HIT: u32 = 7;
+const THRUST_BACK: u32 = 14;
+const THRUST_TOTAL: u32 = 20;
 
 /// Shaking a trunk (frames): push and pull alternate every `SHAKE_STEP`;
 /// the tree registers one shake on `SHAKE_HIT` of each round.
@@ -89,6 +96,8 @@ pub enum Action {
     Idle,
     /// Swinging the axe; `t` counts frames since the swing started.
     Chop { t: u32 },
+    /// Jabbing with the spear.
+    Thrust { t: u32 },
     /// Coming to on the beach; `t` counts frames since the game started.
     WakeUp { t: u32 },
     /// Gripping a trunk and rocking it; `t` counts frames in this round.
@@ -99,8 +108,8 @@ pub enum Action {
     Scoop { t: u32 },
     /// Drinking water from the bag.
     Drink { t: u32 },
-    /// Eating something from the bag (a coconut).
-    Eat { t: u32 },
+    /// Eating something from the bag.
+    Eat { t: u32, food: ItemKind },
     /// Tugging a vine off a climbing plant.
     Pull { t: u32 },
 }
@@ -108,7 +117,8 @@ pub enum Action {
 /// What the castaway has to hand and what lies around them this frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Situation {
-    pub has_axe: bool,
+    /// The tool in hand, if any.
+    pub tool: Option<ItemKind>,
     /// Where something lies close enough to pick up.
     pub item_in_reach: Option<(i32, i32)>,
 }
@@ -118,6 +128,9 @@ pub struct Situation {
 pub enum Deed {
     /// An axe blow connected.
     Chop((i32, i32)),
+    /// The spear point struck out along the line from the first point to
+    /// the second (on the ground, world px).
+    Thrust((i32, i32), (i32, i32)),
     /// A trunk was shaken.
     Shake((i32, i32)),
     /// Hands closed on whatever lies within reach.
@@ -129,7 +142,7 @@ pub enum Deed {
     /// Drank some water taken from the bag.
     Drink,
     /// Finished eating something taken from the bag.
-    Eat,
+    Eat(ItemKind),
 }
 
 #[derive(Clone, Debug)]
@@ -173,7 +186,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { has_axe, item_in_reach } = situation;
+        let Situation { tool, item_in_reach } = situation;
         if let Action::WakeUp { t } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { WAKE_END } else { t + 1 };
@@ -192,6 +205,14 @@ impl Player {
             self.action = if t >= CHOP_TOTAL { Action::Idle } else { Action::Chop { t } };
             return (t == CHOP_STRIKE).then(|| Deed::Chop(self.reach_point()));
         }
+        if let Action::Thrust { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= THRUST_TOTAL { Action::Idle } else { Action::Thrust { t } };
+            return (t == THRUST_HIT).then(|| {
+                let (from, to) = self.spear_line();
+                Deed::Thrust(from, to)
+            });
+        }
         if let Action::PickUp { t } = self.action {
             let t = t + 1;
             self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
@@ -202,10 +223,10 @@ impl Player {
             self.action = if t >= PULL_TOTAL { Action::Idle } else { Action::Pull { t } };
             return (t == PULL_YANK).then(|| Deed::PullVine(self.reach_point()));
         }
-        if let Action::Eat { t } = self.action {
+        if let Action::Eat { t, food } = self.action {
             let t = t + 1;
-            self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t } };
-            return (t == EAT_BITE).then_some(Deed::Eat);
+            self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t, food } };
+            return (t == EAT_BITE).then_some(Deed::Eat(food));
         }
         if let Action::Scoop { t } = self.action {
             let t = t + 1;
@@ -228,11 +249,15 @@ impl Player {
             self.action = if again { Action::Shake { t: 0 } } else { Action::Idle };
             return None;
         }
-        if has_axe && !self.wading && input.pressed(Buttons::B) {
-            // Swinging roots you in place; change facing first if a direction is held.
+        if let Some(tool) = tool.filter(|_| !self.wading && input.pressed(Buttons::B)) {
+            // Using a tool roots you in place; change facing first if a
+            // direction is held.
             let (ax, ay) = input.axis();
             self.facing = facing_for(self.facing, ax, ay);
-            self.action = Action::Chop { t: 0 };
+            self.action = match tool {
+                ItemKind::WoodSpear => Action::Thrust { t: 0 },
+                _ => Action::Chop { t: 0 },
+            };
             self.moving = false;
             self.walk_timer = 0;
             return None;
@@ -300,6 +325,18 @@ impl Player {
         }
     }
 
+    /// The ground the spear point sweeps through when it jabs out: from
+    /// in front of the feet to the tip at full stretch.
+    fn spear_line(&self) -> ((i32, i32), (i32, i32)) {
+        let (fx, fy) = self.body.feet();
+        match self.facing {
+            Dir::Up => ((fx + 4, fy - 8), (fx + 4, fy - 24)),
+            Dir::Down => ((fx + 4, fy + 4), (fx + 4, fy + 18)),
+            Dir::Left => ((fx - 8, fy - 2), (fx - 30, fy - 2)),
+            Dir::Right => ((fx + 8, fy - 2), (fx + 30, fy - 2)),
+        }
+    }
+
     fn walk(&mut self, input: &InputState, map: &WorldMap) {
         let (ax, ay) = input.axis();
         self.moving = ax != 0 || ay != 0;
@@ -327,10 +364,11 @@ impl Player {
     }
 
     /// Starts eating or drinking something taken from the bag.
-    pub fn consume(&mut self, how: Use) {
-        self.action = match how {
-            Use::Eat => Action::Eat { t: 0 },
-            Use::Drink => Action::Drink { t: 0 },
+    pub fn consume(&mut self, kind: ItemKind) {
+        self.action = match kind.usage() {
+            Some(Use::Eat) => Action::Eat { t: 0, food: kind },
+            Some(Use::Drink) => Action::Drink { t: 0 },
+            None => return,
         };
         self.moving = false;
         self.walk_timer = 0;
@@ -386,6 +424,14 @@ impl Player {
             return;
         }
 
+        if let Action::Thrust { t } = self.action {
+            self.draw_thrust(list, (cx, cy), depth, sprites, t, prio);
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
         if let Action::PickUp { t } = self.action {
             // Crouched for the middle of the move, standing at either end.
             let low = (2..PICK_TOTAL - 3).contains(&t);
@@ -407,8 +453,8 @@ impl Player {
             return;
         }
 
-        if let Action::Eat { t } = self.action {
-            self.draw_eating(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
+        if let Action::Eat { t, food } = self.action {
+            self.draw_eating(list, (sx, sy), (cx, cy), depth, sprites, t, food, prio, shadows);
             return;
         }
 
@@ -506,11 +552,11 @@ impl Player {
         }
     }
 
-    /// Holding a coconut up to the mouth and gnawing at it: the coconut
-    /// sprite sits in the hands of the drinking pose and bobs as they chew.
-    /// From behind, it is hidden by the head.
+    /// Holding food up to the mouth and gnawing at it: the food sprite sits
+    /// in the hands of the drinking pose and bobs as they chew (a coconut
+    /// shrinks a mouthful at a time). From behind, it is hidden by the head.
     #[allow(clippy::too_many_arguments)]
-    fn draw_eating(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8, shadows: bool) {
+    fn draw_eating(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, food: ItemKind, prio: u8, shadows: bool) {
         let (view, flip) = view_for(self.facing);
         let raised = (EAT_RAISE..EAT_TOTAL - 6).contains(&t);
         let (body, pose) = if raised {
@@ -524,8 +570,12 @@ impl Player {
         // and it shrinks a mouthful at a time.
         let bites = EAT_BITES.iter().filter(|&&b| t >= b).count();
         let tug = EAT_BITES.iter().any(|&b| (b..b + 4).contains(&t)) as i32;
-        let gfx = if bites == 0 { sprites.coconut[0] } else { sprites.coconut_bitten[bites - 1] };
-        let nut = ObjEntry::new(cx + gx.round() as i32 - 4, cy + gy.round() as i32 - 5 + tug, gfx, OBJ_CRAB, prio).flipped(flip);
+        let (gfx, half_w) = match food {
+            ItemKind::Crab => (sprites.crab_caught, 8),
+            _ if bites == 0 => (sprites.coconut[0], 4),
+            _ => (sprites.coconut_bitten[bites - 1], 4),
+        };
+        let nut = ObjEntry::new(cx + gx.round() as i32 - half_w, cy + gy.round() as i32 - 5 + tug, gfx, OBJ_CRAB, prio).flipped(flip);
         let nut = raised.then_some(nut);
         let body = ObjEntry::new(cx, cy, body, OBJ_PLAYER, prio).flipped(flip);
         let behind = self.facing == Dir::Up;
@@ -592,6 +642,37 @@ impl Player {
         } else {
             list.actor(depth, body);
             list.actor(depth, axe);
+        }
+    }
+}
+
+impl Player {
+    /// A jab with the spear: drawn back, then lunging with the point out.
+    /// The spear sprite is placed so the hands hold it 8px from the butt;
+    /// facing away it's behind the body, otherwise in front with the hands
+    /// drawn over it.
+    fn draw_thrust(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8) {
+        let stage = (THRUST_JAB..THRUST_BACK).contains(&t) as usize;
+        let (view, flip) = view_for(self.facing);
+        let frame = sprites.player.thrust[view][stage];
+        let (gx, gy) = sprites.player.thrust_poses[view][stage].grip();
+        let gx = if flip { CHAR_W as f32 - gx } else { gx };
+        // Spear image and where the hands hold it in that image.
+        let (gfx, (hx, hy)) = match self.facing {
+            Dir::Right => (sprites.spear_side, (8.0, 3.5)),
+            Dir::Left => (sprites.spear_side, (23.0, 3.5)),
+            Dir::Down => (sprites.spear_down, (3.5, 8.0)),
+            Dir::Up => (sprites.spear_up, (3.5, 23.0)),
+        };
+        let spear = ObjEntry::new(cx + (gx - hx).round() as i32, cy + (gy - hy).round() as i32, gfx, OBJ_FX, prio).flipped(self.facing == Dir::Left);
+        let body = ObjEntry::new(cx, cy, frame.full, OBJ_PLAYER, prio).flipped(flip);
+        if self.facing == Dir::Up {
+            list.actor(depth, body);
+            list.actor(depth, spear);
+        } else {
+            list.actor(depth, ObjEntry::new(cx, cy, frame.hands, OBJ_PLAYER, prio).flipped(flip));
+            list.actor(depth, spear);
+            list.actor(depth, body);
         }
     }
 }

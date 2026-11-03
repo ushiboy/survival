@@ -5,6 +5,7 @@
 
 use crate::assets::palettes::{HUD_DIM, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
+use crate::game::state::Inventory;
 use crate::game::bag::{BAG_H, BAG_W, Bag, footprint};
 use crate::crafting::RECIPES;
 use crate::game::menu::{BagMenu, Mode, Page, commands_for};
@@ -43,7 +44,8 @@ fn cell_px(x: i32, y: i32) -> (i32, i32) {
     ((GRID_COL as i32) * 8 + x * CELL, (GRID_ROW as i32) * 8 + y * CELL)
 }
 
-pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: &SpriteIds, bag: &Bag, menu: &BagMenu, clock: u32) {
+pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu, clock: u32) {
+    let bag = &inventory.bag;
     clear(bg3);
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
@@ -110,11 +112,14 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         let (w, h) = footprint(kind, false);
         text(bg3, tiles, INFO_COL, GRID_ROW, kind.name());
         text(bg3, tiles, INFO_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+        if inventory.tool == Some(kind) {
+            text(bg3, tiles, INFO_COL, GRID_ROW + 2, "IN HAND");
+        }
     }
     if let Mode::Commands { item, choice } = menu.mode {
         let kind = bag.items()[item].kind;
-        for (i, c) in commands_for(kind).iter().enumerate() {
-            let row = GRID_ROW + 3 + i;
+        for (i, c) in commands_for(kind, inventory.tool == Some(kind)).iter().enumerate() {
+            let row = GRID_ROW + 4 + i;
             if i == choice {
                 text(bg3, tiles, INFO_COL, row, ">");
             }

@@ -331,6 +331,82 @@ pub fn chop(view: View, stage: usize) -> Pose {
     }
 }
 
+// ---------------------------------------------------------------- spear thrust
+
+/// Spear thrust poses: 0 = drawn back, 1 = lunging with the arms out. The
+/// spear is a separate sprite the player lines up with the grip; facing the
+/// camera or away it's held on the right so the shaft clears the head.
+pub fn thrust(view: View, stage: usize) -> Pose {
+    let out = stage == 1;
+    match view {
+        View::Side => {
+            let mut p = side_stand();
+            p.legs = [
+                limb((12.0, 21.6), (9.6, 25.6), (7.6, 29.6), false),
+                limb((12.6, 21.6), (14.8, 25.4), (16.4, 29.6), false),
+            ];
+            if out {
+                p.head = (14.0, 7.6);
+                p.neck = (13.4, 13.4);
+                p.pelvis = (12.4, 21.0);
+                p.arms = [
+                    limb((13.8, 15.0), (16.8, 16.8), (19.8, 18.2), false),
+                    limb((12.8, 15.2), (15.8, 17.6), (18.6, 18.6), true),
+                ];
+            } else {
+                p.head = (11.8, 7.2);
+                p.neck = (11.6, 13.1);
+                p.arms = [
+                    limb((12.6, 14.9), (10.6, 18.2), (8.0, 20.4), false),
+                    limb((11.0, 15.1), (9.6, 18.8), (8.8, 21.4), true),
+                ];
+            }
+            p
+        }
+        View::Front => {
+            let mut p = front_stand(view);
+            p.legs = [
+                limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false),
+                limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false),
+            ];
+            if out {
+                p.head = (12.0, 7.6);
+                p.neck = (12.0, 13.4);
+                p.arms = [
+                    limb((7.9, 15.0), (10.6, 20.2), (15.0, 24.2), true),
+                    limb((16.1, 15.0), (17.6, 20.0), (16.6, 25.2), true),
+                ];
+            } else {
+                p.arms = [
+                    limb((7.9, 14.8), (9.6, 18.8), (14.6, 18.8), true),
+                    limb((16.1, 14.8), (18.2, 18.2), (16.8, 20.0), true),
+                ];
+            }
+            p
+        }
+        View::Back => {
+            let mut p = front_stand(view);
+            p.legs = [
+                limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false),
+                limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false),
+            ];
+            if out {
+                p.head = (12.0, 6.8);
+                p.arms = [
+                    limb((7.9, 14.6), (11.4, 13.6), (15.0, 11.4), false),
+                    limb((16.1, 14.6), (18.0, 13.4), (16.2, 11.0), true),
+                ];
+            } else {
+                p.arms = [
+                    limb((7.9, 14.8), (10.8, 18.0), (15.0, 17.4), false),
+                    limb((16.1, 14.8), (17.8, 17.4), (16.4, 17.0), true),
+                ];
+            }
+            p
+        }
+    }
+}
+
 // ---------------------------------------------------------------- shaking a tree
 
 /// Gripping a trunk with both hands and rocking it: 0 = leaning in and

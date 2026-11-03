@@ -1,5 +1,6 @@
-//! Beach crabs: ambient wildlife that wanders sideways and scuttles away from
-//! the player.
+//! Beach crabs: wildlife that wanders sideways and scuttles away from the
+//! player. They only notice someone walking up, so standing still and
+//! waiting for one to come near is how to catch them.
 
 use super::body::Body;
 use super::player::ACTOR_PRIORITY;
@@ -15,7 +16,10 @@ use crate::world::{Terrain, WorldMap};
 const HITBOX: Rect = Rect::new(2, 8, 12, 6);
 const SPEED_WANDER: i32 = 96;
 const SPEED_FLEE: i32 = 400;
+/// Crabs bolt from a moving castaway within this distance, and from a still
+/// one only right next to them.
 const FLEE_RADIUS: i32 = 40;
+const FLEE_RADIUS_STILL: i32 = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
@@ -41,10 +45,13 @@ impl Crab {
         Self { body: Body::new(px, py, HITBOX), rng, state: State::Idle, timer, dir: (1, 0), anim: 0 }
     }
 
-    pub fn update(&mut self, map: &WorldMap, player_center: (i32, i32)) {
+    /// `player_feet` is where the castaway stands; `player_moving` whether
+    /// they're walking.
+    pub fn update(&mut self, map: &WorldMap, player_feet: (i32, i32), player_moving: bool) {
         let (cx, cy) = self.center();
-        let (dx, dy) = (cx - player_center.0, cy - player_center.1);
-        if dx * dx + dy * dy < FLEE_RADIUS * FLEE_RADIUS && self.state != State::Flee {
+        let (dx, dy) = (cx - player_feet.0, cy - player_feet.1);
+        let radius = if player_moving { FLEE_RADIUS } else { FLEE_RADIUS_STILL };
+        if dx * dx + dy * dy < radius * radius && self.state != State::Flee {
             // Crabs bolt sideways, away from the threat.
             self.state = State::Flee;
             self.dir = (if dx >= 0 { 1 } else { -1 }, dy.signum() * self.rng.range(2) as i32);

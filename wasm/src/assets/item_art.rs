@@ -108,6 +108,24 @@ pub fn icon_stone_axe() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// The wooden spear standing upright, 16x48, point at the top.
+pub fn icon_wood_spear() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 48, 0);
+    for y in 9..46 {
+        a.set(7, y, if y % 11 == 3 { i('w') } else { i('W') });
+        a.set(8, y, i('w'));
+    }
+    // Whittled point, tapering to one pixel.
+    for y in 2..9 {
+        a.set(7, y, i('c'));
+        if y >= 5 {
+            a.set(8, y, i('c'));
+        }
+    }
+    a.outlined(i('o'))
+}
+
 /// A bow drill, `size` px square (16 in the bag and on the ground):
 /// a bent branch strung with vine, the string looped once round a
 /// pale spindle.

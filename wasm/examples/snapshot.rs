@@ -5,7 +5,8 @@
 //! `buttons` is a SNES joypad word in hex (e.g. `0200:90,0400:40` = left for
 //! 90 frames, then down for 40). Default: `0:30`. Set `SNAP_AT=x,y` to
 //! start awake in that cell instead of washed up at the spawn, and
-//! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag.
+//! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag, and
+//! `SNAP_CRAB=dx` to set a crab down that far right of the castaway.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
@@ -33,10 +34,16 @@ fn main() {
                 "vine" => ItemKind::Vine,
                 "axe" => ItemKind::StoneAxe,
                 "drill" => ItemKind::FireDrill,
+                "spear" => ItemKind::WoodSpear,
+                "crab" => ItemKind::Crab,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
         }
+    }
+    // SNAP_CRAB=dx sets a crab down that far to the right of the feet.
+    if let Ok(dx) = std::env::var("SNAP_CRAB") {
+        game.debug_crab_ahead(dx.parse().expect("SNAP_CRAB must be px"));
     }
     // Each SELECT press skips 3 in-game hours (debug feature).
     for _ in 0..skips {
