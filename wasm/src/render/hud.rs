@@ -45,6 +45,8 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &I
     text(hud, tiles, 2, 4, &format!("{:02}", inventory.wood.min(99)));
     hud.put(5, 4, tiles.coconut, HUD_COCONUT);
     text(hud, tiles, 6, 4, &format!("{:02}", inventory.coconuts.min(99)));
+    hud.put(9, 4, tiles.raw_water, HUD_WATER);
+    text(hud, tiles, 10, 4, &format!("{:02}", inventory.raw_water.min(99)));
 
     if inventory.lantern {
         hud.put(21, 1, tiles.lantern, HUD_SKY);

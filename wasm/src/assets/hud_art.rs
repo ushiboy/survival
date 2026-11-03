@@ -161,6 +161,20 @@ pub fn icon_coconut() -> PixelArt {
     ])
 }
 
+/// Raw (unboiled) water: a scoop of water, rippled on top.
+pub fn icon_raw_water() -> PixelArt {
+    art([
+        "........",
+        "...1....",
+        "..131...",
+        ".13221..",
+        "1322221.",
+        "1232321.",
+        ".12221..",
+        "..111...",
+    ])
+}
+
 /// Gauge middle segment with `fill` (0..=8) pixels filled.
 pub fn gauge_segment(fill: usize) -> PixelArt {
     let mut a = PixelArt::filled(8, 8, 0);

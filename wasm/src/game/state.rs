@@ -78,6 +78,10 @@ impl Vitals {
 }
 
 impl Vitals {
+    pub fn eat(&mut self, amount: u32) {
+        self.food = (self.food + amount).min(Self::MAX);
+    }
+
     pub fn drink(&mut self, amount: u32) {
         self.water = (self.water + amount).min(Self::MAX);
     }
@@ -98,12 +102,14 @@ pub struct Inventory {
     pub lantern: bool,
     pub wood: u32,
     pub coconuts: u32,
+    /// Water drawn from the river, not yet boiled.
+    pub raw_water: u32,
     /// What the castaway is wearing.
     pub outfit: Outfit,
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { axe: true, lantern: false, wood: 0, coconuts: 0, outfit: Outfit::CASTAWAY }
+        Self { axe: true, lantern: false, wood: 0, coconuts: 0, raw_water: 0, outfit: Outfit::CASTAWAY }
     }
 }

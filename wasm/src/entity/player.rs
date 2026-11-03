@@ -1,6 +1,6 @@
 use super::body::Body;
-use crate::assets::palettes::{OBJ_FX, OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
-use crate::assets::SpriteIds;
+use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
+use crate::assets::{SpriteIds, VIEWS};
 use crate::assets::character::pose::AxeArt;
 use crate::assets::character::{CHAR_ORIGIN, CHAR_W};
 use crate::ppu::banks::SpriteId;
@@ -49,11 +49,24 @@ const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
 const PICK_GRAB: u32 = 7;
 const PICK_TOTAL: u32 = 16;
 
-/// Drawing water (frames): crouch and scoop until `SCOOP_RISE`, drink from
-/// cupped hands (a sip lands on `SCOOP_SIP`), then lower them.
+/// Drawing water (frames): crouch, scoop it up on `SCOOP_GRAB`, and rise
+/// from `SCOOP_RISE`.
+const SCOOP_GRAB: u32 = 11;
 const SCOOP_RISE: u32 = 16;
-const SCOOP_SIP: u32 = 28;
-const SCOOP_TOTAL: u32 = 46;
+const SCOOP_TOTAL: u32 = 22;
+/// Drinking (frames): raise the water to the mouth until `DRINK_RAISE`,
+/// it's gulped down on `DRINK_SIP`, then lower the hands.
+const DRINK_RAISE: u32 = 6;
+const DRINK_SIP: u32 = 22;
+const DRINK_TOTAL: u32 = 36;
+
+/// Eating (frames): bring the food up until `EAT_RAISE`, take a bite on
+/// each of `EAT_BITES` (the last finishes it: `EAT_BITE`), chew, then drop
+/// the empty shell.
+const EAT_RAISE: u32 = 8;
+const EAT_BITES: [u32; 3] = [16, 30, 44];
+const EAT_BITE: u32 = EAT_BITES[2];
+const EAT_TOTAL: u32 = 60;
 
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
 /// blink), sitting up, getting onto one knee, standing and looking around.
@@ -76,8 +89,24 @@ pub enum Action {
     Shake { t: u32 },
     /// Crouching to pick something up.
     PickUp { t: u32 },
-    /// Scooping water in cupped hands and drinking it.
+    /// Scooping up water to carry (raw water).
     Scoop { t: u32 },
+    /// Drinking water from the bag.
+    Drink { t: u32 },
+    /// Eating something from the bag (a coconut).
+    Eat { t: u32 },
+}
+
+/// What the castaway has to hand and what lies around them this frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Situation {
+    pub has_axe: bool,
+    /// Where something lies close enough to pick up.
+    pub item_in_reach: Option<(i32, i32)>,
+    /// Something to eat in the bag.
+    pub has_food: bool,
+    /// Water to drink in the bag.
+    pub has_water: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -89,8 +118,12 @@ pub enum Deed {
     Shake((i32, i32)),
     /// Hands closed on whatever lies within reach.
     PickUp,
-    /// Drank a handful of river water.
+    /// Scooped up water to carry.
+    DrawWater,
+    /// Drank some carried water (it is used up).
     Drink,
+    /// Ate a bite (the food is used up).
+    Eat,
 }
 
 #[derive(Clone, Debug)]
@@ -131,9 +164,10 @@ impl Player {
 
     /// Advances one frame. Returns what the castaway did to the world, on
     /// the frame it happens (an axe blow landing, a trunk being shaken, an
-    /// item taken). `item_in_reach` is where something lies close enough to
-    /// pick up; picking it up takes priority over shaking for A.
-    pub fn update(&mut self, input: &InputState, map: &WorldMap, has_axe: bool, item_in_reach: Option<(i32, i32)>) -> Option<Deed> {
+    /// item taken). Picking up what's in reach takes priority over shaking
+    /// for A.
+    pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
+        let Situation { has_axe, item_in_reach, has_food, has_water } = situation;
         if let Action::WakeUp { t } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { WAKE_END } else { t + 1 };
@@ -157,10 +191,20 @@ impl Player {
             self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
             return (t == PICK_GRAB).then_some(Deed::PickUp);
         }
+        if let Action::Eat { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t } };
+            return (t == EAT_BITE).then_some(Deed::Eat);
+        }
         if let Action::Scoop { t } = self.action {
             let t = t + 1;
             self.action = if t >= SCOOP_TOTAL { Action::Idle } else { Action::Scoop { t } };
-            return (t == SCOOP_SIP).then_some(Deed::Drink);
+            return (t == SCOOP_GRAB).then_some(Deed::DrawWater);
+        }
+        if let Action::Drink { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= DRINK_TOTAL { Action::Idle } else { Action::Drink { t } };
+            return (t == DRINK_SIP).then_some(Deed::Drink);
         }
         if let Action::Shake { t } = self.action {
             let t = t + 1;
@@ -178,6 +222,18 @@ impl Player {
             let (ax, ay) = input.axis();
             self.facing = facing_for(self.facing, ax, ay);
             self.action = Action::Chop { t: 0 };
+            self.moving = false;
+            self.walk_timer = 0;
+            return None;
+        }
+        if has_food && !self.wading && input.pressed(Buttons::Y) {
+            self.action = Action::Eat { t: 0 };
+            self.moving = false;
+            self.walk_timer = 0;
+            return None;
+        }
+        if has_water && !self.wading && input.pressed(Buttons::R) {
+            self.action = Action::Drink { t: 0 };
             self.moving = false;
             self.walk_timer = 0;
             return None;
@@ -214,7 +270,7 @@ impl Player {
             self.facing = before;
         }
         if !self.wading && input.pressed(Buttons::A) {
-            // Crouch at the water-drawing spot and drink from cupped hands.
+            // Crouch at the water-drawing spot and scoop some up.
             let (rx, ry) = self.reach_point();
             if map.is_drinking_water(rx, ry) {
                 self.action = Action::Scoop { t: 0 };
@@ -310,15 +366,22 @@ impl Player {
             return;
         }
 
+        if let Action::Eat { t } = self.action {
+            self.draw_eating(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
+            return;
+        }
+
+        if let Action::Drink { t } = self.action {
+            self.draw_drinking(list, (cx, cy), depth, sprites, t, prio);
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
         if let Action::Scoop { t } = self.action {
             let p = &sprites.player;
-            let gfx = if (3..SCOOP_RISE).contains(&t) {
-                p.crouch[view]
-            } else if (SCOOP_RISE + 2..SCOOP_TOTAL - 4).contains(&t) {
-                p.drink[view]
-            } else {
-                p.walk[view][0].full
-            };
+            let gfx = if (3..SCOOP_RISE).contains(&t) { p.crouch[view] } else { p.walk[view][0].full };
             list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
             if shadows && !self.wading {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
@@ -376,6 +439,66 @@ impl Player {
         }
         if shadows {
             list.shadow(ObjEntry::new(lx, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
+        }
+    }
+
+    /// Raising a handful of water to the mouth and gulping it down. The
+    /// water is a translucent sprite in the hands until it's drunk.
+    fn draw_drinking(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8) {
+        let (view, flip) = view_for(self.facing);
+        let raised = (DRINK_RAISE..DRINK_TOTAL - 5).contains(&t);
+        let gfx = if raised { sprites.player.drink[view] } else { sprites.player.walk[view][0].full };
+        let body = ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip);
+        let behind = self.facing == Dir::Up;
+        if behind {
+            list.actor(depth, body);
+        }
+        if raised && t < DRINK_SIP {
+            let (gx, gy) = crate::assets::character::pose::drink(VIEWS[view]).grip();
+            let gx = if flip { CHAR_W as f32 - gx } else { gx };
+            // Spills over as it's tipped back.
+            let frame = (t >= DRINK_SIP - 6) as usize;
+            list.actor(depth, ObjEntry::new(cx + gx.round() as i32 - 4, cy + gy.round() as i32 - 4, sprites.handful[frame], OBJ_WATER_FX, prio).flipped(flip));
+        }
+        if !behind {
+            list.actor(depth, body);
+        }
+    }
+
+    /// Holding a coconut up to the mouth and gnawing at it: the coconut
+    /// sprite sits in the hands of the drinking pose and bobs as they chew.
+    /// From behind, it is hidden by the head.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_eating(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8, shadows: bool) {
+        let (view, flip) = view_for(self.facing);
+        let raised = (EAT_RAISE..EAT_TOTAL - 6).contains(&t);
+        let (body, pose) = if raised {
+            (sprites.player.drink[view], crate::assets::character::pose::drink(VIEWS[view]))
+        } else {
+            (sprites.player.walk[view][0].full, crate::assets::character::pose::walk(VIEWS[view], 0))
+        };
+        let (gx, gy) = pose.grip();
+        let gx = if flip { CHAR_W as f32 - gx } else { gx };
+        // Each bite pulls the coconut away from the mouth for a moment,
+        // and it shrinks a mouthful at a time.
+        let bites = EAT_BITES.iter().filter(|&&b| t >= b).count();
+        let tug = EAT_BITES.iter().any(|&b| (b..b + 4).contains(&t)) as i32;
+        let gfx = if bites == 0 { sprites.coconut[0] } else { sprites.coconut_bitten[bites - 1] };
+        let nut = ObjEntry::new(cx + gx.round() as i32 - 4, cy + gy.round() as i32 - 5 + tug, gfx, OBJ_CRAB, prio).flipped(flip);
+        let nut = raised.then_some(nut);
+        let body = ObjEntry::new(cx, cy, body, OBJ_PLAYER, prio).flipped(flip);
+        let behind = self.facing == Dir::Up;
+        if behind {
+            list.actor(depth, body);
+        }
+        if let Some(nut) = nut {
+            list.actor(depth, nut);
+        }
+        if !behind {
+            list.actor(depth, body);
+        }
+        if shadows {
+            list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
         }
     }
 

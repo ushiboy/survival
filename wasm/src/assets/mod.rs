@@ -164,6 +164,10 @@ pub struct SpriteIds {
     /// A coconut: resting, and turned while tumbling.
     pub coconut: [SpriteId; 2],
     pub shadow_coconut: SpriteId,
+    /// Water carried in cupped hands to drink: level, tipped.
+    pub handful: [SpriteId; 2],
+    /// A coconut being eaten, after 1, 2 and 3 bites.
+    pub coconut_bitten: [SpriteId; 3],
     pub timber: SpriteId,
 }
 
@@ -179,6 +183,7 @@ pub struct HudTiles {
     pub lantern: HudTileId,
     pub wood: HudTileId,
     pub coconut: HudTileId,
+    pub raw_water: HudTileId,
     /// Gauge segments indexed by filled pixels (0..=8).
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
@@ -289,6 +294,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         spark: spark_frames().map(|a| bank.add(&a)),
         coconut: coconut_frames().map(|a| bank.add(&a)),
         shadow_coconut: bank.add(&shadow(8, 8, 3.2, 1.4)),
+        coconut_bitten: std::array::from_fn(|i| bank.add(&bitten_coconut(i + 1))),
+        handful: handful_frames().map(|a| bank.add(&a)),
         timber: bank.add(&timber()),
     }
 }
@@ -310,6 +317,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         lantern: bank.add(&hud_art::icon_lantern()),
         wood: bank.add(&hud_art::icon_wood()),
         coconut: bank.add(&hud_art::icon_coconut()),
+        raw_water: bank.add(&hud_art::icon_raw_water()),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
         gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),

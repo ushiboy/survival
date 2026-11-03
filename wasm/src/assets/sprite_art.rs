@@ -251,3 +251,51 @@ pub fn timber() -> PixelArt {
     ];
     PixelArt::parse(&rows, ITEM_LEGEND)
 }
+
+/// A coconut held up to eat, after `bites` (1..=3) bites from the top: the
+/// husk is gnawed away to the white flesh, down to a last crescent of shell.
+pub fn bitten_coconut(bites: usize) -> PixelArt {
+    let whole = &coconut_frames()[0];
+    let legend = |c: char| ITEM_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    let (outline, flesh, flesh_shade) = (legend('o'), legend('f'), legend('F'));
+    // Each bite takes a round mouthful (centre, radius in px).
+    const MOUTHFULS: [(f32, f32, f32); 3] = [(6.6, 1.2, 2.4), (3.2, 0.8, 2.6), (5.0, 3.4, 2.7)];
+    let bitten = |x: i32, y: i32| {
+        MOUTHFULS[..bites.min(3)].iter().any(|&(cx, cy, r)| (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) < r * r)
+    };
+    let solid = |x: i32, y: i32| (0..8).contains(&x) && (0..8).contains(&y) && whole.at(x, y) != 0 && !bitten(x, y);
+    let near_bite = |x: i32, y: i32, d: i32| (-d..=d).any(|dy| (-d..=d).any(|dx| bitten(x + dx, y + dy) && whole.at(x + dx, y + dy) != 0));
+    let mut art = PixelArt::filled(8, 8, 0);
+    for y in 0..8i32 {
+        for x in 0..8i32 {
+            let v = if solid(x, y) {
+                // The cut face shows the flesh, brightest along the bite.
+                if whole.at(x, y) == outline && !near_bite(x, y, 1) {
+                    outline
+                } else if near_bite(x, y, 1) {
+                    flesh
+                } else if near_bite(x, y, 2) {
+                    flesh_shade
+                } else {
+                    whole.at(x, y)
+                }
+            } else if whole.at(x, y) != 0 && [(0, 1), (1, 0), (0, -1), (-1, 0)].iter().any(|&(dx, dy)| solid(x + dx, y + dy)) {
+                // Outline the bitten edge so it reads at this size.
+                outline
+            } else {
+                0
+            };
+            art.set(x as usize, y as usize, v);
+        }
+    }
+    art
+}
+
+/// Water held in cupped hands (water-fx palette, drawn translucent by day):
+/// level, then tipped toward the mouth.
+pub fn handful_frames() -> [PixelArt; 2] {
+    let legend: &[(char, u8)] = &[('a', 1), ('b', 2), ('c', 3)];
+    let level = ["........", "........", "..cccc..", ".cabbac.", ".caaaac.", "..cccc..", "........", "........"];
+    let tipped = ["........", "...cc...", "..cbac..", ".cabaac.", "..caac..", "...cc...", "........", "........"];
+    [PixelArt::parse(&level, legend), PixelArt::parse(&tipped, legend)]
+}

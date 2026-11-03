@@ -10,7 +10,7 @@ use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
-use crate::entity::{Crab, Deed, Gull, Item, ItemKind, Particles, Player};
+use crate::entity::{Crab, Deed, Gull, Item, ItemKind, Particles, Player, Situation};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
@@ -24,8 +24,12 @@ use crate::world::{TILE_SIZE, WorldMap, island};
 use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
-/// Water gauge restored by one handful from the river (a quarter).
+/// Water gauge restored by drinking one draw of water (a quarter).
 const DRINK_WATER: u32 = 16;
+/// A coconut's flesh fills the food gauge by about a third, and its milk
+/// quenches a little thirst.
+const COCONUT_FOOD: u32 = 22;
+const COCONUT_WATER: u32 = 6;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
 /// Frames the action freezes when a blow lands (hit-stop).
@@ -165,7 +169,7 @@ impl Game {
             // Debug: skip ahead to preview lighting.
             self.clock.advance_minutes(3 * 60);
         }
-        if self.input.pressed(Buttons::Y) {
+        if self.input.pressed(Buttons::L) {
             // Debug: give / take the lantern until items exist.
             self.inventory.lantern = !self.inventory.lantern;
         }
@@ -187,12 +191,19 @@ impl Game {
             self.hitstop -= 1;
             return;
         }
-        let in_reach = self.item_in_reach().map(|i| self.items[i].ground());
-        match self.player.update(&self.input, &self.map, self.inventory.axe, in_reach) {
+        let situation = Situation {
+            has_axe: self.inventory.axe,
+            item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
+            has_food: self.inventory.coconuts > 0,
+            has_water: self.inventory.raw_water > 0,
+        };
+        match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
-            Some(Deed::Drink) => self.vitals.drink(DRINK_WATER),
+            Some(Deed::DrawWater) => self.inventory.raw_water += 1,
+            Some(Deed::Drink) => self.drink_water(),
+            Some(Deed::Eat) => self.eat_coconut(),
             None => {}
         }
         self.particles.update();
@@ -341,6 +352,27 @@ impl Game {
             ItemKind::Coconut => self.inventory.coconuts += 1,
             ItemKind::Timber => self.inventory.wood += 1,
         }
+    }
+
+    /// Drinks one draw of carried water.
+    fn drink_water(&mut self) {
+        if self.inventory.raw_water > 0 {
+            self.inventory.raw_water -= 1;
+            self.vitals.drink(DRINK_WATER);
+        }
+    }
+
+    /// Finishes a coconut from the bag, with a few bits of husk falling
+    /// from the castaway's mouth.
+    fn eat_coconut(&mut self) {
+        if self.inventory.coconuts == 0 {
+            return;
+        }
+        self.inventory.coconuts -= 1;
+        self.vitals.eat(COCONUT_FOOD);
+        self.vitals.drink(COCONUT_WATER);
+        let (fx, fy) = self.player.body.feet();
+        self.particles.chips((fx, fy - 2), (0, 1), 2);
     }
 
     /// Sways the palm at `anchor` for `frames`, settling any other tree

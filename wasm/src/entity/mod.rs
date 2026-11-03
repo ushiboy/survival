@@ -11,4 +11,4 @@ pub use crab::Crab;
 pub use gull::Gull;
 pub use item::{Item, ItemKind};
 pub use particles::Particles;
-pub use player::{Deed, Player};
+pub use player::{Deed, Player, Situation};
