@@ -5,19 +5,49 @@
 pub mod state;
 
 use crate::assets::Assets;
-use crate::assets::palettes::base_palette;
+use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram};
 use crate::common::input::{Buttons, InputState};
-use crate::entity::{Crab, Player};
-use crate::ppu::palette::{darken, nightify};
-use crate::ppu::{FrameState, HudLayer, Ppu};
-use crate::ppu::oam::Oam;
+use crate::entity::{Crab, Gull, Player};
+use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
+use crate::ppu::palette::Cgram;
+use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
 use crate::render::camera::Camera;
-use crate::render::hud::{self, HUD_HEIGHT, HUD_ROWS};
+use crate::render::hud::{self, HUD_LINES};
+use crate::render::lighting::{self, Light, Lighting};
+use crate::render::sprites::DrawList;
 use crate::render::tileset::{VisualMap, build_visual_map};
 use crate::world::{WorldMap, island};
-use state::{DayPhase, GameClock, Vitals};
+use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
+/// Above this darkness the sun casts no shadows and night darkness begins.
+const NIGHT_THRESHOLD: f32 = 0.35;
+/// Four 4bpp 8x8 tiles.
+const METATILE_BYTES: usize = 128;
+
+/// Day: sprites in palettes 4-7 (shadows, foam, submerged legs) are averaged
+/// with the background on the sub-screen, i.e. drawn at 50% opacity.
+const MATH_TRANSLUCENT: ColorMath = ColorMath {
+    layers: layer::OBJ,
+    op: MathOp::Add,
+    half: true,
+    source: MathSource::SubScreen,
+    region: WindowRegion::Everywhere,
+    sub_layers: layer::BG1 | layer::BG2,
+};
+
+/// Night: subtract the sub-screen (BG3 light mask, else the fixed colour)
+/// from the scene. The HUD and sprites in palettes 0-3 (the castaway) are
+/// exempt, as on hardware, so the player always sees themselves and their
+/// status.
+const MATH_NIGHT: ColorMath = ColorMath {
+    layers: layer::BG1 | layer::BG2 | layer::OBJ | layer::BACKDROP,
+    op: MathOp::Sub,
+    half: false,
+    source: MathSource::SubScreen,
+    region: WindowRegion::Everywhere,
+    sub_layers: layer::BG3,
+};
 
 pub struct Game {
     assets: Assets,
@@ -25,12 +55,16 @@ pub struct Game {
     visual: VisualMap,
     player: Player,
     crabs: Vec<Crab>,
+    gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
     vitals: Vitals,
+    inventory: Inventory,
     input: InputState,
     paused: bool,
     frame_count: u32,
+    base_cgram: Cgram,
+    draw_list: DrawList,
     frame: FrameState,
     ppu: Ppu,
 }
@@ -39,43 +73,45 @@ impl Game {
     pub fn new(seed: u32) -> Self {
         let mut assets = Assets::load();
         let map = island::generate(seed);
-        let visual = build_visual_map(&map, &mut assets, seed);
-        let player = Player::new(map.spawn.0, map.spawn.1);
+        let visual = build_visual_map(&map, &mut assets);
+        let player = Player::at_feet(map.spawn.0, map.spawn.1);
         let crabs = map
             .crab_spawns
             .iter()
             .enumerate()
             .map(|(i, &(x, y))| Crab::new(x, y, seed.wrapping_add(i as u32 * 31)))
             .collect();
-        let frame = FrameState {
-            scroll_x: 0,
-            scroll_y: 0,
-            palette: base_palette(),
-            oam: Oam::default(),
-            hud: HudLayer::new(HUD_ROWS, assets.hud.blank),
-            clock: 0,
-        };
+        let (sx, sy) = (map.spawn.0 as f32, map.spawn.1 as f32);
+        let gulls = vec![
+            Gull::new((sx + 40.0, sy - 30.0), (120.0, 60.0), 0.006, 0.0),
+            Gull::new((sx - 80.0, sy + 10.0), (90.0, 70.0), -0.008, 2.0),
+        ];
         let mut game = Self {
             assets,
             map,
             visual,
             player,
             crabs,
-            camera: Camera::new(HUD_HEIGHT),
+            gulls,
+            camera: Camera::new(0),
             clock: GameClock::new(1, START_HOUR),
             vitals: Vitals::new(),
+            inventory: Inventory::default(),
             input: InputState::default(),
             paused: false,
             frame_count: 0,
-            frame,
+            base_cgram: base_cgram(),
+            draw_list: DrawList::default(),
+            frame: FrameState::default(),
             ppu: Ppu::new(),
         };
         game.camera.follow(game.player.center(), game.map.pixel_size());
+        game.place_light_mask();
         game
     }
 
     /// Advances the simulation by one frame (1/60 s).
-    pub fn step(&mut self, buttons: u8) {
+    pub fn step(&mut self, buttons: u16) {
         self.input.update(buttons);
         if self.input.pressed(Buttons::START) {
             self.paused = !self.paused;
@@ -87,6 +123,10 @@ impl Game {
             // Debug: skip ahead to preview lighting.
             self.clock.advance_minutes(3 * 60);
         }
+        if self.input.pressed(Buttons::Y) {
+            // Debug: give / take the lantern until items exist.
+            self.inventory.lantern = !self.inventory.lantern;
+        }
 
         self.frame_count = self.frame_count.wrapping_add(1);
         if self.clock.tick() {
@@ -97,47 +137,68 @@ impl Game {
         for crab in &mut self.crabs {
             crab.update(&self.map, pc);
         }
+        for gull in &mut self.gulls {
+            gull.update();
+        }
         self.camera.follow(pc, self.map.pixel_size());
     }
 
-    /// Composes PPU state for this frame and renders it to the RGBA buffer.
+    /// Sets up PPU state for this frame and renders it to the RGBA buffer.
     pub fn render(&mut self) {
+        let lighting = Lighting::at(self.clock.minute_f());
+        let night = lighting.darkness > NIGHT_THRESHOLD;
         let f = &mut self.frame;
         f.clock = self.frame_count;
         f.scroll_x = self.camera.x;
         f.scroll_y = self.camera.y;
-        let base = base_palette();
-        f.palette = match self.clock.phase() {
-            DayPhase::Day => base,
-            DayPhase::Twilight => base.map_colors(|c| darken(c, 1)),
-            DayPhase::Night => base.map_colors(nightify),
-        };
 
-        f.oam.clear();
-        hud::draw(&mut f.hud, &mut f.oam, &self.assets.hud, &self.assets.sprites, &self.vitals, &self.clock);
-        let world_start = f.oam.len();
+        // CGRAM: base palette → water cycling → time-of-day tint.
+        f.cgram.clone_from(&self.base_cgram);
+        lighting::cycle_water(&mut f.cgram, self.frame_count);
+        lighting.apply(&mut f.cgram);
 
-        // Nearer (lower on screen) actors first: lower OAM index = in front.
-        enum Actor<'a> {
-            Player(&'a Player),
-            Crab(&'a Crab),
+        // Colour math + HDMA tables.
+        if night {
+            let (cx, cy) = self.player.center();
+            let light = self.inventory.lantern.then(|| Light { center: self.camera.to_screen(cx, cy) });
+            let t = ((lighting.darkness - NIGHT_THRESHOLD) / (1.0 - NIGHT_THRESHOLD)).clamp(0.0, 1.0);
+            let strength = t * t * (3.0 - 2.0 * t);
+            lighting::night(&mut f.lines, &mut f.cgram, light, HUD_LINES, strength, self.frame_count);
+            f.math = MATH_NIGHT;
+        } else {
+            f.lines.clear();
+            f.math = MATH_TRANSLUCENT;
         }
-        let mut actors: Vec<(i32, Actor)> = Vec::with_capacity(self.crabs.len() + 1);
-        actors.push((self.player.sort_y(), Actor::Player(&self.player)));
-        actors.extend(self.crabs.iter().map(|c| (c.sort_y(), Actor::Crab(c))));
-        actors.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, actor) in &actors {
-            match actor {
-                Actor::Player(p) => p.draw(&mut f.oam, &self.camera, &self.assets.sprites, self.frame_count),
-                Actor::Crab(c) => c.draw(&mut f.oam, &self.camera, &self.assets.sprites),
+
+        hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
+
+        // Sprites.
+        let shadows = !night;
+        let list = &mut self.draw_list;
+        list.clear();
+        let sprites = &self.assets.sprites;
+        self.player.draw(list, &self.camera, sprites, self.frame_count, shadows);
+        for crab in &self.crabs {
+            crab.draw(list, &self.camera, sprites, night);
+        }
+        if !night {
+            for gull in &self.gulls {
+                gull.draw(list, &self.camera, sprites, shadows);
             }
         }
-        // Turn sprite dropout into flicker when the scanline limit was hit.
-        if self.ppu.overflowed {
-            f.oam.rotate_from(world_start, self.frame_count as usize * 4);
-        }
+        f.oam.clear();
+        list.flush(&mut f.oam);
 
-        self.ppu.render(&self.assets.vram, &self.frame, &self.visual);
+        self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
+    }
+
+    /// Writes the lantern light mask into an off-screen area of the BG3 map.
+    fn place_light_mask(&mut self) {
+        let n = crate::assets::hud_art::LIGHT_MASK_TILES;
+        let (ox, oy) = (lighting::LIGHT_MASK_ORIGIN.0 as usize / 8, lighting::LIGHT_MASK_ORIGIN.1 as usize / 8);
+        for (i, &tile) in self.assets.hud.light_mask.iter().enumerate() {
+            self.frame.bg3.put(ox + i % n, oy + i / n, tile, HUD_LIGHT_MASK);
+        }
     }
 
     pub fn rgba(&self) -> &[u8] {
@@ -159,5 +220,24 @@ impl Game {
 
     pub fn clock(&self) -> &GameClock {
         &self.clock
+    }
+
+    /// VRAM needed for the current screen: the unique background tiles in
+    /// view (as if streamed in while scrolling) plus all sprite and HUD tiles.
+    pub fn vram_usage(&self) -> usize {
+        let mut ids = std::collections::HashSet::new();
+        let (x0, y0) = (self.camera.x.div_euclid(16), self.camera.y.div_euclid(16));
+        for my in y0..=y0 + (SCREEN_H as i32 / 16) {
+            for mx in x0..=x0 + (SCREEN_W as i32 / 16) {
+                for layer in [&self.visual.ground as &dyn BgLayer, &self.visual.overhead] {
+                    let c = layer.cell(mx, my);
+                    if !c.is_empty() {
+                        ids.insert(c.tile);
+                    }
+                }
+            }
+        }
+        let vram = &self.assets.vram;
+        ids.len() * METATILE_BYTES + vram.hud_tiles.vram_bytes() + vram.sprites.vram_bytes()
     }
 }

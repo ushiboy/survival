@@ -1,184 +1,185 @@
 //! Loads all artwork into VRAM banks and exposes typed handles to it.
 //! Gameplay code refers to graphics only through these ids.
 
-pub mod bg_art;
-pub mod font;
+pub mod hud_art;
+pub mod paint;
 pub mod palettes;
+pub mod props;
 pub mod sprite_art;
+pub mod terrain;
 
 use crate::ppu::Vram;
-use crate::ppu::banks::{MetatileId, TileId};
+use crate::ppu::banks::{HudTileId, MetatileId, SpriteId};
 use crate::ppu::pattern::PixelArt;
-use palettes::*;
+use palettes::PAL_FOLIAGE;
+use props::{PalmArt, PropTile};
+use terrain::TerrainTextures;
 
-/// Frame periods for animated water (in video frames).
-pub const WATER_PERIOD: u32 = 24;
-pub const SURF_PERIOD: u32 = 12;
+/// Frames per step of the surf animation.
+pub const SURF_PERIOD: u32 = 7;
+pub const SURF_FRAMES: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerFrame {
-    pub normal: [TileId; 4],
-    /// Same frame with the legs hidden (used while wading).
-    pub wade: [TileId; 4],
+    pub full: SpriteId,
+    /// Above the waterline (wading).
+    pub top: SpriteId,
+    /// Below the waterline, drawn with the translucent wading palette.
+    pub legs: SpriteId,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerSprites {
-    /// `[stand, step]` for each facing; left is `side` flipped.
+    /// `[stand, step]`; the second step is the mirror image.
     pub down: [PlayerFrame; 2],
     pub up: [PlayerFrame; 2],
-    pub side: [PlayerFrame; 2],
+    /// `[stand, step A, step B]`, facing right.
+    pub side: [PlayerFrame; 3],
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct SpriteIds {
     pub player: PlayerSprites,
-    pub crab: [[TileId; 4]; 2],
-    pub ripple: [[TileId; 2]; 2],
-    pub heart_full: TileId,
-    pub heart_empty: TileId,
+    pub crab: [SpriteId; 2],
+    pub gull: [SpriteId; 2],
+    pub shadow_player: SpriteId,
+    pub shadow_crab: SpriteId,
+    pub shadow_gull: SpriteId,
+    pub ripples: [SpriteId; 3],
 }
 
 #[derive(Clone, Debug)]
 pub struct HudTiles {
-    pub blank: TileId,
-    glyphs: Vec<(char, TileId)>,
-    pub food_icon: TileId,
-    pub water_icon: TileId,
-    pub food_full: TileId,
-    pub food_empty: TileId,
-    pub water_full: TileId,
-    pub water_empty: TileId,
+    glyphs: Vec<(char, HudTileId)>,
+    pub heart_full: HudTileId,
+    pub heart_empty: HudTileId,
+    pub food: HudTileId,
+    pub water: HudTileId,
+    pub sun: HudTileId,
+    pub moon: HudTileId,
+    pub lantern: HudTileId,
+    /// Gauge segments indexed by filled pixels (0..=8).
+    pub gauge: [HudTileId; 9],
+    pub gauge_cap_left: HudTileId,
+    pub gauge_cap_right: HudTileId,
+    /// Lantern light mask, `LIGHT_MASK_TILES`² tiles in row-major order.
+    pub light_mask: Vec<HudTileId>,
 }
 
 impl HudTiles {
-    pub fn glyph(&self, c: char) -> TileId {
-        self.glyphs
-            .iter()
-            .find(|(g, _)| *g == c)
-            .map(|(_, t)| *t)
-            .unwrap_or(self.blank)
+    pub const BLANK: HudTileId = 0;
+
+    pub fn glyph(&self, c: char) -> HudTileId {
+        self.glyphs.iter().find(|(g, _)| *g == c).map(|(_, t)| *t).unwrap_or(Self::BLANK)
     }
 }
 
-/// Base terrain images, kept so the autotiler can compose transition tiles.
-#[derive(Clone, Debug)]
-pub struct TerrainArt {
-    pub deep: Vec<PixelArt>,
-    pub shallow: Vec<PixelArt>,
-    pub grass: PixelArt,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct BgTiles {
-    pub deep: MetatileId,
-    pub shallow: MetatileId,
-    pub sand: [MetatileId; 2],
-    pub grass: [MetatileId; 2],
-    pub flowers: MetatileId,
-    pub bush: MetatileId,
-    pub rock: MetatileId,
-    pub driftwood: MetatileId,
-    pub shell: MetatileId,
-    /// TL, TR, BL, BR
-    pub palm: [MetatileId; 4],
+/// Background props, composited onto ground textures by the tileset builder.
+pub struct PropSet {
+    pub boulder: PropTile,
+    pub pebbles: PropTile,
+    pub driftwood: PropTile,
+    pub shell: PropTile,
+    pub bush: PropTile,
+    pub flowers: PropTile,
+    pub palm: PalmArt,
+    /// Palm canopy + upper trunk on BG2: `[TL, TR, ML, MR]`.
+    pub palm_upper: [MetatileId; 4],
 }
 
 pub struct Assets {
     pub vram: Vram,
     pub sprites: SpriteIds,
     pub hud: HudTiles,
-    pub bg: BgTiles,
-    pub terrain_art: TerrainArt,
+    pub textures: TerrainTextures,
+    pub props: PropSet,
 }
 
 impl Assets {
     pub fn load() -> Self {
         let mut vram = Vram::default();
-        let terrain_art = TerrainArt {
-            deep: bg_art::deep_water_frames(),
-            shallow: bg_art::shallow_water_frames(),
-            grass: bg_art::grass_plain(),
-        };
-        let bg = load_bg(&mut vram, &terrain_art);
         let sprites = load_sprites(&mut vram);
         let hud = load_hud(&mut vram);
-        Self { vram, sprites, hud, bg, terrain_art }
+        let props = load_props(&mut vram);
+        Self { vram, sprites, hud, textures: TerrainTextures::generate(), props }
     }
 }
 
-fn load_bg(vram: &mut Vram, art: &TerrainArt) -> BgTiles {
-    let mt = &mut vram.metatiles;
-    let frames = |v: &[PixelArt]| v.iter().map(|a| a.to_tile16()).collect::<Vec<_>>();
-    let (canopy, trunk) = bg_art::palm_left();
-    BgTiles {
-        deep: mt.add(BG_DEEP, frames(&art.deep), WATER_PERIOD),
-        shallow: mt.add(BG_SHORE, frames(&art.shallow), WATER_PERIOD),
-        sand: [
-            mt.add_art(BG_SAND, &bg_art::sand_plain()),
-            mt.add_art(BG_SAND, &bg_art::sand_ripple()),
-        ],
-        grass: [
-            mt.add_art(BG_VEG, &art.grass),
-            mt.add_art(BG_VEG, &bg_art::grass_tufts()),
-        ],
-        flowers: mt.add_art(BG_VEG, &bg_art::flowers()),
-        bush: mt.add_art(BG_VEG, &bg_art::bush()),
-        rock: mt.add_art(BG_SAND, &bg_art::rock()),
-        driftwood: mt.add_art(BG_SAND, &bg_art::driftwood()),
-        shell: mt.add_art(BG_SAND, &bg_art::shell()),
-        palm: [
-            mt.add_art(BG_VEG, &canopy),
-            mt.add_art(BG_VEG, &canopy.flipped_h()),
-            mt.add_art(BG_SAND, &trunk),
-            mt.add_art(BG_SAND, &trunk.flipped_h()),
-        ],
+fn load_props(vram: &mut Vram) -> PropSet {
+    let palm = props::palm();
+    let mut q = |x, y| vram.metatiles.add_art(PAL_FOLIAGE, &palm.upper.sub(x, y, 16, 16));
+    let palm_upper = [q(0, 0), q(16, 0), q(0, 16), q(16, 16)];
+    PropSet {
+        boulder: props::boulder(),
+        pebbles: props::pebbles(),
+        driftwood: props::driftwood(),
+        shell: props::shell(),
+        bush: props::bush(),
+        flowers: props::flowers(),
+        palm,
+        palm_upper,
     }
 }
-
-/// Legs start at this row of the 16x16 player art; hidden while wading.
-const WADE_CUT_ROW: usize = 12;
 
 fn load_sprites(vram: &mut Vram) -> SpriteIds {
+    use sprite_art::*;
     let bank = &mut vram.sprites;
     let mut frame = |art: PixelArt| PlayerFrame {
-        normal: bank.add_16x16(&art),
-        wade: bank.add_16x16(&art.cleared_below(WADE_CUT_ROW)),
+        full: bank.add(&art),
+        top: bank.add(&art.keep_rows(0..PLAYER_WADE_ROW)),
+        legs: bank.add(&art.keep_rows(PLAYER_WADE_ROW..art.h)),
     };
     let player = PlayerSprites {
-        down: [frame(sprite_art::player_down_stand()), frame(sprite_art::player_down_step())],
-        up: [frame(sprite_art::player_up_stand()), frame(sprite_art::player_up_step())],
-        side: [frame(sprite_art::player_side_stand()), frame(sprite_art::player_side_step())],
+        down: [frame(player_down_stand()), frame(player_down_step())],
+        up: [frame(player_up_stand()), frame(player_up_step())],
+        side: [frame(player_side_stand()), frame(player_side_step_a()), frame(player_side_step_b())],
     };
-    let [c0, c1] = sprite_art::crab_frames();
-    let [r0, r1] = sprite_art::wade_ripple_frames();
+    let [c0, c1] = crab_frames();
+    let [g0, g1] = gull_frames();
+    let [r0, r1, r2] = wade_ripples();
     SpriteIds {
         player,
-        crab: [bank.add_16x16(&c0), bank.add_16x16(&c1)],
-        ripple: [bank.add_16x8(&r0), bank.add_16x8(&r1)],
-        heart_full: bank.add(sprite_art::heart_full().to_tile8()),
-        heart_empty: bank.add(sprite_art::heart_empty().to_tile8()),
+        crab: [bank.add(&c0), bank.add(&c1)],
+        gull: [bank.add(&g0), bank.add(&g1)],
+        shadow_player: bank.add(&shadow(16, 8, 6.5, 2.6)),
+        shadow_crab: bank.add(&shadow(16, 8, 6.5, 2.2)),
+        shadow_gull: bank.add(&shadow(16, 8, 5.0, 1.8)),
+        ripples: [bank.add(&r0), bank.add(&r1), bank.add(&r2)],
     }
 }
-
-/// Palette index used for HUD text (white in BG_SHORE).
-pub const HUD_TEXT_PALETTE: u8 = BG_SHORE;
 
 fn load_hud(vram: &mut Vram) -> HudTiles {
     let bank = &mut vram.hud_tiles;
-    let blank = bank.add(PixelArt::filled(8, 8, 0).to_tile8());
-    let glyphs = font::GLYPHS
-        .iter()
-        .map(|(c, rows)| (*c, bank.add(font::glyph_art(rows, 2).to_tile8())))
-        .collect();
+    let blank = bank.add(&PixelArt::filled(8, 8, 0));
+    debug_assert_eq!(blank, HudTiles::BLANK);
+    let glyphs = hud_art::glyphs().into_iter().map(|(c, a)| (c, bank.add(&a))).collect();
+    let gauge = std::array::from_fn(|i| bank.add(&hud_art::gauge_segment(i)));
     HudTiles {
-        blank,
         glyphs,
-        food_icon: bank.add(font::icon_food().to_tile8()),
-        water_icon: bank.add(font::icon_water().to_tile8()),
-        food_full: bank.add(font::gauge_segment(2, true).to_tile8()),
-        food_empty: bank.add(font::gauge_segment(3, false).to_tile8()),
-        water_full: bank.add(font::gauge_segment(1, true).to_tile8()),
-        water_empty: bank.add(font::gauge_segment(1, false).to_tile8()),
+        heart_full: bank.add(&hud_art::heart_full()),
+        heart_empty: bank.add(&hud_art::heart_empty()),
+        food: bank.add(&hud_art::icon_food()),
+        water: bank.add(&hud_art::icon_water()),
+        sun: bank.add(&hud_art::icon_sun()),
+        moon: bank.add(&hud_art::icon_moon()),
+        lantern: bank.add(&hud_art::icon_lantern()),
+        gauge,
+        gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
+        gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),
+        light_mask: {
+            // Identical tiles (solid centre, empty corners) share one pattern.
+            let mut seen: Vec<(Vec<u8>, HudTileId)> = Vec::new();
+            hud_art::light_mask()
+                .into_iter()
+                .map(|t| match seen.iter().find(|(px, _)| *px == t.px) {
+                    Some((_, id)) => *id,
+                    None => {
+                        let id = bank.add(&t);
+                        seen.push((t.px.clone(), id));
+                        id
+                    }
+                })
+                .collect()
+        },
     }
 }

@@ -1,43 +1,53 @@
-//! Status bar: hearts, food & water gauges, day and clock.
+//! HUD overlay on BG3: hearts, food & water gauges, day and clock.
+//! Drawn over the playfield with no backing panel, as 16-bit games did.
 
-use crate::assets::palettes::{BG_SAND, BG_SHORE, SPR_UI};
-use crate::assets::{HUD_TEXT_PALETTE, HudTiles, SpriteIds};
-use crate::game::state::{GameClock, Vitals};
-use crate::ppu::HudLayer;
-use crate::ppu::oam::{Oam, OamEntry, attr};
+use crate::assets::HudTiles;
+use crate::assets::palettes::{HUD_FOOD, HUD_HEART, HUD_SKY, HUD_TEXT, HUD_WATER};
+use crate::game::state::{GameClock, Inventory, Vitals};
+use crate::ppu::Bg3Layer as HudLayer;
 
+const GAUGE_TILES: usize = 8;
+/// The HUD occupies the top-left of the BG3 map.
+pub const HUD_COLS: usize = 32;
 pub const HUD_ROWS: usize = 4;
-pub const HUD_HEIGHT: i32 = (HUD_ROWS * 8) as i32;
+/// Lines at the top of the screen where BG3 shows the HUD.
+pub const HUD_LINES: usize = HUD_ROWS * 8;
 
 fn text(hud: &mut HudLayer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
     for (i, c) in s.chars().enumerate() {
-        hud.put(col + i, row, tiles.glyph(c), HUD_TEXT_PALETTE);
+        hud.put(col + i, row, tiles.glyph(c), HUD_TEXT);
     }
 }
 
-fn gauge(hud: &mut HudLayer, col: usize, row: usize, value: u8, max: u8, full: u16, empty: u16, palette: u8) {
-    for i in 0..max {
-        hud.put(col + i as usize, row, if i < value { full } else { empty }, palette);
+/// Pixel-precise gauge: `value` out of `max`, drawn across GAUGE_TILES tiles.
+fn gauge(hud: &mut HudLayer, tiles: &HudTiles, col: usize, row: usize, value: u32, max: u32, palette: u8) {
+    let px = (value * (GAUGE_TILES as u32 * 8) / max.max(1)) as usize;
+    hud.put(col, row, tiles.gauge_cap_left, palette);
+    for i in 0..GAUGE_TILES {
+        let fill = px.saturating_sub(i * 8).min(8);
+        hud.put(col + 1 + i, row, tiles.gauge[fill], palette);
     }
+    hud.put(col + 1 + GAUGE_TILES, row, tiles.gauge_cap_right, palette);
 }
 
-pub fn draw(hud: &mut HudLayer, oam: &mut Oam, tiles: &HudTiles, sprites: &SpriteIds, vitals: &Vitals, clock: &GameClock) {
-    hud.fill(tiles.blank);
-
-    // Hearts are sprites so they can be red; the HUD tiles only have one palette set.
+pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &Inventory, clock: &GameClock, night: bool) {
+    hud.clear_rect(0, 0, HUD_COLS, HUD_ROWS);
     for i in 0..vitals.max_hp {
-        let tile = if i < vitals.hp { sprites.heart_full } else { sprites.heart_empty };
-        oam.push(OamEntry { x: 16 + i as i32 * 9, y: 8, tile, attr: SPR_UI | attr::HUD_LAYER });
+        let t = if i < vitals.hp { tiles.heart_full } else { tiles.heart_empty };
+        hud.put(1 + i as usize, 1, t, HUD_HEART);
     }
+    hud.put(1, 2, tiles.food, HUD_FOOD);
+    gauge(hud, tiles, 2, 2, vitals.food, Vitals::MAX, HUD_FOOD);
+    hud.put(1, 3, tiles.water, HUD_WATER);
+    gauge(hud, tiles, 2, 3, vitals.water, Vitals::MAX, HUD_WATER);
 
-    hud.put(2, 2, tiles.food_icon, BG_SAND);
-    gauge(hud, 3, 2, vitals.food, Vitals::GAUGE_MAX, tiles.food_full, tiles.food_empty, BG_SAND);
-    hud.put(12, 2, tiles.water_icon, BG_SHORE);
-    gauge(hud, 13, 2, vitals.water, Vitals::GAUGE_MAX, tiles.water_full, tiles.water_empty, BG_SHORE);
-
-    text(hud, tiles, 23, 1, &format!("DAY {:02}", clock.day));
+    if inventory.lantern {
+        hud.put(21, 1, tiles.lantern, HUD_SKY);
+    }
+    hud.put(23, 1, if night { tiles.moon } else { tiles.sun }, HUD_SKY);
+    text(hud, tiles, 25, 1, &format!("DAY {:02}", clock.day));
     let (h, m) = clock.hour_minute();
     let (ampm, h12) = if h < 12 { ("AM", h) } else { ("PM", h - 12) };
     let h12 = if h12 == 0 { 12 } else { h12 };
-    text(hud, tiles, 22, 2, &format!("{ampm} {h12:02}:{m:02}"));
+    text(hud, tiles, 23, 2, &format!("{ampm} {h12:02}:{m:02}"));
 }

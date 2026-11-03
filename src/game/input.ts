@@ -1,13 +1,17 @@
-/** NES joypad bit layout, shared with the Rust core (`common/input.rs`). */
+/** SNES joypad bit layout (16-bit auto-read), shared with the Rust core (`common/input.rs`). */
 export const Button = {
-  A: 0x01,
-  B: 0x02,
-  Select: 0x04,
-  Start: 0x08,
-  Up: 0x10,
-  Down: 0x20,
-  Left: 0x40,
-  Right: 0x80,
+  B: 0x8000,
+  Y: 0x4000,
+  Select: 0x2000,
+  Start: 0x1000,
+  Up: 0x0800,
+  Down: 0x0400,
+  Left: 0x0200,
+  Right: 0x0100,
+  A: 0x0080,
+  X: 0x0040,
+  L: 0x0020,
+  R: 0x0010,
 } as const;
 
 const KEY_MAP: Record<string, number> = {
@@ -19,19 +23,25 @@ const KEY_MAP: Record<string, number> = {
   KeyS: Button.Down,
   KeyA: Button.Left,
   KeyD: Button.Right,
-  KeyZ: Button.A,
-  KeyJ: Button.A,
-  KeyX: Button.B,
-  KeyK: Button.B,
+  KeyZ: Button.B,
+  KeyX: Button.A,
+  KeyC: Button.Y,
+  KeyV: Button.X,
+  KeyQ: Button.L,
+  KeyE: Button.R,
   Enter: Button.Start,
   ShiftLeft: Button.Select,
   ShiftRight: Button.Select,
 };
 
-/** Standard-mapping gamepad buttons → NES buttons. */
+/** Standard-mapping gamepad buttons → SNES buttons (by position, so B is the bottom face button). */
 const PAD_MAP: Array<[number, number]> = [
-  [0, Button.A],
-  [1, Button.B],
+  [0, Button.B],
+  [1, Button.A],
+  [2, Button.Y],
+  [3, Button.X],
+  [4, Button.L],
+  [5, Button.R],
   [8, Button.Select],
   [9, Button.Start],
   [12, Button.Up],

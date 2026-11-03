@@ -38,37 +38,28 @@ impl GameClock {
         (self.minute / 60, self.minute % 60)
     }
 
-    pub fn phase(&self) -> DayPhase {
-        match self.minute / 60 {
-            5 | 17 | 18 => DayPhase::Twilight,
-            6..=16 => DayPhase::Day,
-            _ => DayPhase::Night,
-        }
+    /// Fractional minute of day, for smooth lighting.
+    pub fn minute_f(&self) -> f32 {
+        self.minute as f32 + self.sub as f32 / FRAMES_PER_MINUTE as f32
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DayPhase {
-    Day,
-    Twilight,
-    Night,
 }
 
 #[derive(Clone, Debug)]
 pub struct Vitals {
     pub hp: u8,
     pub max_hp: u8,
-    pub food: u8,
-    pub water: u8,
+    /// 0..=MAX
+    pub food: u32,
+    pub water: u32,
 }
 
 impl Vitals {
-    pub const GAUGE_MAX: u8 = 8;
-    const FOOD_DECAY_MINUTES: u32 = 120;
-    const WATER_DECAY_MINUTES: u32 = 90;
+    pub const MAX: u32 = 64;
+    const FOOD_DECAY_MINUTES: u32 = 15;
+    const WATER_DECAY_MINUTES: u32 = 10;
 
     pub fn new() -> Self {
-        Self { hp: 5, max_hp: 5, food: Self::GAUGE_MAX, water: Self::GAUGE_MAX }
+        Self { hp: 5, max_hp: 5, food: Self::MAX, water: Self::MAX }
     }
 
     /// Called once per in-game minute. Placeholder decay until eating and
@@ -88,4 +79,11 @@ impl Default for Vitals {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Items the castaway carries. Placeholder until an item system exists.
+#[derive(Clone, Debug, Default)]
+pub struct Inventory {
+    /// Lights the surroundings at night.
+    pub lantern: bool,
 }

@@ -2,13 +2,14 @@
 //! the player.
 
 use super::body::Body;
+use super::player::ACTOR_PRIORITY;
 use crate::assets::SpriteIds;
-use crate::assets::palettes::SPR_CRAB;
+use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_SHADOW};
 use crate::common::math::Rect;
 use crate::common::rng::Rng;
-use crate::ppu::oam::Oam;
+use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
-use crate::render::sprites::push_16x16;
+use crate::render::sprites::DrawList;
 use crate::world::{Terrain, WorldMap};
 
 const HITBOX: Rect = Rect::new(2, 8, 12, 6);
@@ -87,17 +88,23 @@ impl Crab {
         (x + 8, y + 10)
     }
 
-    pub fn sort_y(&self) -> i32 {
-        self.body.px().1
+    pub fn depth(&self) -> i32 {
+        self.body.px().1 + 16
     }
 
-    pub fn draw(&self, oam: &mut Oam, camera: &Camera, sprites: &SpriteIds) {
+    /// At night crabs use a palette affected by colour math, so they vanish
+    /// into the dark outside the light.
+    pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, night: bool) {
         let (wx, wy) = self.body.px();
         if !camera.sees(wx, wy, 16, 16) {
             return;
         }
         let (sx, sy) = camera.to_screen(wx, wy);
         let frame = ((self.anim / 6) % 2) as usize;
-        push_16x16(oam, sprites.crab[frame], sx, sy, SPR_CRAB);
+        let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
+        list.actor(self.depth(), ObjEntry::new(sx, sy, sprites.crab[frame], palette, ACTOR_PRIORITY));
+        if !night {
+            list.shadow(ObjEntry::new(sx + 1, sy + 10, sprites.shadow_crab, OBJ_SHADOW, ACTOR_PRIORITY));
+        }
     }
 }

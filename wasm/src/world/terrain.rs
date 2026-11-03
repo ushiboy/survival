@@ -16,13 +16,19 @@ impl Terrain {
     }
 }
 
-/// Which quarter of a 2x2 palm tree a cell holds.
+/// Which cell of a 2x3 palm tree a map cell holds. Only the bottom row
+/// (the trunk base) is solid; the canopy rows can be walked behind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PalmPart {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
+pub struct PalmPart {
+    pub dx: u8,
+    pub dy: u8,
+    /// Mirrored tree (uses the PPU's h-flip, no extra tiles).
+    pub flip: bool,
+}
+
+impl PalmPart {
+    pub const W: i32 = 2;
+    pub const H: i32 = 3;
 }
 
 /// Objects placed on top of terrain.
@@ -31,6 +37,7 @@ pub enum Feature {
     None,
     Palm(PalmPart),
     Rock,
+    Pebbles,
     Bush,
     Driftwood,
     Shell,
@@ -49,10 +56,11 @@ impl TileProps {
 }
 
 pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
-    let feature_solid = matches!(
-        feature,
-        Feature::Palm(_) | Feature::Rock | Feature::Bush | Feature::Driftwood
-    );
+    let feature_solid = match feature {
+        Feature::Palm(p) => p.dy as i32 == PalmPart::H - 1,
+        Feature::Rock | Feature::Bush | Feature::Driftwood => true,
+        _ => false,
+    };
     TileProps {
         solid: feature_solid || terrain == Terrain::DeepWater,
         wading: terrain == Terrain::ShallowWater,

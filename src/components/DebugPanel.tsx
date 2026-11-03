@@ -41,12 +41,14 @@ export function DebugPanel({ display, onDisplayChange, spriteLimit, onSpriteLimi
       </label>
       <label className="row">
         <input type="checkbox" checked={spriteLimit} onChange={(e) => onSpriteLimitChange(e.target.checked)} />
-        スプライト8個/ライン制限
+        スプライト制限 (32個・34枚/ライン)
       </label>
       {status && (
         <p className="note mono">
           tile ({status.tileX}, {status.tileY}) · day {status.day} {formatTime(status.minuteOfDay)}
           {status.paused && ' · PAUSED'}
+          <br />
+          VRAM {(status.vramBytes / 1024).toFixed(1)} / 64 KiB (画面内)
         </p>
       )}
     </section>

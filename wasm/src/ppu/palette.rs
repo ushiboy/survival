@@ -1,99 +1,120 @@
-//! NES master palette and the 32-byte palette RAM.
+//! SNES colour model: 15-bit BGR555 colours in a 256-entry CGRAM.
+//!
+//! CGRAM layout (Mode 1):
+//! * 0..128   — 8 background palettes of 16 colours (4bpp). Entry 0 is the backdrop.
+//!   BG3 (2bpp, used for the HUD) reads 8 palettes of 4 colours from 0..32,
+//!   overlapping BG palettes 0-1, so those two are reserved for the HUD.
+//! * 128..256 — 8 sprite palettes of 16 colours. Entry 0 of each is transparent.
+//!   Sprite palettes 4-7 are the ones affected by colour math.
 
-/// The 64-colour NTSC 2C02 master palette (RGB).
-pub const NES_RGB: [[u8; 3]; 64] = [
-    [84, 84, 84], [0, 30, 116], [8, 16, 144], [48, 0, 136],
-    [68, 0, 100], [92, 0, 48], [84, 4, 0], [60, 24, 0],
-    [32, 42, 0], [8, 58, 0], [0, 64, 0], [0, 60, 0],
-    [0, 50, 60], [0, 0, 0], [0, 0, 0], [0, 0, 0],
-    [152, 150, 152], [8, 76, 196], [48, 50, 236], [92, 30, 228],
-    [136, 20, 176], [160, 20, 100], [152, 34, 32], [120, 60, 0],
-    [84, 90, 0], [40, 114, 0], [8, 124, 0], [0, 118, 40],
-    [0, 102, 120], [0, 0, 0], [0, 0, 0], [0, 0, 0],
-    [236, 238, 236], [76, 154, 236], [120, 124, 236], [176, 98, 236],
-    [228, 84, 236], [236, 88, 180], [236, 106, 100], [212, 136, 32],
-    [160, 170, 0], [116, 196, 0], [76, 208, 32], [56, 204, 108],
-    [56, 180, 204], [60, 60, 60], [0, 0, 0], [0, 0, 0],
-    [236, 238, 236], [168, 204, 236], [188, 188, 236], [212, 178, 236],
-    [236, 174, 236], [236, 174, 212], [236, 180, 176], [228, 196, 144],
-    [204, 210, 120], [180, 222, 120], [168, 226, 144], [152, 226, 180],
-    [160, 214, 228], [160, 162, 160], [0, 0, 0], [0, 0, 0],
-];
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rgb555(pub u16);
 
-pub const BLACK: u8 = 0x0F;
+impl Rgb555 {
+    pub const BLACK: Self = Self(0);
 
-/// Palette RAM layout matches the PPU: 4 background palettes followed by
-/// 4 sprite palettes, 4 entries each. Entry 0 of every background palette
-/// is the shared "universal" background colour; entry 0 of sprite palettes
-/// is transparent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaletteRam {
-    pub data: [u8; 32],
+    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+        Self((r as u16 & 31) | ((g as u16 & 31) << 5) | ((b as u16 & 31) << 10))
+    }
+
+    /// From 8-bit-per-channel RGB (low 3 bits are lost, as on hardware).
+    pub const fn rgb8(r: u8, g: u8, b: u8) -> Self {
+        Self::new(r >> 3, g >> 3, b >> 3)
+    }
+
+    #[inline]
+    pub const fn r(self) -> u8 {
+        (self.0 & 31) as u8
+    }
+
+    #[inline]
+    pub const fn g(self) -> u8 {
+        ((self.0 >> 5) & 31) as u8
+    }
+
+    #[inline]
+    pub const fn b(self) -> u8 {
+        ((self.0 >> 10) & 31) as u8
+    }
+
+    #[inline]
+    pub fn to_rgba8(self) -> [u8; 4] {
+        let x = |c: u8| (c << 3) | (c >> 2);
+        [x(self.r()), x(self.g()), x(self.b()), 255]
+    }
+
+    /// Channel-wise transform in 0..=31 space (used for palette fades/tints).
+    pub fn map(self, f: impl Fn(usize, f32) -> f32) -> Self {
+        let c = |i: usize, v: u8| f(i, v as f32).round().clamp(0.0, 31.0) as u8;
+        Self::new(c(0, self.r()), c(1, self.g()), c(2, self.b()))
+    }
+
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        let o = [other.r(), other.g(), other.b()];
+        self.map(|i, v| v + (o[i] as f32 - v) * t)
+    }
 }
 
-impl PaletteRam {
-    pub fn new(universal: u8, bg: [[u8; 3]; 4], sprites: [[u8; 3]; 4]) -> Self {
-        let mut data = [universal; 32];
-        for (p, cols) in bg.iter().enumerate() {
-            data[p * 4 + 1..p * 4 + 4].copy_from_slice(cols);
-        }
-        for (p, cols) in sprites.iter().enumerate() {
-            data[16 + p * 4 + 1..16 + p * 4 + 4].copy_from_slice(cols);
-        }
-        Self { data }
+pub const CGRAM_SIZE: usize = 256;
+pub const OBJ_BASE: usize = 128;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cgram {
+    pub colors: [Rgb555; CGRAM_SIZE],
+}
+
+impl Default for Cgram {
+    fn default() -> Self {
+        Self { colors: [Rgb555::BLACK; CGRAM_SIZE] }
+    }
+}
+
+impl Cgram {
+    #[inline]
+    pub const fn bg_index(palette: u8, index: u8) -> usize {
+        palette as usize * 16 + index as usize
     }
 
     #[inline]
-    pub fn bg_color(&self, palette: u8, index: u8) -> u8 {
-        if index == 0 {
-            self.data[0]
-        } else {
-            self.data[palette as usize * 4 + index as usize]
-        }
+    pub const fn obj_index(palette: u8, index: u8) -> usize {
+        OBJ_BASE + palette as usize * 16 + index as usize
     }
 
     #[inline]
-    pub fn sprite_color(&self, palette: u8, index: u8) -> u8 {
-        self.data[16 + palette as usize * 4 + index as usize]
+    pub const fn hud_index(palette: u8, index: u8) -> usize {
+        palette as usize * 4 + index as usize
     }
 
-    /// Applies a colour transform to every entry (palette fades etc.).
-    pub fn map_colors(&self, f: impl Fn(u8) -> u8) -> Self {
-        let mut out = *self;
-        for c in out.data.iter_mut() {
-            *c = f(*c);
-        }
+    pub fn backdrop(&self) -> Rgb555 {
+        self.colors[0]
+    }
+
+    /// Writes entries 1.. of a 16-colour background palette.
+    pub fn set_bg_palette(&mut self, palette: u8, colors: &[Rgb555]) {
+        let base = Self::bg_index(palette, 1);
+        self.colors[base..base + colors.len()].copy_from_slice(colors);
+    }
+
+    pub fn set_obj_palette(&mut self, palette: u8, colors: &[Rgb555]) {
+        let base = Self::obj_index(palette, 1);
+        self.colors[base..base + colors.len()].copy_from_slice(colors);
+    }
+
+    /// Writes entries 1..=3 of a 4-colour BG3 (HUD) palette.
+    pub fn set_hud_palette(&mut self, palette: u8, colors: [Rgb555; 3]) {
+        let base = Self::hud_index(palette, 1);
+        self.colors[base..base + 3].copy_from_slice(&colors);
+    }
+
+    pub fn obj_palette(&self, palette: u8) -> [Rgb555; 15] {
+        let base = Self::obj_index(palette, 1);
+        let mut out = [Rgb555::BLACK; 15];
+        out.copy_from_slice(&self.colors[base..base + 15]);
         out
     }
-}
 
-/// Classic NES fade: subtract 0x10 per step; anything below the darkest row
-/// becomes black.
-pub fn darken(color: u8, steps: u8) -> u8 {
-    if color & 0x0F >= 0x0D {
-        return BLACK;
+    /// Rotates `len` entries starting at `start` by `by` (palette cycling).
+    pub fn rotate(&mut self, start: usize, len: usize, by: usize) {
+        self.colors[start..start + len].rotate_right(by % len);
     }
-    let lum = color >> 4;
-    if lum < steps { BLACK } else { color - steps * 0x10 }
-}
-
-/// Night look: one fade step plus a hue rotation toward blue (hue 2).
-pub fn nightify(color: u8) -> u8 {
-    let c = darken(color, 1);
-    let hue = c & 0x0F;
-    if c == BLACK || hue == 0 || hue > 0x0C {
-        return c;
-    }
-    // Rotate up to two steps around the 12-hue wheel toward hue 2.
-    let target = 2i32;
-    let mut h = hue as i32;
-    for _ in 0..2 {
-        let diff = (target - h).rem_euclid(12);
-        if diff == 0 {
-            break;
-        }
-        h += if diff <= 6 { 1 } else { -1 };
-        h = (h - 1).rem_euclid(12) + 1;
-    }
-    (c & 0x30) | h as u8
 }

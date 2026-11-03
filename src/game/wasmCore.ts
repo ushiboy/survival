@@ -6,6 +6,8 @@ export interface CoreStatus {
   day: number;
   minuteOfDay: number;
   paused: boolean;
+  /** VRAM needed for the current screen, in bytes (SNES has 64 KiB). */
+  vramBytes: number;
 }
 
 /** Thin, typed wrapper over the wasm module so React never touches raw pointers. */
@@ -45,8 +47,8 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
       return image;
     },
     status() {
-      const [tileX, tileY, day, minuteOfDay, paused] = handle.status();
-      return { tileX, tileY, day, minuteOfDay, paused: paused === 1 };
+      const [tileX, tileY, day, minuteOfDay, paused, vramBytes] = handle.status();
+      return { tileX, tileY, day, minuteOfDay, paused: paused === 1, vramBytes };
     },
     setSpriteLimit: (on) => handle.set_sprite_limit(on),
     dispose: () => handle.free(),

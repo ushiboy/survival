@@ -18,6 +18,9 @@ interface Props {
 }
 
 const STATUS_INTERVAL_FRAMES = 15;
+/** SNES output resolution (matches the Rust core). */
+const SCREEN_W = 256;
+const SCREEN_H = 224;
 
 export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,12 +68,12 @@ export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
     coreRef.current?.setSpriteLimit(spriteLimit);
   }, [spriteLimit]);
 
-  const width = Math.round(256 * display.scale * (display.crtAspect ? 8 / 7 : 1));
-  const height = 240 * display.scale;
+  const width = Math.round(SCREEN_W * display.scale * (display.crtAspect ? 8 / 7 : 1));
+  const height = SCREEN_H * display.scale;
 
   return (
     <div className="screen" style={{ width, height, ['--scale' as string]: display.scale }}>
-      <canvas ref={canvasRef} width={256} height={240} style={{ width, height }} />
+      <canvas ref={canvasRef} width={SCREEN_W} height={SCREEN_H} style={{ width, height }} />
       {display.scanlines && <div className="scanlines" />}
       {error && <div className="screen-error">{error}</div>}
     </div>

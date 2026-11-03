@@ -1,233 +1,310 @@
-//! Builds the background metatile map from world terrain, generating
-//! transition ("autotile") metatiles for coastlines and grass edges.
+//! Builds the BG1 (ground) and BG2 (overhead) tile maps from world data.
 //!
-//! Transition tiles are composed once at load time and stored in VRAM like
-//! any other CHR — the runtime cost is just a table lookup.
+//! Ground textures are 64x64 seamless canvases sliced per cell. Where a
+//! terrain boundary passes through a cell, the tile is painted per pixel from
+//! the smooth elevation field, so coastlines curve freely instead of
+//! following the 16px grid. Every tile is composed once at load time; the
+//! runtime cost is a table lookup.
 
 use std::collections::HashMap;
 
-use crate::assets::palettes::{BG_DEEP, BG_SHORE, BG_VEG};
-use crate::assets::{Assets, SURF_PERIOD, TerrainArt, WATER_PERIOD};
-use crate::common::rng::hash2;
-use crate::ppu::BgSource;
+use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_SAND, PAL_SHORE, deep, grass, shore};
+use crate::assets::paint::{bayer, noise_px};
+use crate::assets::props::{Ground, PropTile, composite};
+use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
+use crate::assets::{Assets, PropSet, SURF_FRAMES, SURF_PERIOD};
 use crate::ppu::banks::{MetatileBank, MetatileId};
 use crate::ppu::pattern::PixelArt;
-use crate::world::terrain::PalmPart;
-use crate::world::{Feature, Terrain, WorldMap};
+use crate::ppu::{BgCell, BgLayer};
+use crate::world::island::{DEEP_BELOW, SAND_BELOW};
+use crate::world::noise::value_noise;
+use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap};
 
-/// Background map ready to hand to the PPU.
-pub struct VisualMap {
+/// A layer's tile map.
+pub struct TileGrid {
     w: i32,
     h: i32,
-    ids: Vec<MetatileId>,
-    /// Drawn outside the map (open sea).
-    border: MetatileId,
+    cells: Vec<BgCell>,
+    border: BgCell,
 }
 
-impl BgSource for VisualMap {
+impl TileGrid {
+    fn new(w: i32, h: i32, border: BgCell) -> Self {
+        Self { w, h, cells: vec![BgCell::EMPTY; (w * h) as usize], border }
+    }
+
+    fn set(&mut self, x: i32, y: i32, c: BgCell) {
+        self.cells[(y * self.w + x) as usize] = c;
+    }
+}
+
+impl BgLayer for TileGrid {
     #[inline]
-    fn metatile_at(&self, mx: i32, my: i32) -> MetatileId {
+    fn cell(&self, mx: i32, my: i32) -> BgCell {
         if mx < 0 || my < 0 || mx >= self.w || my >= self.h {
             self.border
         } else {
-            self.ids[(my * self.w + mx) as usize]
+            self.cells[(my * self.w + mx) as usize]
         }
     }
 }
 
-// Neighbour mask bits.
-const N: u8 = 1;
-const E: u8 = 2;
-const S: u8 = 4;
-const W: u8 = 8;
-const NE: u8 = 16;
-const SE: u8 = 32;
-const SW: u8 = 64;
-const NW: u8 = 128;
-
-/// Edge wobble so coastlines don't look ruled. Ends match so tiles join.
-const WOBBLE: [f32; 16] = [0.0, 0.5, 1.0, 1.5, 1.5, 1.0, 0.5, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0];
-
-/// Does neighbour terrain `n` "intrude" into a cell of terrain `t`?
-fn intrudes(t: Terrain, n: Terrain) -> bool {
-    match t {
-        Terrain::DeepWater => n != Terrain::DeepWater,
-        Terrain::ShallowWater => n.is_land(),
-        Terrain::Sand => false,
-        Terrain::Grass => n != Terrain::Grass,
-    }
+pub struct VisualMap {
+    pub ground: TileGrid,
+    pub overhead: TileGrid,
 }
 
-fn edge_mask(map: &WorldMap, x: i32, y: i32) -> u8 {
-    let t = map.terrain(x, y);
-    // Off-map counts as the same terrain so edges don't appear at the border.
-    let hit = |dx: i32, dy: i32| {
-        let (nx, ny) = (x + dx, y + dy);
-        map.in_bounds(nx, ny) && intrudes(t, map.terrain(nx, ny))
-    };
-    let mut m = 0;
-    for (bit, dx, dy) in [(N, 0, -1), (E, 1, 0), (S, 0, 1), (W, -1, 0)] {
-        if hit(dx, dy) {
-            m |= bit;
+// ---------------------------------------------------------------- elevation field
+
+/// Approximate pixels per elevation unit near the contours.
+const PX_PER_UNIT: f32 = 14.0;
+
+/// Elevation for every pixel of one cell, with a little wobble so contours
+/// look hand-drawn rather than mathematically smooth.
+struct CellField {
+    h: [f32; 256],
+    min: f32,
+    max: f32,
+}
+
+impl CellField {
+    fn sample(map: &WorldMap, cx: i32, cy: i32) -> Self {
+        let mut h = [0.0; 256];
+        for py in 0..16 {
+            for px in 0..16 {
+                let (wx, wy) = ((cx * TILE_SIZE + px) as f32 + 0.5, (cy * TILE_SIZE + py) as f32 + 0.5);
+                h[(py * 16 + px) as usize] = map.elevation_at_px(wx, wy) + value_noise(wx / 5.0, wy / 5.0, 77) * 0.14;
+            }
         }
+        let min = h.iter().copied().fold(f32::MAX, f32::min);
+        let max = h.iter().copied().fold(f32::MIN, f32::max);
+        Self { h, min, max }
     }
-    // Corners only matter when neither adjacent side is already an edge.
-    for (bit, dx, dy, a, b) in [(NE, 1, -1, N, E), (SE, 1, 1, S, E), (SW, -1, 1, S, W), (NW, -1, -1, N, W)] {
-        if m & (a | b) == 0 && hit(dx, dy) {
-            m |= bit;
-        }
+
+    #[inline]
+    fn at(&self, x: usize, y: usize) -> f32 {
+        self.h[y * 16 + x]
     }
-    m
+
+    fn crosses(&self, level: f32, below: f32, above: f32) -> bool {
+        self.min < level + above && self.max > level - below
+    }
 }
 
-/// Distance (in px) from pixel (x, y) to the nearest intruding edge.
-fn edge_distance(x: usize, y: usize, mask: u8) -> f32 {
-    let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-    let mut d = f32::MAX;
-    if mask & N != 0 {
-        d = d.min(fy - WOBBLE[x]);
-    }
-    if mask & S != 0 {
-        d = d.min(16.0 - fy - WOBBLE[(x + 5) % 16]);
-    }
-    if mask & W != 0 {
-        d = d.min(fx - WOBBLE[y]);
-    }
-    if mask & E != 0 {
-        d = d.min(16.0 - fx - WOBBLE[(y + 5) % 16]);
-    }
-    let corner = |cx: f32, cy: f32, w: f32| ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() - w;
-    if mask & NW != 0 {
-        d = d.min(corner(0.0, 0.0, WOBBLE[(x + y) % 16]));
-    }
-    if mask & NE != 0 {
-        d = d.min(corner(16.0, 0.0, WOBBLE[(x + y) % 16]));
-    }
-    if mask & SW != 0 {
-        d = d.min(corner(0.0, 16.0, WOBBLE[(x + y) % 16]));
-    }
-    if mask & SE != 0 {
-        d = d.min(corner(16.0, 16.0, WOBBLE[(x + y) % 16]));
-    }
-    d
-}
-
-fn compose(base: &PixelArt, f: impl Fn(usize, usize, u8) -> u8) -> PixelArt {
-    let mut out = base.clone();
+fn compose(f: impl Fn(usize, usize) -> u8) -> PixelArt {
+    let mut out = PixelArt::filled(16, 16, 0);
     for y in 0..16 {
         for x in 0..16 {
-            out.set(x, y, f(x, y, base.get(x, y)));
+            out.set(x, y, f(x, y));
         }
     }
     out
 }
 
-/// Generates and caches transition metatiles.
-struct Autotiler<'a> {
-    art: &'a TerrainArt,
-    cache: HashMap<(Terrain, u8), MetatileId>,
-}
-
-/// How far the surf reaches up the beach on each animation frame.
-const SURF_REACH: [f32; 4] = [1.0, 2.0, 3.0, 2.0];
-
-impl<'a> Autotiler<'a> {
-    fn tile(&mut self, bank: &mut MetatileBank, t: Terrain, mask: u8) -> MetatileId {
-        if let Some(&id) = self.cache.get(&(t, mask)) {
-            return id;
-        }
-        let art = self.art;
-        let id = match t {
-            Terrain::ShallowWater => {
-                // Sand bank, then foam that laps back and forth.
-                let frames = (0..4)
-                    .map(|f| {
-                        let base = &art.shallow[(f / 2) % art.shallow.len()];
-                        compose(base, |x, y, p| {
-                            let d = edge_distance(x, y, mask);
-                            if d < 2.5 {
-                                3
-                            } else if d < 2.5 + SURF_REACH[f] {
-                                2
-                            } else {
-                                p
-                            }
-                        })
-                        .to_tile16()
-                    })
-                    .collect();
-                bank.add(BG_SHORE, frames, SURF_PERIOD)
-            }
-            Terrain::DeepWater => {
-                // Lighter fringe where the sea floor rises.
-                let frames = art
-                    .deep
-                    .iter()
-                    .map(|base| {
-                        compose(base, |x, y, p| {
-                            let d = edge_distance(x, y, mask);
-                            if d < 1.5 || (d < 3.0 && (x + y) % 2 == 0) { 3 } else { p }
-                        })
-                        .to_tile16()
-                    })
-                    .collect();
-                bank.add(BG_DEEP, frames, WATER_PERIOD)
-            }
-            Terrain::Grass => {
-                let a = compose(&art.grass, |x, y, p| {
-                    let d = edge_distance(x, y, mask);
-                    if d < 1.5 {
-                        3
-                    } else if d < 2.5 {
-                        1
-                    } else {
-                        p
-                    }
-                });
-                bank.add_art(BG_VEG, &a)
-            }
-            Terrain::Sand => unreachable!("sand has no transitions"),
-        };
-        self.cache.insert((t, mask), id);
-        id
+/// Steps a water colour lighter (+) or darker (-) along the shore ramp.
+fn shift_water(v: u8, steps: i32) -> u8 {
+    match shore::WATER.iter().position(|&c| c == v) {
+        Some(i) => shore::WATER[(i as i32 + steps).clamp(0, 3) as usize],
+        None => v,
     }
 }
 
-pub fn build_visual_map(map: &WorldMap, assets: &mut Assets, seed: u32) -> VisualMap {
-    let bg = assets.bg;
-    let mut autotiler = Autotiler { art: &assets.terrain_art, cache: HashMap::new() };
-    let bank = &mut assets.vram.metatiles;
-    let mut ids = Vec::with_capacity((map.width() * map.height()) as usize);
+/// Water colour for a given depth in the shallows palette (the deep palette
+/// carries the two darkest shades as `SHELF` so the two meet seamlessly).
+fn shallow_depth(v: u8, h: f32, x: i32, y: i32) -> u8 {
+    let b = bayer(x, y);
+    if h < DEEP_BELOW + 0.4 {
+        shore::WATER[0]
+    } else if h < DEEP_BELOW + 1.0 {
+        if b < 0.5 { shore::WATER[0] } else { shore::WATER[1] }
+    } else if h < DEEP_BELOW + 1.7 {
+        shift_water(v, -1)
+    } else {
+        v
+    }
+}
+
+// ---------------------------------------------------------------- builder
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Key {
+    Interior(Terrain, i32, i32),
+    Prop { kind: u8, flip: bool, vx: i32, vy: i32 },
+}
+
+struct Builder<'a> {
+    tex: &'a TerrainTextures,
+    bank: &'a mut MetatileBank,
+    cache: HashMap<Key, MetatileId>,
+}
+
+impl Builder<'_> {
+    fn get(&mut self, key: Key, make: impl FnOnce(&TerrainTextures, &mut MetatileBank) -> MetatileId) -> MetatileId {
+        if let Some(&id) = self.cache.get(&key) {
+            return id;
+        }
+        let id = make(self.tex, self.bank);
+        self.cache.insert(key, id);
+        id
+    }
+
+    fn interior(&mut self, t: Terrain, x: i32, y: i32) -> MetatileId {
+        let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        self.get(Key::Interior(t, vx, vy), |tex, bank| match t {
+            Terrain::DeepWater => bank.add_art(PAL_DEEP, &slice(&tex.deep, vx, vy)),
+            Terrain::ShallowWater => bank.add_art(PAL_SHORE, &slice(&tex.shallow, vx, vy)),
+            Terrain::Sand => bank.add_art(PAL_SAND, &slice(&tex.sand, vx, vy)),
+            Terrain::Grass => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
+        })
+    }
+
+    /// Beach meeting the sea: dry sand, wet sand, lapping foam, then water
+    /// darkening toward the reef. Animated by swapping frames (DMA).
+    fn coast(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let water = slice(&self.tex.shallow, x, y);
+        let sand = slice(&self.tex.sand, x, y).map(sand_to_shore);
+        let frames = (0..SURF_FRAMES)
+            .map(|fr| {
+                let phase = fr as f32 / SURF_FRAMES as f32 * std::f32::consts::TAU;
+                // Where the surf line is this frame, in px from the waterline.
+                let front = -1.5 + 4.0 * (0.5 - 0.5 * phase.cos());
+                compose(|px, py| {
+                    let h = f.at(px, py);
+                    let d = -h * PX_PER_UNIT;
+                    let (ix, iy) = (px as i32, py as i32);
+                    if d < -1.5 {
+                        sand.get(px, py)
+                    } else if d < front {
+                        if d < -0.5 && bayer(ix, iy) < 0.5 { shore::WET_DARK } else { shore::WET }
+                    } else if d < front + 1.3 {
+                        shore::FOAM
+                    } else if d < front + 2.3 {
+                        if bayer(ix, iy) < 0.5 { shore::FOAM_SHADE } else { shore::WATER[3] }
+                    } else if d < front + 5.0 {
+                        shallow_depth(shift_water(water.get(px, py), 1), h, ix, iy)
+                    } else {
+                        shallow_depth(water.get(px, py), h, ix, iy)
+                    }
+                })
+                .to_tile16()
+            })
+            .collect();
+        self.bank.add(PAL_SHORE, frames, SURF_PERIOD)
+    }
+
+    /// Open shallows deepening toward the reef edge.
+    fn shallows(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let water = slice(&self.tex.shallow, x, y);
+        let art = compose(|px, py| shallow_depth(water.get(px, py), f.at(px, py), px as i32, py as i32));
+        self.bank.add_art(PAL_SHORE, &art)
+    }
+
+    /// Deep water rising toward the shallows.
+    fn reef(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let base = slice(&self.tex.deep, x, y);
+        let art = compose(|px, py| {
+            let h = f.at(px, py);
+            let b = bayer(px as i32, py as i32);
+            if h > DEEP_BELOW + 0.4 {
+                deep::SHELF[1]
+            } else if h > DEEP_BELOW - 0.4 {
+                deep::SHELF[0]
+            } else if h > DEEP_BELOW - 1.0 && b < 0.5 {
+                deep::SHELF[0]
+            } else {
+                base.get(px, py)
+            }
+        });
+        self.bank.add_art(PAL_DEEP, &art)
+    }
+
+    /// Grass giving way to sand with a ragged fringe.
+    fn grass_edge(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let g = slice(&self.tex.grass, x, y);
+        let s = slice(&self.tex.sand, x, y).map(|v| sand_to(v, grass::SAND[0], grass::SAND[1], grass::SAND[2]));
+        let r = grass::RAMP;
+        let art = compose(|px, py| {
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            let into = (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6;
+            if into < 0.0 {
+                // Stray blades poking out over the sand.
+                if into > -1.2 && noise_px(wx, wy, 0xB1AD) < 0.3 { r[4] } else { s.get(px, py) }
+            } else if into < 1.3 {
+                r[1]
+            } else if into < 2.4 {
+                if bayer(wx, wy) < 0.5 { r[2] } else { g.get(px, py) }
+            } else {
+                g.get(px, py)
+            }
+        });
+        self.bank.add_art(PAL_GRASS, &art)
+    }
+
+    fn prop(&mut self, kind: u8, tile: &PropTile, flip: bool, x: i32, y: i32) -> MetatileId {
+        let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        self.get(Key::Prop { kind, flip, vx, vy }, |tex, bank| {
+            let ground = match tile.ground {
+                Ground::Sand => slice(&tex.sand, vx, vy),
+                Ground::Grass => slice(&tex.grass, vx, vy),
+            };
+            let t = if flip { PropTile { overlay: tile.overlay.flipped_h(), ..tile.clone() } } else { tile.clone() };
+            bank.add_art(t.palette, &composite(&t, &ground))
+        })
+    }
+
+    /// Ground tile for a cell without props.
+    fn terrain(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let t = map.terrain(x, y);
+        let f = CellField::sample(map, x, y);
+        match t {
+            Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y),
+            Terrain::ShallowWater if f.min < DEEP_BELOW + 1.7 => self.shallows(&f, x, y),
+            Terrain::DeepWater if f.max > DEEP_BELOW - 1.0 => self.reef(&f, x, y),
+            Terrain::Sand | Terrain::Grass if f.crosses(SAND_BELOW, 0.35, 0.3) => self.grass_edge(&f, x, y),
+            _ => self.interior(t, x, y),
+        }
+    }
+}
+
+pub fn build_visual_map(map: &WorldMap, assets: &mut Assets) -> VisualMap {
+    let props: &PropSet = &assets.props;
+    let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: HashMap::new() };
+    let border = BgCell::new(b.interior(Terrain::DeepWater, 0, 0));
+    let mut ground = TileGrid::new(map.width(), map.height(), border);
+    let mut overhead = TileGrid::new(map.width(), map.height(), BgCell::EMPTY);
 
     for y in 0..map.height() {
         for x in 0..map.width() {
-            let variant = (hash2(x, y, seed ^ 0xBEEF) % 100) as usize;
-            let id = match map.feature(x, y) {
-                Feature::Palm(part) => match part {
-                    PalmPart::TopLeft => bg.palm[0],
-                    PalmPart::TopRight => bg.palm[1],
-                    PalmPart::BottomLeft => bg.palm[2],
-                    PalmPart::BottomRight => bg.palm[3],
-                },
-                Feature::Rock => bg.rock,
-                Feature::Bush => bg.bush,
-                Feature::Driftwood => bg.driftwood,
-                Feature::Shell => bg.shell,
-                Feature::Flower => bg.flowers,
-                Feature::None => {
-                    let t = map.terrain(x, y);
-                    let mask = edge_mask(map, x, y);
-                    match t {
-                        _ if mask != 0 && t != Terrain::Sand => autotiler.tile(bank, t, mask),
-                        Terrain::DeepWater => bg.deep,
-                        Terrain::ShallowWater => bg.shallow,
-                        Terrain::Sand => bg.sand[usize::from(variant < 25)],
-                        Terrain::Grass => bg.grass[usize::from(variant < 30)],
+            let tile = match map.feature(x, y) {
+                Feature::Palm(p) => {
+                    // Mirrored trees swap columns; BG2 uses the PPU's h-flip.
+                    let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
+                    if p.dy < 2 {
+                        let id = props.palm_upper[p.dy as usize * 2 + col];
+                        overhead.set(x, y, BgCell { tile: id, hflip: p.flip, high: true });
+                    }
+                    match p.dy {
+                        0 => b.interior(map.terrain(x, y), x, y),
+                        1 => {
+                            let shade = if col == 0 { &props.palm.shade } else { &props.palm.shade_right };
+                            b.prop(10 + col as u8, shade, p.flip, x, y)
+                        }
+                        _ => {
+                            let lower = if col == 0 { &props.palm.lower } else { &props.palm.lower_right };
+                            b.prop(12 + col as u8, lower, p.flip, x, y)
+                        }
                     }
                 }
+                Feature::Rock => b.prop(0, &props.boulder, false, x, y),
+                Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
+                Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
+                Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
+                Feature::Bush => b.prop(4, &props.bush, false, x, y),
+                Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
+                Feature::None => b.terrain(map, x, y),
             };
-            ids.push(id);
+            ground.set(x, y, BgCell::new(tile));
         }
     }
-    VisualMap { w: map.width(), h: map.height(), ids, border: bg.deep }
+    VisualMap { ground, overhead }
 }

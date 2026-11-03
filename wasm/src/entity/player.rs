@@ -1,28 +1,29 @@
 use super::body::Body;
-use crate::assets::PlayerSprites;
-use crate::assets::SpriteIds;
-use crate::assets::palettes::{SPR_PLAYER, SPR_WATER};
+use crate::assets::palettes::{OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
+use crate::assets::{PlayerFrame, PlayerSprites, SpriteIds};
 use crate::common::input::InputState;
 use crate::common::math::{Dir, Rect};
-use crate::ppu::oam::{Oam, attr};
+use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
-use crate::render::sprites::{push_16x8, push_16x16};
+use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
 
+pub const SPRITE_W: i32 = 16;
+pub const SPRITE_H: i32 = 24;
 /// Feet-only collision box (top-down games collide at the feet so heads can
-/// overlap walls above them).
-const HITBOX: Rect = Rect::new(3, 10, 10, 6);
+/// overlap things above them).
+const HITBOX: Rect = Rect::new(3, 18, 10, 6);
 /// Speeds in 8.8 fixed point per frame.
-const SPEED_WALK: i32 = 320; // 1.25 px
-const SPEED_WALK_DIAG: i32 = 226; // ~1.25 / sqrt(2)
-const SPEED_WADE: i32 = 176;
-const SPEED_WADE_DIAG: i32 = 124;
+const SPEED_WALK: i32 = 336; // ~1.3 px
+const SPEED_WALK_DIAG: i32 = 238;
+const SPEED_WADE: i32 = 184;
+const SPEED_WADE_DIAG: i32 = 130;
 const CORNER_ASSIST_PX: i32 = 6;
 /// Frames per walk-animation step.
 const STEP_FRAMES_WALK: u32 = 8;
 const STEP_FRAMES_WADE: u32 = 12;
-/// Where the ripple ring sits relative to the sprite.
-const RIPPLE_OFFSET_Y: i32 = 11;
+/// Sprite priority for actors: above BG1/BG2 low tiles, below BG2 high (canopies).
+pub const ACTOR_PRIORITY: u8 = 2;
 
 #[derive(Clone, Debug)]
 pub struct Player {
@@ -34,6 +35,11 @@ pub struct Player {
 }
 
 impl Player {
+    /// Places the player so their feet stand on the given cell's top-left.
+    pub fn at_feet(px: i32, py: i32) -> Self {
+        Self::new(px, py - (SPRITE_H - 16))
+    }
+
     pub fn new(px: i32, py: i32) -> Self {
         Self { body: Body::new(px, py, HITBOX), facing: Dir::Down, moving: false, wading: false, walk_timer: 0 }
     }
@@ -59,30 +65,38 @@ impl Player {
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
     }
 
+    /// Point the camera follows (roughly the torso).
     pub fn center(&self) -> (i32, i32) {
         let (x, y) = self.body.px();
-        (x + 8, y + 8)
+        (x + SPRITE_W / 2, y + SPRITE_H / 2 + 2)
     }
 
-    pub fn sort_y(&self) -> i32 {
-        self.body.px().1
+    pub fn depth(&self) -> i32 {
+        self.body.px().1 + SPRITE_H
     }
 
-    pub fn draw(&self, oam: &mut Oam, camera: &Camera, sprites: &SpriteIds, clock: u32) {
+    pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, clock: u32, shadows: bool) {
         let (wx, wy) = self.body.px();
         let (sx, sy) = camera.to_screen(wx, wy);
+        let depth = self.depth();
         let step_frames = if self.wading { STEP_FRAMES_WADE } else { STEP_FRAMES_WALK };
         // Start on a step frame so movement reads instantly.
         let phase = if self.moving { (self.walk_timer / step_frames + 1) % 4 } else { 0 };
         let (frame, flip) = pick_frame(&sprites.player, self.facing, phase);
-        let tiles = if self.wading { frame.wade } else { frame.normal };
 
         if self.wading {
-            // Pushed first so it wins sprite priority over the body.
-            let ripple = sprites.ripple[(clock / 16) as usize % 2];
-            push_16x8(oam, ripple, sx, sy + RIPPLE_OFFSET_Y, SPR_WATER);
+            // Foam ring first (in front), then the body above the waterline,
+            // then the submerged legs in a blended palette.
+            let ripple = sprites.ripples[(clock / 10) as usize % sprites.ripples.len()];
+            list.actor(depth, ObjEntry::new(sx - 4, sy + 14, ripple, OBJ_WATER_FX, ACTOR_PRIORITY));
+            list.actor(depth, ObjEntry::new(sx, sy, frame.top, OBJ_PLAYER, ACTOR_PRIORITY).flipped(flip));
+            list.actor(depth, ObjEntry::new(sx, sy, frame.legs, OBJ_WADE, ACTOR_PRIORITY).flipped(flip));
+        } else {
+            list.actor(depth, ObjEntry::new(sx, sy, frame.full, OBJ_PLAYER, ACTOR_PRIORITY).flipped(flip));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
         }
-        push_16x16(oam, tiles, sx, sy, SPR_PLAYER | flip);
     }
 }
 
@@ -107,17 +121,21 @@ fn facing_for(current: Dir, ax: i32, ay: i32) -> Dir {
     }
 }
 
-/// Front/back walk cycle: stand, step, stand, step mirrored.
-/// Side walk cycle: stand, step.
-fn pick_frame(s: &PlayerSprites, facing: Dir, phase: u32) -> (crate::assets::PlayerFrame, u8) {
-    let step = phase % 2 == 1;
+/// Front/back cycle: stand, step, stand, step mirrored.
+/// Side cycle: stand, step A, stand, step B.
+fn pick_frame(s: &PlayerSprites, facing: Dir, phase: u32) -> (PlayerFrame, bool) {
     match facing {
         Dir::Down | Dir::Up => {
             let set = if facing == Dir::Down { &s.down } else { &s.up };
-            let flip = if phase == 3 { attr::FLIP_H } else { 0 };
-            (set[step as usize], flip)
+            (set[(phase % 2) as usize], phase == 3)
         }
-        Dir::Right => (s.side[step as usize], 0),
-        Dir::Left => (s.side[step as usize], attr::FLIP_H),
+        Dir::Right | Dir::Left => {
+            let f = match phase {
+                1 => s.side[1],
+                3 => s.side[2],
+                _ => s.side[0],
+            };
+            (f, facing == Dir::Left)
+        }
     }
 }

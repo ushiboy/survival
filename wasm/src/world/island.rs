@@ -13,8 +13,13 @@ use std::f32::consts::TAU;
 pub const MAP_W: i32 = 64;
 pub const MAP_H: i32 = 48;
 
-const DEEP_BELOW: f32 = -5.0;
-const SAND_BELOW: f32 = 7.0;
+/// Elevation contours (in tiles above the waterline) separating terrains.
+/// The renderer draws transitions along these contours per pixel.
+pub const DEEP_BELOW: f32 = -5.0;
+pub const SAND_BELOW: f32 = 7.0;
+/// Props keep this far (in elevation) from contours so they never sit on a
+/// transition.
+const PROP_MARGIN: f32 = 1.2;
 const JUNGLE_ABOVE: f32 = 17.0;
 const CRAB_COUNT: usize = 7;
 
@@ -80,6 +85,7 @@ pub fn generate(seed: u32) -> WorldMap {
 
     place_palms(&mut map, &heights, seed, &near_spawn);
     place_scatter(&mut map, &heights, seed, &near_spawn);
+    map.set_elevation(heights);
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
     map
 }
@@ -122,26 +128,31 @@ fn find_spawn(map: &WorldMap, heights: &[f32]) -> (i32, i32) {
 }
 
 fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
-    for y in 0..MAP_H - 1 {
-        for x in 0..MAP_W - 1 {
-            let h = heights[(y * MAP_W + x) as usize];
-            if !(3.0..SAND_BELOW + 1.0).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.10 {
+    let (pw, ph) = (PalmPart::W, PalmPart::H);
+    for y in 0..MAP_H - ph + 1 {
+        for x in 0..MAP_W - pw + 1 {
+            // Anchor on the trunk base (bottom row), which sits on the upper beach.
+            let h = heights[((y + ph - 1) * MAP_W + x) as usize];
+            if !(2.5..SAND_BELOW + 1.0).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.12 {
                 continue;
             }
-            let cells = [(0, 0), (1, 0), (0, 1), (1, 1)];
-            let fits = cells.iter().all(|&(dx, dy)| {
-                map.terrain(x + dx, y + dy) == Terrain::Sand
-                    && map.feature(x + dx, y + dy) == Feature::None
-                    && !near_spawn(x + dx, y + dy)
+            let fits = (0..ph).all(|dy| {
+                (0..pw).all(|dx| {
+                    let h = heights[((y + dy) * MAP_W + x + dx) as usize];
+                    (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h)
+                        && map.terrain(x + dx, y + dy) == Terrain::Sand
+                        && map.feature(x + dx, y + dy) == Feature::None
+                        && !near_spawn(x + dx, y + dy)
+                })
             });
-            // Keep a one-cell gap between trees.
-            let crowded = (-1..=2).any(|dy| {
-                (-1..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_)))
-            });
+            // Keep a gap between trees.
+            let crowded = (-1..=ph).any(|dy| (-1..=pw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_))));
             if fits && !crowded {
-                let parts = [PalmPart::TopLeft, PalmPart::TopRight, PalmPart::BottomLeft, PalmPart::BottomRight];
-                for (&(dx, dy), part) in cells.iter().zip(parts) {
-                    map.set_feature(x + dx, y + dy, Feature::Palm(part));
+                let flip = hash_unit(x, y, seed ^ 0xF11B) < 0.5;
+                for dy in 0..ph {
+                    for dx in 0..pw {
+                        map.set_feature(x + dx, y + dy, Feature::Palm(PalmPart { dx: dx as u8, dy: dy as u8, flip }));
+                    }
                 }
             }
         }
@@ -156,6 +167,10 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
             }
             let h = heights[(y * MAP_W + x) as usize];
             let r = hash_unit(x, y, seed ^ 0xF00D);
+            let clear_of_edges = h > SAND_BELOW + PROP_MARGIN || (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h);
+            if !clear_of_edges {
+                continue;
+            }
             let feature = match map.terrain(x, y) {
                 Terrain::Grass if h > JUNGLE_ABOVE => {
                     if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
@@ -164,7 +179,17 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
                     if r < 0.05 { Feature::Bush } else if r < 0.12 { Feature::Flower } else { Feature::None }
                 }
                 Terrain::Sand => {
-                    if r < 0.02 { Feature::Rock } else if r < 0.032 { Feature::Driftwood } else if r < 0.06 { Feature::Shell } else { Feature::None }
+                    if r < 0.016 {
+                        Feature::Rock
+                    } else if r < 0.028 {
+                        Feature::Pebbles
+                    } else if r < 0.038 {
+                        Feature::Driftwood
+                    } else if r < 0.062 {
+                        Feature::Shell
+                    } else {
+                        Feature::None
+                    }
                 }
                 _ => Feature::None,
             };

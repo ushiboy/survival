@@ -10,6 +10,9 @@ pub struct WorldMap {
     h: i32,
     terrain: Vec<Terrain>,
     features: Vec<Feature>,
+    /// Smooth elevation per cell (tiles above the waterline), sampled at cell
+    /// centres. Used for organic, non-grid-aligned terrain edges.
+    elevation: Vec<f32>,
     /// Player start position (pixels, sprite top-left).
     pub spawn: (i32, i32),
     /// Suggested crab start cells.
@@ -24,6 +27,7 @@ impl WorldMap {
             h,
             terrain: vec![fill; n],
             features: vec![Feature::None; n],
+            elevation: vec![0.0; n],
             spawn: (0, 0),
             crab_spawns: Vec::new(),
         }
@@ -72,6 +76,31 @@ impl WorldMap {
             let i = self.idx(x, y);
             self.features[i] = f;
         }
+    }
+
+    pub fn set_elevation(&mut self, e: Vec<f32>) {
+        assert_eq!(e.len(), self.elevation.len());
+        self.elevation = e;
+    }
+
+    /// Elevation of a cell; coordinates are clamped to the map.
+    pub fn elevation(&self, x: i32, y: i32) -> f32 {
+        let (x, y) = (x.clamp(0, self.w - 1), y.clamp(0, self.h - 1));
+        self.elevation[self.idx(x, y)]
+    }
+
+    /// Bilinearly interpolated elevation at a world pixel.
+    pub fn elevation_at_px(&self, px: f32, py: f32) -> f32 {
+        let (u, v) = (px / TILE_SIZE as f32 - 0.5, py / TILE_SIZE as f32 - 0.5);
+        let (x0, y0) = (u.floor() as i32, v.floor() as i32);
+        let (tx, ty) = (u - x0 as f32, v - y0 as f32);
+        let a = self.elevation(x0, y0);
+        let b = self.elevation(x0 + 1, y0);
+        let c = self.elevation(x0, y0 + 1);
+        let d = self.elevation(x0 + 1, y0 + 1);
+        let top = a + (b - a) * tx;
+        let bot = c + (d - c) * tx;
+        top + (bot - top) * ty
     }
 
     /// Out-of-bounds cells are solid so nothing can leave the map.

@@ -1,17 +1,23 @@
-//! Pattern banks: the equivalent of CHR ROM/RAM contents.
+//! Pattern banks: the contents of VRAM.
 
 use super::pattern::{PixelArt, Tile16, Tile8};
 
 pub type MetatileId = u16;
-pub type TileId = u16;
+pub type HudTileId = u16;
+pub type SpriteId = u16;
 
-/// A 16x16 background block with one palette (the NES attribute granularity).
-/// Multiple frames emulate CHR bank switching for animated tiles.
+/// Bytes for one 8x8 tile at a given bit depth.
+const fn tile_bytes(bpp: usize) -> usize {
+    8 * bpp
+}
+
+/// A 16x16 4bpp background block (four 8x8 tiles) with its palette.
+/// Multiple frames stand in for tiles that are re-uploaded by DMA to animate.
 #[derive(Clone, Debug)]
 pub struct Metatile {
     pub palette: u8,
     pub frames: Vec<Tile16>,
-    /// Frames shown per animation step.
+    /// Video frames per animation step.
     pub period: u32,
 }
 
@@ -41,38 +47,62 @@ impl MetatileBank {
     pub fn len(&self) -> usize {
         self.tiles.len()
     }
+
+    /// VRAM bytes, counting one resident frame per animated tile.
+    pub fn vram_bytes(&self) -> usize {
+        self.tiles.len() * 4 * tile_bytes(4)
+    }
 }
 
-/// Bank of 8x8 tiles (sprites, HUD text).
+/// 8x8 2bpp tiles for BG3.
 #[derive(Default, Debug)]
-pub struct TileBank8 {
+pub struct HudTileBank {
     tiles: Vec<Tile8>,
 }
 
-impl TileBank8 {
-    pub fn add(&mut self, tile: Tile8) -> TileId {
-        self.tiles.push(tile);
-        (self.tiles.len() - 1) as TileId
-    }
-
-    pub fn add_art(&mut self, art: &PixelArt) -> Vec<TileId> {
-        art.split8().into_iter().map(|t| self.add(t)).collect()
-    }
-
-    /// Adds a 16x16 art and returns `[TL, TR, BL, BR]`.
-    pub fn add_16x16(&mut self, art: &PixelArt) -> [TileId; 4] {
-        let ids = self.add_art(art);
-        [ids[0], ids[1], ids[2], ids[3]]
-    }
-
-    /// Adds a 16x8 art and returns `[L, R]`.
-    pub fn add_16x8(&mut self, art: &PixelArt) -> [TileId; 2] {
-        let ids = self.add_art(art);
-        [ids[0], ids[1]]
+impl HudTileBank {
+    pub fn add(&mut self, art: &PixelArt) -> HudTileId {
+        self.tiles.push(art.to_tile8());
+        (self.tiles.len() - 1) as HudTileId
     }
 
     #[inline]
-    pub fn get(&self, id: TileId) -> &Tile8 {
+    pub fn get(&self, id: HudTileId) -> &Tile8 {
         &self.tiles[id as usize]
+    }
+
+    pub fn vram_bytes(&self) -> usize {
+        self.tiles.len() * tile_bytes(2)
+    }
+}
+
+/// A 4bpp sprite image. On hardware this is a block of 8x8 tiles drawn by
+/// one or more OAM entries; sizes are multiples of 8.
+#[derive(Clone, Debug)]
+pub struct SpriteGfx {
+    pub w: usize,
+    pub h: usize,
+    pub px: Vec<u8>,
+}
+
+#[derive(Default, Debug)]
+pub struct SpriteBank {
+    sprites: Vec<SpriteGfx>,
+}
+
+impl SpriteBank {
+    pub fn add(&mut self, art: &PixelArt) -> SpriteId {
+        assert!(art.w % 8 == 0 && art.h % 8 == 0, "sprite size must be a multiple of 8");
+        self.sprites.push(SpriteGfx { w: art.w, h: art.h, px: art.px.clone() });
+        (self.sprites.len() - 1) as SpriteId
+    }
+
+    #[inline]
+    pub fn get(&self, id: SpriteId) -> &SpriteGfx {
+        &self.sprites[id as usize]
+    }
+
+    pub fn vram_bytes(&self) -> usize {
+        self.sprites.iter().map(|s| s.w * s.h / 2).sum()
     }
 }

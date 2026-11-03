@@ -1,30 +1,43 @@
-//! Metasprite helpers: build larger sprites out of 8x8 OAM entries.
+//! Collects sprites for a frame and writes them to OAM in priority order.
 
-use crate::ppu::banks::TileId;
-use crate::ppu::oam::{Oam, OamEntry, attr};
+use crate::ppu::oam::{Oam, ObjEntry};
 
-/// Pushes a 16x16 metasprite (`[TL, TR, BL, BR]`), handling flips by swapping
-/// the tile order the way NES games did.
-pub fn push_16x16(oam: &mut Oam, tiles: [TileId; 4], x: i32, y: i32, attrs: u8) {
-    let fh = attrs & attr::FLIP_H != 0;
-    let fv = attrs & attr::FLIP_V != 0;
-    for (i, &tile) in tiles.iter().enumerate() {
-        let (mut col, mut row) = ((i % 2) as i32, (i / 2) as i32);
-        if fh {
-            col = 1 - col;
-        }
-        if fv {
-            row = 1 - row;
-        }
-        oam.push(OamEntry { x: x + col * 8, y: y + row * 8, tile, attr: attrs });
-    }
+/// OAM order decides overlap between sprites (lower index = in front), so
+/// sprites are gathered first and flushed as: sky → actors (nearest first)
+/// → ground shadows.
+#[derive(Default)]
+pub struct DrawList {
+    sky: Vec<ObjEntry>,
+    actors: Vec<(i32, ObjEntry)>,
+    shadows: Vec<ObjEntry>,
 }
 
-/// Pushes a 16x8 metasprite (`[L, R]`).
-pub fn push_16x8(oam: &mut Oam, tiles: [TileId; 2], x: i32, y: i32, attrs: u8) {
-    let fh = attrs & attr::FLIP_H != 0;
-    for (i, &tile) in tiles.iter().enumerate() {
-        let col = if fh { 1 - i as i32 } else { i as i32 };
-        oam.push(OamEntry { x: x + col * 8, y, tile, attr: attrs });
+impl DrawList {
+    pub fn clear(&mut self) {
+        self.sky.clear();
+        self.actors.clear();
+        self.shadows.clear();
+    }
+
+    /// Flying things drawn above everything else.
+    pub fn sky(&mut self, e: ObjEntry) {
+        self.sky.push(e);
+    }
+
+    /// `depth` is the actor's ground y; larger = nearer the viewer. Parts
+    /// pushed with the same depth keep their order.
+    pub fn actor(&mut self, depth: i32, e: ObjEntry) {
+        self.actors.push((depth, e));
+    }
+
+    pub fn shadow(&mut self, e: ObjEntry) {
+        self.shadows.push(e);
+    }
+
+    pub fn flush(&mut self, oam: &mut Oam) {
+        self.actors.sort_by(|a, b| b.0.cmp(&a.0));
+        for e in self.sky.iter().chain(self.actors.iter().map(|(_, e)| e)).chain(self.shadows.iter()) {
+            oam.push(*e);
+        }
     }
 }

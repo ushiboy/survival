@@ -1,6 +1,9 @@
 const CONTROLS: Array<[string, string]> = [
   ['移動', '矢印キー / WASD'],
-  ['A / B', 'Z・J / X・K (未使用)'],
+  ['B / A', 'Z / X (未使用)'],
+  ['Y', 'C — ランタン所持の切替 (デバッグ)'],
+  ['X', 'V (未使用)'],
+  ['L / R', 'Q / E (未使用)'],
   ['START', 'Enter — ポーズ'],
   ['SELECT', 'Shift — 時刻を3時間進める (デバッグ)'],
 ];

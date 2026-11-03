@@ -34,8 +34,8 @@ impl GameHandle {
         GameHandle { game: game::Game::new(seed) }
     }
 
-    /// Advance one frame with the given NES-style button byte.
-    pub fn step(&mut self, buttons: u8) {
+    /// Advance one frame with the given SNES joypad word.
+    pub fn step(&mut self, buttons: u16) {
         self.game.step(buttons);
     }
 
@@ -43,7 +43,7 @@ impl GameHandle {
         self.game.render();
     }
 
-    /// Pointer to the 256x240 RGBA frame in wasm memory.
+    /// Pointer to the 256x224 RGBA frame in wasm memory.
     pub fn frame_ptr(&self) -> *const u8 {
         self.game.rgba().as_ptr()
     }
@@ -52,10 +52,11 @@ impl GameHandle {
         self.game.set_sprite_limit(on);
     }
 
-    /// Compact status for the debug panel: "tileX,tileY,day,minute,paused".
+    /// Compact status for the debug panel:
+    /// `[tileX, tileY, day, minuteOfDay, paused, vramBytes]`.
     pub fn status(&self) -> Vec<i32> {
         let (tx, ty) = self.game.player_tile();
         let c = self.game.clock();
-        vec![tx, ty, c.day as i32, c.minute as i32, self.game.is_paused() as i32]
+        vec![tx, ty, c.day as i32, c.minute as i32, self.game.is_paused() as i32, self.game.vram_usage() as i32]
     }
 }
