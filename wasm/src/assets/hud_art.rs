@@ -161,46 +161,6 @@ pub fn icon_lantern() -> PixelArt {
     ])
 }
 
-pub fn icon_wood() -> PixelArt {
-    art([
-        "........",
-        ".11111..",
-        "1333311.",
-        "12222131",
-        "12222131",
-        "1222211.",
-        ".11111..",
-        "........",
-    ])
-}
-
-pub fn icon_coconut() -> PixelArt {
-    art([
-        "........",
-        "..111...",
-        ".13321..",
-        "1332221.",
-        "1322221.",
-        "1222221.",
-        ".12221..",
-        "..111...",
-    ])
-}
-
-/// Raw (unboiled) water: a scoop of water, rippled on top.
-pub fn icon_raw_water() -> PixelArt {
-    art([
-        "........",
-        "...1....",
-        "..131...",
-        ".13221..",
-        "1322221.",
-        "1232321.",
-        ".12221..",
-        "..111...",
-    ])
-}
-
 /// Quarters of a 16px bag cell: a sunken slot with a dark rim on the top
 /// and left and a light one on the bottom and right.
 pub fn bag_cell() -> [PixelArt; 4] {
