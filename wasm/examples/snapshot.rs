@@ -26,6 +26,7 @@ fn main() {
             game.step(buttons);
         }
     }
+    eprintln!("player tile {:?}", game.player_tile());
     game.render();
     let mut data = format!("P6\n{SCREEN_W} {SCREEN_H}\n255\n").into_bytes();
     for px in game.rgba().chunks(4) {

@@ -28,6 +28,12 @@ pub mod slot {
     pub const ACCENT: [u8; 2] = [14, 15];
 }
 
+/// The lying pose turned a quarter so the body lies head-left: 32x24.
+pub fn render_lying(outfit: &Outfit, eyes_open: bool) -> crate::ppu::pattern::PixelArt {
+    // Rotate counter-clockwise: the top of the standing render goes left.
+    render::render(&pose::lying(eyes_open), outfit).body.transposed().flipped_v()
+}
+
 /// A colour ramp: dark, base, light.
 pub type Ramp = [Rgb555; 3];
 
@@ -46,19 +52,24 @@ pub enum Headwear {
 pub enum Sleeve {
     None,
     Short,
+    /// Long sleeves rolled up just past the elbow.
+    Rolled,
     Long,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Top {
     Bare,
-    Shirt { sleeve: Sleeve, torn: bool },
+    /// `collar` gives a dress-shirt collar and button placket.
+    Shirt { sleeve: Sleeve, torn: bool, collar: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Legwear {
     Shorts,
     Pants,
+    /// Denim trousers: faded fronts, a ripped knee, rolled hems.
+    Jeans,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +78,8 @@ pub enum Footwear {
     Sandals,
     /// Leather boots (drawn with the hair ramp, a dark brown).
     Boots,
+    /// Canvas sneakers in the accent colours (sole/laces, upper).
+    Sneakers,
 }
 
 /// Everything worn, by shape and colour.
@@ -82,21 +95,21 @@ pub struct Outfit {
 }
 
 impl Outfit {
-    /// Bandana, torn shirt, rolled denim shorts, bare feet.
+    /// Torn white dress shirt with rolled sleeves, ripped jeans, sneakers.
     pub const CASTAWAY: Self = Self {
-        head: Headwear::Bandana,
-        top: Top::Shirt { sleeve: Sleeve::Short, torn: true },
-        legs: Legwear::Shorts,
-        feet: Footwear::Barefoot,
-        top_colors: [c(150, 150, 150), c(214, 210, 196), c(248, 246, 236)],
-        bottom_colors: [c(40, 62, 116), c(66, 100, 168), c(110, 146, 206)],
-        accent: [c(150, 28, 36), c(218, 58, 48)],
+        head: Headwear::None,
+        top: Top::Shirt { sleeve: Sleeve::Rolled, torn: true, collar: true },
+        legs: Legwear::Jeans,
+        feet: Footwear::Sneakers,
+        top_colors: [c(150, 150, 156), c(216, 214, 204), c(250, 250, 244)],
+        bottom_colors: [c(34, 54, 100), c(58, 90, 152), c(104, 140, 196)],
+        accent: [c(104, 110, 128), c(234, 234, 226)],
     };
 
     /// Straw hat, long-sleeved shirt, trousers, boots.
     pub const EXPLORER: Self = Self {
         head: Headwear::StrawHat,
-        top: Top::Shirt { sleeve: Sleeve::Long, torn: false },
+        top: Top::Shirt { sleeve: Sleeve::Long, torn: false, collar: true },
         legs: Legwear::Pants,
         feet: Footwear::Boots,
         top_colors: [c(54, 96, 70), c(84, 140, 96), c(132, 186, 132)],

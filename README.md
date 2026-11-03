@@ -18,10 +18,18 @@ Rust 単体でフレームを PPM に書き出す確認用ツール（入力ス�
 cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 ```
 
+終了時のプレイヤーのタイル座標を標準エラーに出力します。
+
 主人公の全ポーズ×服装プリセットの一覧シート:
 
 ```bash
 cd wasm && cargo run --release --example charsheet -- chars.ppm 4
+```
+
+スポーン地点に近いヤシの木（幹の根元のセル）と残りの椰子の実の数:
+
+```bash
+cd wasm && cargo run --release --example palms -- 1
 ```
 
 ## 構成

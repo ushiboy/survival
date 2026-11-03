@@ -8,7 +8,9 @@ use crate::assets::Assets;
 use crate::assets::character::Outfit;
 use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
-use crate::entity::{Crab, Gull, Particles, Player};
+use crate::assets::props::{PALM_W, coconut_spots};
+use crate::common::rng::Rng;
+use crate::entity::{Coconut, Crab, Deed, Gull, Particles, Player};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
@@ -16,8 +18,8 @@ use crate::render::camera::Camera;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::lighting::{self, Light, Lighting};
 use crate::render::sprites::DrawList;
-use crate::render::tileset::{Tileset, VisualMap};
-use crate::world::harvest::{Harvest, Strike};
+use crate::render::tileset::{Tileset, VisualMap, sway_palm};
+use crate::world::harvest::{Harvest, Shaken, Strike};
 use crate::world::{TILE_SIZE, WorldMap, island};
 use state::{GameClock, Inventory, Vitals};
 
@@ -32,6 +34,8 @@ const HITSTOP_HARD: u32 = 3;
 const TREE_SHAKE_FRAMES: u32 = 16;
 const TREE_SHAKE: [i32; 8] = [0, 1, -1, 1, -2, 2, -2, 2];
 const CAMERA_SHAKE_FRAMES: u32 = 10;
+/// A shaken palm sways for less time than a struck one.
+const TREE_SWAY_FRAMES: u32 = 10;
 /// Four 4bpp 8x8 tiles.
 const METATILE_BYTES: usize = 128;
 
@@ -62,8 +66,7 @@ const MATH_NIGHT: ColorMath = ColorMath {
 /// A palm canopy wobbling after a hit: world-space rows and frames left.
 #[derive(Clone, Copy, Debug)]
 struct TreeShake {
-    top: i32,
-    bottom: i32,
+    anchor: (i32, i32),
     frames: u32,
 }
 
@@ -74,6 +77,8 @@ pub struct Game {
     visual: VisualMap,
     harvest: Harvest,
     particles: Particles,
+    coconuts: Vec<Coconut>,
+    rng: Rng,
     hitstop: u32,
     tree_shake: Option<TreeShake>,
     camera_shake: u32,
@@ -99,7 +104,8 @@ impl Game {
         let map = island::generate(seed);
         let mut tileset = Tileset::default();
         let visual = tileset.build(&map, &mut assets);
-        let player = Player::at_feet(map.spawn.0, map.spawn.1);
+        // The story opens with the castaway washed up on the beach.
+        let player = Player::washed_up(map.spawn.0, map.spawn.1);
         let crabs = map
             .crab_spawns
             .iter()
@@ -118,6 +124,8 @@ impl Game {
             visual,
             harvest: Harvest::default(),
             particles: Particles::new(seed ^ 0xFA57),
+            coconuts: Vec::new(),
+            rng: Rng::new(seed ^ 0xC0C0),
             hitstop: 0,
             tree_shake: None,
             camera_shake: 0,
@@ -176,10 +184,13 @@ impl Game {
             self.hitstop -= 1;
             return;
         }
-        if let Some(point) = self.player.update(&self.input, &self.map, self.inventory.axe) {
-            self.resolve_axe(point);
+        match self.player.update(&self.input, &self.map, self.inventory.axe) {
+            Some(Deed::Chop(point)) => self.resolve_axe(point),
+            Some(Deed::Shake(point)) => self.resolve_shake(point),
+            None => {}
         }
         self.particles.update();
+        self.update_coconuts();
         let pc = self.player.center();
         for crab in &mut self.crabs {
             crab.update(&self.map, pc);
@@ -209,9 +220,9 @@ impl Game {
                 self.particles.chips(point, toward, 4);
                 let (canopy, ground) = palm_canopy(anchor);
                 self.particles.leaves(canopy, ground, 2);
-                self.tree_shake = Some(TreeShake { top: canopy.1, bottom: canopy.1 + canopy.3, frames: TREE_SHAKE_FRAMES });
+                self.start_sway(anchor, TREE_SHAKE_FRAMES);
             }
-            Strike::TreeFelled { anchor, changed, wood } => {
+            Strike::TreeFelled { anchor, changed, wood, fruit } => {
                 self.hitstop = HITSTOP_FELL;
                 self.camera_shake = CAMERA_SHAKE_FRAMES;
                 self.tree_shake = None;
@@ -220,6 +231,11 @@ impl Game {
                 self.particles.leaves(canopy, ground, 14);
                 self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
                 self.inventory.wood += wood;
+                // Whatever coconuts were left come down with the crown.
+                let flip = palm_flip(&self.map, anchor);
+                for slot in 0..fruit {
+                    self.drop_coconut(anchor, slot, flip);
+                }
             }
             Strike::Brush => {
                 self.particles.leaves((point.0 - 6, point.1 - 10, 12, 8), point.1 + 2, 3);
@@ -232,8 +248,91 @@ impl Game {
         }
     }
 
+    /// Applies one shake of the trunk at `point` (world px).
+    fn resolve_shake(&mut self, point: (i32, i32)) {
+        let (anchor, sway) = match self.harvest.shake(&mut self.map, point) {
+            Shaken::Miss => return,
+            Shaken::Rustle { anchor, .. } => (anchor, TREE_SWAY_FRAMES),
+            Shaken::Drop { anchor, slot, changed } => {
+                let flip = palm_flip(&self.map, anchor);
+                self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[changed]);
+                self.drop_coconut(anchor, slot, flip);
+                (anchor, TREE_SHAKE_FRAMES)
+            }
+        };
+        let (canopy, ground) = palm_canopy(anchor);
+        if self.rng.chance(0.35) {
+            self.particles.leaves(canopy, ground, 1);
+        }
+        self.start_sway(anchor, sway);
+    }
+
+    /// Sends the coconut hanging in `slot` of the palm at `anchor` falling
+    /// to a free spot of ground at the foot of the tree.
+    fn drop_coconut(&mut self, anchor: (i32, i32), slot: u8, flip: bool) {
+        let (ax, ay) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
+        let (hx, hy) = coconut_spots()[slot as usize];
+        let hx = if flip { PALM_W as f32 - hx } else { hx };
+        let from = (ax as f32 + hx, ay as f32 + hy);
+        // Below the tree or beside the trunk (whose cell is solid).
+        let trunk_x = ax as f32 + PALM_W as f32 / 2.0;
+        let base_y = (ay + 3 * TILE_SIZE) as f32;
+        let mut to = (from.0, base_y + 20.0);
+        for _ in 0..8 {
+            let side = if self.rng.chance(0.5) { -1.0 } else { 1.0 };
+            let cand = if self.rng.chance(0.6) {
+                (trunk_x + self.rng.between(-14, 14) as f32, base_y + 16.0 + self.rng.between(2, 10) as f32)
+            } else {
+                (trunk_x + side * self.rng.between(11, 18) as f32, base_y + self.rng.between(8, 15) as f32)
+            };
+            let p = self.map.props_at_px(cand.0 as i32, cand.1 as i32);
+            let dry = self.map.terrain(cand.0 as i32 / TILE_SIZE, cand.1 as i32 / TILE_SIZE).is_land();
+            if !p.solid && dry {
+                to = cand;
+                break;
+            }
+        }
+        let roll = (((to.0 - trunk_x) * 0.04).clamp(-0.6, 0.6), self.rng.between(0, 4) as f32 * 0.1);
+        self.coconuts.push(Coconut::falling(from, to, roll));
+    }
+
+    /// Moves falling coconuts and picks up the ones the castaway walks over.
+    fn update_coconuts(&mut self) {
+        let feet = self.player.body.feet();
+        let can_pick = self.player.can_pick_up();
+        for c in &mut self.coconuts {
+            c.update(&self.map);
+        }
+        let before = self.coconuts.len();
+        let particles = &mut self.particles;
+        self.coconuts.retain(|c| {
+            let taken = can_pick && c.reachable_from(feet);
+            if taken {
+                let (x, y) = c.ground();
+                particles.sparks((x, y - 4), 1);
+            }
+            !taken
+        });
+        self.inventory.coconuts += (before - self.coconuts.len()) as u32;
+    }
+
+    /// Sways the palm at `anchor` for `frames`, settling any other tree
+    /// that was still swaying.
+    fn start_sway(&mut self, anchor: (i32, i32), frames: u32) {
+        if let Some(old) = self.tree_shake.filter(|s| s.anchor != anchor) {
+            sway_palm(&self.map, &self.assets.props, &mut self.visual, old.anchor, 0);
+        }
+        self.tree_shake = Some(TreeShake { anchor, frames });
+    }
+
     /// Sets up PPU state for this frame and renders it to the RGBA buffer.
     pub fn render(&mut self) {
+        if let Some(shake) = self.tree_shake {
+            // Tile animation on the struck tree only (a BG2 line scroll would
+            // also move every other tree on the same lines).
+            let dx = TREE_SHAKE[(shake.frames / 2) as usize % TREE_SHAKE.len()];
+            sway_palm(&self.map, &self.assets.props, &mut self.visual, shake.anchor, dx);
+        }
         let lighting = Lighting::at(self.clock.minute_f());
         let night = lighting.darkness > NIGHT_THRESHOLD;
         let mut camera = self.camera;
@@ -262,14 +361,6 @@ impl Game {
             f.lines.clear();
             f.math = MATH_TRANSLUCENT;
         }
-        if let Some(shake) = self.tree_shake {
-            // HDMA: wobble BG2 only on the lines covering the struck canopy.
-            let dx = TREE_SHAKE[(shake.frames / 2) as usize % TREE_SHAKE.len()];
-            let (top, bottom) = ((shake.top - camera.y).max(0), (shake.bottom - camera.y).min(SCREEN_H as i32));
-            for y in top..bottom {
-                f.lines.bg2_hofs[y as usize] = dx;
-            }
-        }
 
         hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
 
@@ -282,6 +373,9 @@ impl Game {
         self.player.draw(list, &camera, sprites, self.frame_count, shadows, in_front);
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
+        }
+        for c in &self.coconuts {
+            c.draw(list, &camera, sprites, night);
         }
         self.particles.draw(list, &camera, sprites, self.frame_count);
         if !night {
@@ -350,6 +444,18 @@ impl Game {
 fn palm_canopy(anchor: (i32, i32)) -> ((i32, i32, i32, i32), i32) {
     let (x, y) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
     ((x + 2, y + 4, 44, 32), y + 3 * TILE_SIZE + 4)
+}
+
+/// Whether the palm at `anchor` is drawn mirrored.
+fn palm_flip(map: &WorldMap, anchor: (i32, i32)) -> bool {
+    // Read from the trunk base, which outlives the rest of a felled tree.
+    use crate::world::terrain::PalmPart;
+    let (x, y) = (anchor.0 + PalmPart::W / 2, anchor.1 + PalmPart::H - 1);
+    match map.feature(x, y) {
+        crate::world::Feature::Palm(p) => p.flip,
+        crate::world::Feature::Stump(s) => s.flip,
+        _ => false,
+    }
 }
 
 /// Whether the castaway stands in front of (south of) a palm whose canopy

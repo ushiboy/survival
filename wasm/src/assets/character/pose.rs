@@ -52,6 +52,7 @@ pub struct Pose {
     pub arms: [Limb; 2],
     pub legs: [Limb; 2],
     pub tool: Option<ToolHold>,
+    pub closed_eyes: bool,
 }
 
 impl Pose {
@@ -99,6 +100,7 @@ fn front_stand(view: View) -> Pose {
             limb((14.0, 21.5), (14.2, 25.8), (14.2, 29.6), false),
         ],
         tool: None,
+        closed_eyes: false,
     }
 }
 
@@ -119,6 +121,7 @@ fn side_stand() -> Pose {
             limb((11.4, 21.5), (11.4, 25.8), (11.3, 29.6), false),
         ],
         tool: None,
+        closed_eyes: false,
     }
 }
 
@@ -182,6 +185,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Side, true, false, false),
+                    closed_eyes: false,
                 },
                 1 => Pose {
                     view,
@@ -196,6 +200,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Up, false, true, true),
+                    closed_eyes: false,
                 },
                 _ => Pose {
                     view,
@@ -213,6 +218,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                         limb((13.0, 21.6), (15.8, 25.2), (17.6, 29.6), false),
                     ],
                     tool: hold(AxeArt::Side, false, false, false),
+                    closed_eyes: false,
                 },
             }
         }
@@ -235,6 +241,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Side, true, false, false),
+                    closed_eyes: false,
                 },
                 1 => Pose {
                     view,
@@ -249,6 +256,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Diag, true, true, true),
+                    closed_eyes: false,
                 },
                 _ => Pose {
                     view,
@@ -263,6 +271,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Up, false, true, true),
+                    closed_eyes: false,
                 },
             }
         }
@@ -285,6 +294,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Side, false, false, false),
+                    closed_eyes: false,
                 },
                 1 => Pose {
                     view,
@@ -299,6 +309,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Diag, false, false, false),
+                    closed_eyes: false,
                 },
                 _ => Pose {
                     view,
@@ -313,8 +324,165 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     ],
                     legs,
                     tool: hold(AxeArt::Up, false, false, false),
+                    closed_eyes: false,
                 },
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------- shaking a tree
+
+/// Gripping a trunk with both hands and rocking it: 0 = leaning in and
+/// pushing, 1 = hanging back and pulling. The hands stay where the trunk is
+/// while the body rocks, so the grip reads as fixed.
+pub fn shake(view: View, stage: usize) -> Pose {
+    let push = stage % 2 == 0;
+    match view {
+        View::Side => {
+            let grip = [(19.4, 16.4), (19.0, 16.8)];
+            if push {
+                Pose {
+                    view,
+                    head: (14.4, 7.8),
+                    neck: (13.6, 13.6),
+                    pelvis: (12.0, 21.0),
+                    shoulder_w: 3.5,
+                    hip_w: 3.2,
+                    arms: [
+                        limb((13.8, 15.2), (15.4, 19.0), grip[0], false),
+                        limb((13.0, 15.4), (14.8, 19.4), grip[1], true),
+                    ],
+                    legs: [
+                        limb((12.4, 21.6), (10.2, 25.6), (7.4, 29.6), false),
+                        limb((11.6, 21.6), (14.6, 25.0), (15.0, 29.6), false),
+                    ],
+                    tool: None,
+                    closed_eyes: false,
+                }
+            } else {
+                Pose {
+                    view,
+                    head: (10.4, 7.4),
+                    neck: (10.8, 13.2),
+                    pelvis: (11.4, 21.2),
+                    shoulder_w: 3.5,
+                    hip_w: 3.2,
+                    arms: [
+                        limb((11.6, 15.0), (15.4, 15.8), grip[0], false),
+                        limb((10.8, 15.2), (14.8, 16.2), grip[1], true),
+                    ],
+                    legs: [
+                        limb((11.8, 21.8), (9.8, 25.4), (8.6, 29.6), false),
+                        limb((11.0, 21.8), (13.8, 25.4), (15.4, 29.6), false),
+                    ],
+                    tool: None,
+                    closed_eyes: false,
+                }
+            }
+        }
+        View::Front => {
+            // The trunk is toward the viewer, just below the chest.
+            let (lean, elbow) = if push { (0.9, 2.2) } else { (-0.6, 0.6) };
+            let p = front_stand(view);
+            Pose {
+                head: (12.0, p.head.1 + lean * 1.2),
+                neck: (12.0, p.neck.1 + lean),
+                shoulder_w: if push { 4.6 } else { 4.2 },
+                arms: [
+                    limb((7.8, 14.8 + lean), (7.6 - elbow, 18.4 + lean * 0.5), (9.8, 20.4), true),
+                    limb((16.2, 14.8 + lean), (16.4 + elbow, 18.4 + lean * 0.5), (14.2, 20.4), true),
+                ],
+                legs: [
+                    limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false),
+                    limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false),
+                ],
+                ..p
+            }
+        }
+        View::Back => {
+            // The trunk is away from the viewer: the hands show either side
+            // of the shoulders, the head dips into the push.
+            let (lean, elbow) = if push { (-0.9, 1.2) } else { (0.7, 0.4) };
+            let p = front_stand(view);
+            Pose {
+                head: (12.0, p.head.1 + lean * 1.2),
+                neck: (12.0, p.neck.1 + lean),
+                shoulder_w: if push { 4.6 } else { 4.2 },
+                arms: [
+                    limb((7.8, 14.8 + lean), (6.6 - elbow, 17.4), (8.2, 13.6), false),
+                    limb((16.2, 14.8 + lean), (17.4 + elbow, 17.4), (15.8, 13.6), false),
+                ],
+                legs: [
+                    limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false),
+                    limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false),
+                ],
+                ..p
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- waking up
+
+/// Sprawled on his back, one arm flung above the head. Rendered front-on and
+/// then rotated a quarter turn so the body lies head-left on the ground.
+pub fn lying(eyes_open: bool) -> Pose {
+    Pose {
+        head: (11.4, 7.2),
+        arms: [
+            limb((7.9, 14.8), (5.4, 10.6), (4.6, 6.2), true),
+            limb((16.1, 14.8), (19.0, 17.6), (20.8, 21.0), true),
+        ],
+        legs: [
+            limb((10.0, 21.5), (9.0, 25.8), (8.2, 29.6), false),
+            limb((14.0, 21.5), (15.6, 25.6), (16.6, 29.4), false),
+        ],
+        closed_eyes: !eyes_open,
+        ..front_stand(View::Front)
+    }
+}
+
+/// Sitting up, facing right: legs out in front, propped on one hand.
+pub fn sitting() -> Pose {
+    Pose {
+        view: View::Side,
+        head: (9.4, 11.4),
+        neck: (8.8, 17.4),
+        pelvis: (9.6, 25.2),
+        shoulder_w: 3.5,
+        hip_w: 3.2,
+        arms: [
+            limb((9.4, 18.8), (7.4, 22.4), (5.6, 26.6), false),
+            limb((8.6, 19.0), (11.0, 22.0), (13.8, 23.6), true),
+        ],
+        legs: [
+            limb((10.0, 25.6), (15.4, 25.2), (20.2, 28.4), false),
+            limb((9.4, 25.8), (14.6, 24.4), (19.2, 28.6), false),
+        ],
+        tool: None,
+        closed_eyes: false,
+    }
+}
+
+/// Getting up, facing right: one knee down, a hand pushing off the other.
+pub fn kneeling() -> Pose {
+    Pose {
+        view: View::Side,
+        head: (13.6, 11.4),
+        neck: (12.8, 17.2),
+        pelvis: (11.0, 24.6),
+        shoulder_w: 3.5,
+        hip_w: 3.2,
+        arms: [
+            limb((13.0, 18.4), (13.0, 22.0), (13.6, 25.4), false),
+            limb((12.4, 18.6), (14.6, 21.6), (15.8, 24.0), true),
+        ],
+        legs: [
+            limb((11.2, 25.0), (12.2, 29.2), (6.8, 29.6), false),
+            limb((10.8, 25.0), (16.0, 24.6), (16.2, 29.6), false),
+        ],
+        tool: None,
+        closed_eyes: false,
     }
 }

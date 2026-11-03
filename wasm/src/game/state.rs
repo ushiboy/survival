@@ -91,12 +91,13 @@ pub struct Inventory {
     /// Lights the surroundings at night.
     pub lantern: bool,
     pub wood: u32,
+    pub coconuts: u32,
     /// What the castaway is wearing.
     pub outfit: Outfit,
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { axe: true, lantern: false, wood: 0, outfit: Outfit::CASTAWAY }
+        Self { axe: true, lantern: false, wood: 0, coconuts: 0, outfit: Outfit::CASTAWAY }
     }
 }

@@ -33,6 +33,16 @@ impl PalmPart {
     pub fn is_trunk_base(&self) -> bool {
         self.dx as i32 == Self::W / 2 && self.dy as i32 == Self::H - 1
     }
+
+    /// The canopy cell the coconuts hang in.
+    pub fn is_crown(&self) -> bool {
+        self.dx as i32 == Self::W / 2 && self.dy == 1
+    }
+
+    /// Top-left cell of the tree this part at `(x, y)` belongs to.
+    pub fn anchor(&self, x: i32, y: i32) -> (i32, i32) {
+        (x - self.dx as i32, y - self.dy as i32)
+    }
 }
 
 /// A palm stump (left in the old trunk-base cell).

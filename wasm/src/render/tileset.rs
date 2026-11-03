@@ -12,7 +12,7 @@ use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_SAND, PAL_SHORE, deep, gr
 use crate::assets::paint::{bayer, noise_px};
 use crate::assets::props::{Ground, PropTile, composite};
 use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
-use crate::assets::{Assets, PropSet, SURF_FRAMES, SURF_PERIOD};
+use crate::assets::{Assets, PALM_SWAY_MAX, PropSet, SURF_FRAMES, SURF_PERIOD};
 use crate::ppu::banks::{MetatileBank, MetatileId};
 use crate::ppu::pattern::PixelArt;
 use crate::ppu::{BgCell, BgLayer};
@@ -312,15 +312,9 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
     let mut overhead = BgCell::EMPTY;
     let tile = match map.feature(x, y) {
         Feature::Palm(p) => {
-            // Mirrored trees swap columns; BG2 uses the PPU's h-flip.
-            let last = PalmPart::W as u8 - 1;
-            let col = if p.flip { last - p.dx } else { p.dx } as usize;
-            let dy = p.dy as usize;
-            if dy < 3 {
-                let id = props.palm_upper[dy * 3 + col];
-                overhead = BgCell { tile: id, hflip: p.flip, high: true };
-            }
-            match dy {
+            let col = if p.flip { PalmPart::W as u8 - 1 - p.dx } else { p.dx } as usize;
+            overhead = palm_overhead(props, map, x, y, p, 0);
+            match p.dy {
                 0 | 1 => b.terrain(map, x, y),
                 2 => b.prop(10 + col as u8, &props.palm.shade[col], p.flip, x, y),
                 _ => b.prop(13 + col as u8, &props.palm.lower[col], p.flip, x, y),
@@ -336,4 +330,37 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::None => b.terrain(map, x, y),
     };
     (BgCell::new(tile), overhead)
+}
+
+/// BG2 cell of a palm part, with the canopy shifted `sway` px (the row
+/// above the trunk base bends half as far). Mirrored trees swap columns and
+/// use the PPU's h-flip, so they take the opposite shift.
+fn palm_overhead(props: &PropSet, map: &WorldMap, x: i32, y: i32, p: PalmPart, sway: i32) -> BgCell {
+    let dy = p.dy as usize;
+    if dy >= 3 {
+        return BgCell::EMPTY;
+    }
+    let col = if p.flip { PalmPart::W as u8 - 1 - p.dx } else { p.dx } as usize;
+    let dx = if dy == 2 { sway / 2 } else { sway };
+    let dx = (if p.flip { -dx } else { dx }).clamp(-PALM_SWAY_MAX, PALM_SWAY_MAX);
+    let tiles = &props.palm_tiles[(dx + PALM_SWAY_MAX) as usize];
+    let tile = if p.is_crown() {
+        tiles.crowns[(map.fruit(p.anchor(x, y)) as usize).min(tiles.crowns.len() - 1)]
+    } else {
+        tiles.upper[dy * 3 + col]
+    };
+    BgCell { tile, hflip: p.flip, high: true }
+}
+
+/// Redraws the canopy of the palm at `anchor` shifted `sway` px, leaving
+/// every other tree alone.
+pub fn sway_palm(map: &WorldMap, props: &PropSet, visual: &mut VisualMap, anchor: (i32, i32), sway: i32) {
+    for dy in 0..3 {
+        for dx in 0..PalmPart::W {
+            let (x, y) = (anchor.0 + dx, anchor.1 + dy);
+            if let Feature::Palm(p) = map.feature(x, y) {
+                visual.overhead.set(x, y, palm_overhead(props, map, x, y, p, sway));
+            }
+        }
+    }
 }

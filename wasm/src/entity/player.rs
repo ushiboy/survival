@@ -10,6 +10,7 @@ use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
+use crate::world::harvest::can_shake;
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -38,11 +39,40 @@ const CHOP_TOTAL: u32 = 22;
 /// How long the swoosh trail shows around the strike.
 const SWOOSH_FRAMES: u32 = 6;
 
+/// Shaking a trunk (frames): push and pull alternate every `SHAKE_STEP`;
+/// the tree registers one shake on `SHAKE_HIT` of each round.
+const SHAKE_STEP: u32 = 5;
+const SHAKE_HIT: u32 = 2;
+const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
+
+/// Waking up on the beach (frames): lying still, stirring (eyes open and a
+/// blink), sitting up, getting onto one knee, standing and looking around.
+const WAKE_STIR: u32 = 110;
+const WAKE_SIT: u32 = 160;
+const WAKE_KNEEL: u32 = 205;
+const WAKE_STAND: u32 = 232;
+const WAKE_END: u32 = 330;
+/// Earliest frame a button press can skip the wake-up.
+const WAKE_SKIPPABLE: u32 = 20;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Idle,
     /// Swinging the axe; `t` counts frames since the swing started.
     Chop { t: u32 },
+    /// Coming to on the beach; `t` counts frames since the game started.
+    WakeUp { t: u32 },
+    /// Gripping a trunk and rocking it; `t` counts frames in this round.
+    Shake { t: u32 },
+}
+
+/// Something the castaway did to the world this frame, at a world pixel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deed {
+    /// An axe blow connected.
+    Chop((i32, i32)),
+    /// A trunk was shaken.
+    Shake((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +91,15 @@ impl Player {
         Self::new(px, py - (SPRITE_H - 16))
     }
 
+    /// Lying unconscious on the sand with feet on the given cell, about to
+    /// wake up.
+    pub fn washed_up(px: i32, py: i32) -> Self {
+        let mut p = Self::at_feet(px, py);
+        p.action = Action::WakeUp { t: 0 };
+        p.facing = Dir::Right;
+        p
+    }
+
     pub fn new(px: i32, py: i32) -> Self {
         Self {
             body: Body::new(px, py, HITBOX),
@@ -72,13 +111,37 @@ impl Player {
         }
     }
 
-    /// Advances one frame. Returns the world point the axe hits on the frame
-    /// a swing connects.
-    pub fn update(&mut self, input: &InputState, map: &WorldMap, has_axe: bool) -> Option<(i32, i32)> {
+    /// Advances one frame. Returns what the castaway did to the world, on
+    /// the frame it happens (an axe blow landing, a trunk being shaken).
+    pub fn update(&mut self, input: &InputState, map: &WorldMap, has_axe: bool) -> Option<Deed> {
+        if let Action::WakeUp { t } = self.action {
+            let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
+            let t = if skip { WAKE_END } else { t + 1 };
+            if t >= WAKE_END {
+                self.action = Action::Idle;
+                self.facing = Dir::Down;
+            } else {
+                self.action = Action::WakeUp { t };
+                // Look around once standing.
+                self.facing = if (WAKE_STAND + 30..WAKE_STAND + 60).contains(&t) { Dir::Left } else { Dir::Right };
+            }
+            return None;
+        }
         if let Action::Chop { t } = self.action {
             let t = t + 1;
             self.action = if t >= CHOP_TOTAL { Action::Idle } else { Action::Chop { t } };
-            return (t == CHOP_STRIKE).then(|| self.strike_point());
+            return (t == CHOP_STRIKE).then(|| Deed::Chop(self.reach_point()));
+        }
+        if let Action::Shake { t } = self.action {
+            let t = t + 1;
+            if t < SHAKE_TOTAL {
+                self.action = Action::Shake { t };
+                return (t == SHAKE_HIT).then(|| Deed::Shake(self.reach_point()));
+            }
+            // Keep rocking while A is held.
+            let again = input.held(Buttons::A) && can_shake(map, self.reach_point());
+            self.action = if again { Action::Shake { t: 0 } } else { Action::Idle };
+            return None;
         }
         if has_axe && !self.wading && input.pressed(Buttons::B) {
             // Swinging roots you in place; change facing first if a direction is held.
@@ -89,12 +152,26 @@ impl Player {
             self.walk_timer = 0;
             return None;
         }
+        if !self.wading && input.pressed(Buttons::A) {
+            // Take hold of a trunk in front (turning toward a held direction).
+            let (ax, ay) = input.axis();
+            let before = self.facing;
+            self.facing = facing_for(self.facing, ax, ay);
+            if can_shake(map, self.reach_point()) {
+                self.action = Action::Shake { t: 0 };
+                self.moving = false;
+                self.walk_timer = 0;
+                return None;
+            }
+            self.facing = before;
+        }
         self.walk(input, map);
         None
     }
 
-    /// Where the axe blade lands, just in front of the feet.
-    fn strike_point(&self) -> (i32, i32) {
+    /// The spot just in front of the feet that hands and tools reach: where
+    /// the axe blade lands or the trunk being shaken.
+    fn reach_point(&self) -> (i32, i32) {
         let (fx, fy) = self.body.feet();
         match self.facing {
             Dir::Up => (fx, fy - 12),
@@ -125,6 +202,11 @@ impl Player {
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
     }
 
+    /// Free-handed and on their feet: able to scoop up what they walk over.
+    pub fn can_pick_up(&self) -> bool {
+        matches!(self.action, Action::Idle)
+    }
+
     /// Point the camera follows (roughly the torso).
     pub fn center(&self) -> (i32, i32) {
         let (x, y) = self.body.px();
@@ -149,6 +231,13 @@ impl Player {
         // The 24x32 character canvas is offset from the 16x24 logical frame.
         let (cx, cy) = (sx - CHAR_ORIGIN.0, sy - CHAR_ORIGIN.1);
 
+        if let Action::WakeUp { t } = self.action {
+            if t < WAKE_KNEEL {
+                self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
+                return;
+            }
+        }
+
         if let Action::Chop { t } = self.action {
             self.draw_chop(list, (sx, sy), (cx, cy), depth, sprites, t, prio);
             if shadows {
@@ -157,6 +246,22 @@ impl Player {
             return;
         }
 
+        if let Action::Shake { t } = self.action {
+            let stage = (t / SHAKE_STEP % 2) as usize;
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.shake[view][stage], OBJ_PLAYER, prio).flipped(flip));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if matches!(self.action, Action::WakeUp { t } if t < WAKE_STAND) {
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.kneeling, OBJ_PLAYER, prio));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
         let frame = sprites.player.walk[view][phase as usize];
         if self.wading {
             // Foam ring first (in front), then the body above the waterline,
@@ -175,6 +280,25 @@ impl Player {
 }
 
 impl Player {
+    /// Lying, stirring and sitting up (kneeling and standing are drawn as
+    /// regular frames once the castaway is on their feet).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_waking(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8, shadows: bool) {
+        let p = &sprites.player;
+        // The lying body is placed so its hips line up with the sitting pose.
+        let (lx, ly) = (sx - 15, sy + 6);
+        if t < WAKE_SIT {
+            // Eyes flutter open, blink once, then stay open.
+            let eyes_open = t >= WAKE_STIR && !(WAKE_STIR + 15..WAKE_STIR + 23).contains(&t);
+            list.actor(depth, ObjEntry::new(lx, ly, p.lying[eyes_open as usize], OBJ_PLAYER, prio));
+        } else {
+            list.actor(depth, ObjEntry::new(cx, cy, p.sitting, OBJ_PLAYER, prio));
+        }
+        if shadows {
+            list.shadow(ObjEntry::new(lx, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
+        }
+    }
+
     /// A horizontal swing at trunk height: wound up to one side, sweeping
     /// past the body, then striking forward. The axe is a separate sprite
     /// placed so its handle sits in the pose's hands; when it is in front of

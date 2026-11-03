@@ -31,6 +31,9 @@ impl Mat {
     }
 }
 
+// Alias: inside part functions `group` is also a parameter name.
+use group as group_ids;
+
 /// Body-part groups. Outline lines are drawn where different groups overlap.
 mod group {
     pub const LEG_A: u8 = 1;
@@ -117,7 +120,9 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 /// Draws a capsule from `a` to `b`. `mat(t, edge)` picks the material along
 /// the segment (t = 0..1) and may force a tone.
-fn capsule(cv: &mut Canvas, a: P, b: P, r: f32, group: u8, z: i32, mat: impl Fn(f32) -> (Mat, Option<usize>)) {
+/// `mat(t, u)` gets the position along the segment (0..1) and the distance
+/// from its axis (0..1 of the radius).
+fn capsule(cv: &mut Canvas, a: P, b: P, r: f32, group: u8, z: i32, mat: impl Fn(f32, f32) -> (Mat, Option<usize>)) {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = (dx * dx + dy * dy).max(1e-4);
     let x0 = (a.0.min(b.0) - r - 1.0).floor() as i32;
@@ -136,7 +141,7 @@ fn capsule(cv: &mut Canvas, a: P, b: P, r: f32, group: u8, z: i32, mat: impl Fn(
             }
             let u = d / r;
             let perp = if d > 1e-4 { (vx / d, vy / d) } else { (0.0, 0.0) };
-            let (m, forced) = mat(t);
+            let (m, forced) = mat(t, u);
             cv.plot(x, y, m, forced.unwrap_or_else(|| tone(cyl_normal(perp, u))), group, z);
         }
     }
@@ -169,16 +174,21 @@ fn arm(cv: &mut Canvas, limb: &Limb, outfit: &Outfit, group: u8, z: i32) {
     let upper_cover = match sleeve {
         Sleeve::None => 0.0,
         Sleeve::Short => 0.55,
-        Sleeve::Long => 1.0,
+        Sleeve::Rolled | Sleeve::Long => 1.0,
     };
     let sleeve_r = if sleeve == Sleeve::None { 1.55 } else { 1.8 };
-    capsule(cv, limb.a, limb.b, sleeve_r, group, z, |t| {
+    capsule(cv, limb.a, limb.b, sleeve_r, group, z, |t, _| {
         if t < upper_cover { (Mat::Top, None) } else { (Mat::Skin, None) }
     });
-    let long = sleeve == Sleeve::Long;
-    capsule(cv, limb.b, limb.c, if long { 1.55 } else { 1.35 }, group, z, |t| {
-        if long && t < 0.78 {
-            (Mat::Top, if t > 0.62 { Some(2) } else { None }) // cuff
+    // How far down the forearm the sleeve reaches, and where its cuff starts.
+    let (cover, cuff) = match sleeve {
+        Sleeve::Long => (0.78, 0.62),
+        Sleeve::Rolled => (0.32, 0.12),
+        _ => (0.0, 0.0),
+    };
+    capsule(cv, limb.b, limb.c, if cover > 0.0 { 1.55 } else { 1.35 }, group, z, |t, _| {
+        if t < cover {
+            (Mat::Top, if t > cuff { Some(2) } else { None })
         } else {
             (Mat::Skin, None)
         }
@@ -204,33 +214,53 @@ fn arm(cv: &mut Canvas, limb: &Limb, outfit: &Outfit, group: u8, z: i32) {
 
 fn leg(cv: &mut Canvas, limb: &Limb, view: View, outfit: &Outfit, group: u8, z: i32) {
     let shorts = outfit.legs == Legwear::Shorts;
-    capsule(cv, limb.a, limb.b, if shorts { 2.0 } else { 1.85 }, group, z, |t| {
-        if !shorts || t < 0.78 {
-            // Rolled cuff on shorts.
-            (Mat::Bottom, if shorts && t > 0.62 { Some(2) } else { None })
+    let jeans = outfit.legs == Legwear::Jeans;
+    // The rip is on one knee only.
+    let ripped = jeans && group == group_ids::LEG_A;
+    capsule(cv, limb.a, limb.b, if shorts { 2.0 } else { 1.85 }, group, z, |t, u| {
+        if ripped && t > 0.86 && u < 0.55 {
+            (Mat::Skin, None)
+        } else if !shorts || t < 0.78 {
+            // Rolled cuff on shorts; faded fronts on jeans.
+            let tone = if shorts && t > 0.62 { Some(2) } else if jeans && u < 0.3 && t > 0.2 { Some(2) } else { None };
+            (Mat::Bottom, tone)
         } else {
             (Mat::Skin, None)
         }
     });
     let boots = outfit.feet == Footwear::Boots;
-    capsule(cv, limb.b, limb.c, 1.45, group, z, |t| {
+    capsule(cv, limb.b, limb.c, 1.5, group, z, |t, u| {
         if boots && t > 0.45 {
             (Mat::Hair, if t < 0.55 { Some(2) } else { None })
-        } else if !shorts && t < 0.92 {
-            (Mat::Bottom, None)
+        } else if ripped && t < 0.16 && u < 0.6 {
+            (Mat::Skin, None)
+        } else if !shorts && t < 0.95 {
+            // Rolled hem at the ankle on jeans.
+            (Mat::Bottom, if jeans && t > 0.8 { Some(2) } else { None })
         } else {
             (Mat::Skin, None)
         }
     });
     // Foot.
     let (fx, fy) = limb.c;
-    let (cx, rx) = if view == View::Side { (fx + 1.4, 2.6) } else { (fx, 1.9) };
     let feet = outfit.feet;
-    ellipse(cv, (cx, fy + 0.6), rx, 1.3, group, z + 1, |_, y, _, ny| {
+    let sneakers = feet == Footwear::Sneakers;
+    let (cx, rx, ry) = match (view == View::Side, sneakers) {
+        (true, true) => (fx + 1.5, 3.0, 1.5),
+        (true, false) => (fx + 1.4, 2.6, 1.3),
+        (false, true) => (fx, 2.1, 1.5),
+        (false, false) => (fx, 1.9, 1.3),
+    };
+    let lace_x = cx.round() as i32;
+    ellipse(cv, (cx, fy + 0.6), rx, ry, group, z + 1, |x, y, _, ny| {
         Some(match feet {
             Footwear::Boots => (Mat::Hair, None),
             Footwear::Sandals if ny > 0.3 => (Mat::Accent, Some(0)),
             Footwear::Sandals if (y as f32) < fy => (Mat::Accent, Some(1)),
+            // Sole along the bottom, laces down the middle of the upper.
+            Footwear::Sneakers if ny > 0.4 => (Mat::Accent, Some(0)),
+            Footwear::Sneakers if x == lace_x && ny < 0.1 && view != View::Side => (Mat::Accent, Some(0)),
+            Footwear::Sneakers => (Mat::Accent, Some(1)),
             _ => (Mat::Skin, None),
         })
     });
@@ -247,7 +277,7 @@ fn hips(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
             }
             let top_row = (y as f32) < cy - 0.5;
             // Waistband: a belt on trousers, a dark band on shorts.
-            let (m, t) = if top_row && outfit.legs == Legwear::Pants {
+            let (m, t) = if top_row && outfit.legs != Legwear::Shorts {
                 (Mat::Hair, Some(0))
             } else if top_row {
                 (Mat::Bottom, Some(0))
@@ -261,9 +291,9 @@ fn hips(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
 
 fn torso(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
     let sw = pose.shoulder_w;
-    let (shirt, torn) = match outfit.top {
-        Top::Shirt { torn, .. } => (true, torn),
-        Top::Bare => (false, false),
+    let (shirt, torn, collar) = match outfit.top {
+        Top::Shirt { torn, collar, .. } => (true, torn, collar),
+        Top::Bare => (false, false, false),
     };
     // A bare torso stops above the waistband; a shirt hangs over it.
     let (top, bottom) = (pose.neck.1 + 0.3, pose.pelvis.1 + if shirt { 0.6 } else { -1.2 });
@@ -293,10 +323,27 @@ fn torso(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
             n[1] = -0.35 * (1.0 - t); // chest faces slightly up
             let mut tn = tone(n);
             let mut m = if shirt { Mat::Top } else { Mat::Skin };
+            let below_neck = yc - pose.neck.1;
+            let dx = xc - cx;
             if shirt && pose.view == View::Front {
-                // Open collar.
-                let v = pose.neck.1 + 2.8 - yc;
-                if v > 0.0 && (xc - cx).abs() < v * 0.75 {
+                // Open neck, with collar points either side on a dress shirt.
+                let v = 2.8 - below_neck;
+                if v > 0.0 && dx.abs() < v * 0.75 {
+                    m = Mat::Skin;
+                    tn = 1;
+                } else if collar && below_neck < 3.4 && dx.abs() < 3.2 {
+                    tn = 2;
+                } else if collar && dx.abs() < 0.5 && below_neck > 3.6 {
+                    // Button placket.
+                    tn = if (below_neck as i32) % 2 == 0 { 0 } else { 2 };
+                }
+            } else if shirt && collar && below_neck < 1.4 && (pose.view == View::Back || u > 0.1) {
+                tn = 2;
+            }
+            if torn && pose.view != View::Side {
+                // A couple of rips showing skin.
+                let rips = [(2.2f32, 5.6f32), (-2.6, 7.4)];
+                if rips.iter().any(|&(rx, ry)| (dx - rx).abs() < 0.9 && (below_neck - ry).abs() < 0.7) {
                     m = Mat::Skin;
                     tn = 1;
                 }
@@ -320,7 +367,7 @@ fn head(cv: &mut Canvas, pose: &Pose, z: i32) {
     let (hx, hy) = pose.head;
     let rx = if pose.view == View::Side { 5.0 } else { 5.2 };
     // Neck.
-    capsule(cv, (pose.neck.0, hy + 3.5), (pose.neck.0, pose.neck.1 + 1.0), 1.7, group::HEAD, z - 1, |_| (Mat::Skin, None));
+    capsule(cv, (pose.neck.0, hy + 3.5), (pose.neck.0, pose.neck.1 + 1.0), 1.7, group::HEAD, z - 1, |_, _| (Mat::Skin, None));
     // Ears.
     match pose.view {
         View::Side => {}
@@ -400,7 +447,7 @@ fn headwear(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
             };
             ellipse(cv, (kx, hy - 2.0), 1.0, 0.9, group::HAT, z + 1, |_, _, _, ny| Some((Mat::Accent, Some(if ny < 0.0 { 1 } else { 0 }))));
             for (ex, ey) in [(kx - 1.6 + tail_dir * 1.5, hy + 1.6), (kx + 1.2 + tail_dir * 2.5, hy + 2.4)] {
-                capsule(cv, (kx, hy - 1.6), (ex, ey), 0.55, group::HAT, z + 1, |t| (Mat::Accent, Some(if t < 0.4 { 1 } else { 0 })));
+                capsule(cv, (kx, hy - 1.6), (ex, ey), 0.55, group::HAT, z + 1, |t, _| (Mat::Accent, Some(if t < 0.4 { 1 } else { 0 })));
             }
         }
         Headwear::StrawHat => {
@@ -435,11 +482,19 @@ fn face(cv: &mut Canvas, pose: &Pose) {
         View::Front => {
             for ex in [r(hx - 3.0), r(hx + 1.0)] {
                 let ey = r(hy + 0.6);
-                // 2x2 eye with a glint in the upper-left corner.
-                cv.paint(ex, ey, slot::SKIN[2]);
-                cv.paint(ex + 1, ey, slot::OUTLINE);
-                cv.paint(ex, ey + 1, slot::OUTLINE);
-                cv.paint(ex + 1, ey + 1, slot::OUTLINE);
+                if pose.closed_eyes {
+                    // Closed: a lash line with the lid above it.
+                    cv.paint(ex, ey + 1, slot::OUTLINE);
+                    cv.paint(ex + 1, ey + 1, slot::OUTLINE);
+                    cv.paint(ex, ey, slot::SKIN[0]);
+                    cv.paint(ex + 1, ey, slot::SKIN[0]);
+                } else {
+                    // 2x2 eye with a glint in the upper-left corner.
+                    cv.paint(ex, ey, slot::SKIN[2]);
+                    cv.paint(ex + 1, ey, slot::OUTLINE);
+                    cv.paint(ex, ey + 1, slot::OUTLINE);
+                    cv.paint(ex + 1, ey + 1, slot::OUTLINE);
+                }
                 for dx in 0..2 {
                     if not_hair(cv, ex + dx, ey - 2) {
                         cv.paint(ex + dx, ey - 2, slot::HAIR[0]);
@@ -452,9 +507,14 @@ fn face(cv: &mut Canvas, pose: &Pose) {
         }
         View::Side => {
             let (ex, ey) = (r(hx + 2.4), r(hy + 0.6));
-            cv.paint(ex, ey, slot::OUTLINE);
-            cv.paint(ex, ey + 1, slot::OUTLINE);
-            cv.paint(ex + 1, ey + 1, slot::SKIN[2]);
+            if pose.closed_eyes {
+                cv.paint(ex, ey + 1, slot::OUTLINE);
+                cv.paint(ex + 1, ey + 1, slot::OUTLINE);
+            } else {
+                cv.paint(ex, ey, slot::OUTLINE);
+                cv.paint(ex, ey + 1, slot::OUTLINE);
+                cv.paint(ex + 1, ey + 1, slot::SKIN[2]);
+            }
             if not_hair(cv, ex, ey - 2) {
                 cv.paint(ex, ey - 2, slot::HAIR[0]);
                 cv.paint(ex + 1, ey - 2, slot::HAIR[0]);

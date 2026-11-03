@@ -41,6 +41,13 @@ pub struct PlayerSprites {
     pub walk: [[CharFrame; 4]; 3],
     pub chop: [[CharFrame; 3]; 3],
     pub chop_poses: [[Pose; 3]; 3],
+    /// Shaking a tree trunk: push, pull.
+    pub shake: [[SpriteId; 2]; 3],
+    /// Waking up on the beach: lying (eyes closed, open; 32x24, head left),
+    /// sitting up, kneeling (24x32, facing right).
+    pub lying: [SpriteId; 2],
+    pub sitting: SpriteId,
+    pub kneeling: SpriteId,
 }
 
 pub const VIEWS: [View; 3] = [View::Front, View::Back, View::Side];
@@ -65,7 +72,34 @@ impl PlayerSprites {
             let [full, top, legs, hands] = render_frame(pose, outfit).map(|a| bank.add(&a));
             CharFrame { full, top, legs, hands }
         };
-        Self { walk: walk.map(|v| v.map(|p| add(&p))), chop: chop.map(|v| v.map(|p| add(&p))), chop_poses: chop }
+        let walk_frames = walk.map(|v| v.map(|p| add(&p)));
+        let chop_frames = chop.map(|v| v.map(|p| add(&p)));
+        let [lying, sitting, kneeling] = Self::wake_art(outfit);
+        let lying = lying.map(|a| bank.add(&a));
+        Self {
+            walk: walk_frames,
+            chop: chop_frames,
+            chop_poses: chop,
+            shake: Self::shake_art(outfit).map(|v| v.map(|a| bank.add(&a))),
+            lying,
+            sitting: bank.add(&sitting[0]),
+            kneeling: bank.add(&kneeling[0]),
+        }
+    }
+
+    fn shake_art(outfit: &Outfit) -> [[PixelArt; 2]; 3] {
+        VIEWS.map(|v| std::array::from_fn(|i| character::render::render(&character::pose::shake(v, i), outfit).body))
+    }
+
+    fn wake_art(outfit: &Outfit) -> [[PixelArt; 2]; 3] {
+        use character::pose::{kneeling, sitting};
+        use character::render::render;
+        let blank = PixelArt::filled(8, 8, 0);
+        [
+            [character::render_lying(outfit, false), character::render_lying(outfit, true)],
+            [render(&sitting(), outfit).body, blank.clone()],
+            [render(&kneeling(), outfit).body, blank],
+        ]
     }
 
     /// Re-renders every frame in place for a new outfit (equipment change).
@@ -78,6 +112,16 @@ impl PlayerSprites {
                 bank.replace(id, art);
             }
         }
+        for (ids, arts) in self.shake.iter().zip(Self::shake_art(outfit)) {
+            for (id, art) in ids.iter().zip(arts.iter()) {
+                bank.replace(*id, art);
+            }
+        }
+        let [lying, sitting, kneeling] = Self::wake_art(outfit);
+        bank.replace(self.lying[0], &lying[0]);
+        bank.replace(self.lying[1], &lying[1]);
+        bank.replace(self.sitting, &sitting[0]);
+        bank.replace(self.kneeling, &kneeling[0]);
     }
 }
 
@@ -87,6 +131,8 @@ pub struct SpriteIds {
     pub crab: [SpriteId; 2],
     pub gull: [SpriteId; 2],
     pub shadow_player: SpriteId,
+    /// Under the castaway while lying on the sand.
+    pub shadow_lying: SpriteId,
     pub shadow_crab: SpriteId,
     pub shadow_gull: SpriteId,
     pub ripples: [SpriteId; 3],
@@ -98,6 +144,9 @@ pub struct SpriteIds {
     pub chip: [SpriteId; 2],
     pub leaf: [SpriteId; 2],
     pub spark: [SpriteId; 2],
+    /// A coconut: resting, and turned while tumbling.
+    pub coconut: [SpriteId; 2],
+    pub shadow_coconut: SpriteId,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +160,7 @@ pub struct HudTiles {
     pub moon: HudTileId,
     pub lantern: HudTileId,
     pub wood: HudTileId,
+    pub coconut: HudTileId,
     /// Gauge segments indexed by filled pixels (0..=8).
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
@@ -138,8 +188,19 @@ pub struct PropSet {
     pub palm: PalmArt,
     /// Stump left after felling a palm.
     pub stump: PropTile,
-    /// Palm canopy + upper trunk on BG2, 3x3 cells in row-major order.
-    pub palm_upper: [MetatileId; 9],
+    /// Palm canopy tiles for each sway offset (`dx + PALM_SWAY_MAX`).
+    pub palm_tiles: [PalmTiles; 2 * PALM_SWAY_MAX as usize + 1],
+}
+
+/// Furthest a canopy shifts (px) when the tree sways.
+pub const PALM_SWAY_MAX: i32 = 2;
+
+/// Palm canopy + upper trunk on BG2, shifted by one sway offset.
+pub struct PalmTiles {
+    /// 3x3 cells in row-major order (no coconuts).
+    pub upper: [MetatileId; 9],
+    /// The centre cell with 0..=PALM_COCONUTS coconuts hanging.
+    pub crowns: [MetatileId; props::PALM_COCONUTS + 1],
 }
 
 pub struct Assets {
@@ -162,7 +223,16 @@ impl Assets {
 
 fn load_props(vram: &mut Vram) -> PropSet {
     let palm = props::palm();
-    let palm_upper = std::array::from_fn(|i| vram.metatiles.add_art(PAL_FOLIAGE, &palm.upper.sub(i % 3 * 16, i / 3 * 16, 16, 16)));
+    // Swaying is tile animation: each offset has its own pre-shifted
+    // tiles, swapped into just the swaying tree's cells.
+    let palm_tiles = std::array::from_fn(|i| {
+        let dx = i as i32 - PALM_SWAY_MAX;
+        let upper = palm.swayed(0, dx);
+        PalmTiles {
+            upper: std::array::from_fn(|c| vram.metatiles.add_art(PAL_FOLIAGE, &upper.sub(c % 3 * 16, c / 3 * 16, 16, 16))),
+            crowns: std::array::from_fn(|n| vram.metatiles.add_art(PAL_FOLIAGE, &palm.swayed(n, dx).sub(16, 16, 16, 16))),
+        }
+    });
     PropSet {
         boulder: props::boulder(),
         pebbles: props::pebbles(),
@@ -172,7 +242,7 @@ fn load_props(vram: &mut Vram) -> PropSet {
         flowers: props::flowers(),
         palm,
         stump: props::stump(),
-        palm_upper,
+        palm_tiles,
     }
 }
 
@@ -188,6 +258,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         crab: [bank.add(&c0), bank.add(&c1)],
         gull: [bank.add(&g0), bank.add(&g1)],
         shadow_player: bank.add(&shadow(16, 8, 6.5, 2.6)),
+        shadow_lying: bank.add(&shadow(32, 8, 14.0, 2.4)),
         shadow_crab: bank.add(&shadow(16, 8, 6.5, 2.2)),
         shadow_gull: bank.add(&shadow(16, 8, 5.0, 1.8)),
         ripples: [bank.add(&r0), bank.add(&r1), bank.add(&r2)],
@@ -198,6 +269,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         chip: chip_frames().map(|a| bank.add(&a)),
         leaf: leaf_frames().map(|a| bank.add(&a)),
         spark: spark_frames().map(|a| bank.add(&a)),
+        coconut: coconut_frames().map(|a| bank.add(&a)),
+        shadow_coconut: bank.add(&shadow(8, 8, 3.2, 1.4)),
     }
 }
 
@@ -217,6 +290,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         moon: bank.add(&hud_art::icon_moon()),
         lantern: bank.add(&hud_art::icon_lantern()),
         wood: bank.add(&hud_art::icon_wood()),
+        coconut: bank.add(&hud_art::icon_coconut()),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
         gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),

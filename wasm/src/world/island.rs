@@ -4,6 +4,7 @@
 //! the surf line, shallows and then open sea. A cove cuts into the beach and a
 //! small sandbar sits offshore.
 
+use super::harvest::PALM_COCONUTS;
 use super::map::{TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::terrain::{Feature, PalmPart, Terrain};
@@ -154,6 +155,10 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
             let crowded = (-1..=ph).any(|dy| (-1..=pw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_))));
             if fits && !crowded {
                 let flip = hash_unit(x, y, seed ^ 0xF11B) < 0.5;
+                // Most palms carry a full bunch; a few have little or none.
+                let r = hash_unit(x, y, seed ^ 0xC0C0);
+                let coconuts = if r < 0.08 { 0 } else if r < 0.2 { 1 } else if r < 0.5 { 2 } else { PALM_COCONUTS };
+                map.set_fruit((x, y), coconuts);
                 for dy in 0..ph {
                     for dx in 0..pw {
                         map.set_feature(x + dx, y + dy, Feature::Palm(PalmPart { dx: dx as u8, dy: dy as u8, flip }));

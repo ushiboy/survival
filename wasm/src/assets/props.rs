@@ -240,11 +240,16 @@ pub fn stump() -> PropTile {
 pub const PALM_W: i32 = 48;
 pub const PALM_H: i32 = 64;
 
+/// Most coconuts a palm carries.
+pub const PALM_COCONUTS: usize = 3;
+
 /// Palm tree art. `upper` (48x48: canopy and upper trunk) goes on BG2 above
 /// sprites; `lower` (3 cells, overlay) is the trunk base on BG1; `shade`
 /// (3 cells, mask) is the canopy's shadow on the BG1 row under the canopy.
+/// `uppers[n]` is `upper` on a palm with `n` coconuts left (only the centre
+/// cell, column 1 row 1, differs).
 pub struct PalmArt {
-    pub upper: PixelArt,
+    pub uppers: [PixelArt; PALM_COCONUTS + 1],
     pub lower: [PropTile; 3],
     pub shade: [PropTile; 3],
 }
@@ -254,8 +259,32 @@ fn trunk_x(t: f32) -> f32 {
     24.0 - 2.0 * t + 4.5 * (PI * t).sin()
 }
 
+const CROWN: (f32, f32) = (22.0, 17.0);
+
+/// Centres of the coconuts hanging under the crown (unflipped palm px), in
+/// the order they are taken: the lowest one drops first.
+pub fn coconut_spots() -> [(f32, f32); PALM_COCONUTS] {
+    let (x, y) = CROWN;
+    [(x - 2.4, y + 3.0), (x + 2.2, y + 3.2), (x, y + 5.2)]
+}
+
 pub fn palm() -> PalmArt {
-    let (crown_x, crown_y) = (trunk_x(1.0), 17.0);
+    let uppers = std::array::from_fn(|n| palm_with(n).0);
+    let (_, lower, shade) = palm_with(0);
+    PalmArt { uppers, lower, shade }
+}
+
+impl PalmArt {
+    /// The upper art with `n` coconuts, shifted `dx` px sideways (sway).
+    pub fn swayed(&self, n: usize, dx: i32) -> PixelArt {
+        self.uppers[n].shift_rows(0..self.uppers[n].h, dx)
+    }
+}
+
+/// Paints the palm carrying the first `coconuts` of `coconut_spots`.
+fn palm_with(coconuts: usize) -> (PixelArt, [PropTile; 3], [PropTile; 3]) {
+    let (crown_x, crown_y) = CROWN;
+    debug_assert_eq!(crown_x, trunk_x(1.0));
     let (base_y, top_y) = (61.0f32, 17.0f32);
 
     // Trunk with cylindrical shading and bark rings.
@@ -338,7 +367,7 @@ pub fn palm() -> PalmArt {
         }
     }
     // Coconuts.
-    for &(cx, cy) in &[(crown_x - 2.4, crown_y + 3.0), (crown_x + 2.2, crown_y + 3.2), (crown_x, crown_y + 5.2)] {
+    for &(cx, cy) in &coconut_spots()[..coconuts] {
         fill_ellipse(&mut canopy, cx, cy, 2.3, 2.1, |_, _, nx, ny| {
             Some(if nx + ny < -0.6 { foliage::BARK[3] } else if nx + ny > 0.7 { foliage::BARK[0] } else { foliage::COCONUT })
         });
@@ -369,5 +398,5 @@ pub fn palm() -> PalmArt {
     let split = |art: &PixelArt, palette: u8| -> [PropTile; 3] {
         std::array::from_fn(|i| PropTile { palette, ground: Ground::Sand, overlay: art.sub(i * 16, 0, 16, 16) })
     };
-    PalmArt { upper: full.sub(0, 0, PALM_W as usize, 48), lower: split(&lower, PAL_FOLIAGE), shade: split(&shade, PAL_SAND) }
+    (full.sub(0, 0, PALM_W as usize, 48), split(&lower, PAL_FOLIAGE), split(&shade, PAL_SAND))
 }

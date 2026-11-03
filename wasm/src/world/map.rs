@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::terrain::{Feature, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
 
@@ -13,6 +15,8 @@ pub struct WorldMap {
     /// Smooth elevation per cell (tiles above the waterline), sampled at cell
     /// centres. Used for organic, non-grid-aligned terrain edges.
     elevation: Vec<f32>,
+    /// Fruit still hanging on each tree, keyed by the tree's top-left cell.
+    fruit: HashMap<(i32, i32), u8>,
     /// Player start position (pixels, sprite top-left).
     pub spawn: (i32, i32),
     /// Suggested crab start cells.
@@ -28,6 +32,7 @@ impl WorldMap {
             terrain: vec![fill; n],
             features: vec![Feature::None; n],
             elevation: vec![0.0; n],
+            fruit: HashMap::new(),
             spawn: (0, 0),
             crab_spawns: Vec::new(),
         }
@@ -101,6 +106,19 @@ impl WorldMap {
         let top = a + (b - a) * tx;
         let bot = c + (d - c) * tx;
         top + (bot - top) * ty
+    }
+
+    /// Fruit left on the tree whose top-left cell is `anchor`.
+    pub fn fruit(&self, anchor: (i32, i32)) -> u8 {
+        self.fruit.get(&anchor).copied().unwrap_or(0)
+    }
+
+    pub fn set_fruit(&mut self, anchor: (i32, i32), n: u8) {
+        if n == 0 {
+            self.fruit.remove(&anchor);
+        } else {
+            self.fruit.insert(anchor, n);
+        }
     }
 
     /// Out-of-bounds cells are solid so nothing can leave the map.
