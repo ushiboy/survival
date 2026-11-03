@@ -16,8 +16,8 @@ impl Terrain {
     }
 }
 
-/// Which cell of a 2x3 palm tree a map cell holds. Only the bottom row
-/// (the trunk base) is solid; the canopy rows can be walked behind.
+/// Which cell of a 3x4 palm tree a map cell holds. Only the trunk base
+/// (bottom centre) is solid; everything else can be walked behind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PalmPart {
     pub dx: u8,
@@ -27,14 +27,17 @@ pub struct PalmPart {
 }
 
 impl PalmPart {
-    pub const W: i32 = 2;
-    pub const H: i32 = 3;
+    pub const W: i32 = 3;
+    pub const H: i32 = 4;
+
+    pub fn is_trunk_base(&self) -> bool {
+        self.dx as i32 == Self::W / 2 && self.dy as i32 == Self::H - 1
+    }
 }
 
-/// One of the two cells of a palm stump (the old trunk-base row).
+/// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StumpPart {
-    pub dx: u8,
     pub flip: bool,
 }
 
@@ -65,7 +68,7 @@ impl TileProps {
 
 pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
-        Feature::Palm(p) => p.dy as i32 == PalmPart::H - 1,
+        Feature::Palm(p) => p.is_trunk_base(),
         Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood => true,
         _ => false,
     };

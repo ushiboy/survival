@@ -1,5 +1,7 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
+use crate::assets::character::Outfit;
+
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
 pub const FRAMES_PER_MINUTE: u32 = 20;
 const MINUTES_PER_DAY: u32 = 24 * 60;
@@ -89,10 +91,12 @@ pub struct Inventory {
     /// Lights the surroundings at night.
     pub lantern: bool,
     pub wood: u32,
+    /// What the castaway is wearing.
+    pub outfit: Outfit,
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { axe: true, lantern: false, wood: 0 }
+        Self { axe: true, lantern: false, wood: 0, outfit: Outfit::CASTAWAY }
     }
 }

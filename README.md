@@ -18,6 +18,12 @@ Rust 単体でフレームを PPM に書き出す確認用ツール（入力ス�
 cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 ```
 
+主人公の全ポーズ×服装プリセットの一覧シート:
+
+```bash
+cd wasm && cargo run --release --example charsheet -- chars.ppm 4
+```
+
 ## 構成
 
 ```
@@ -31,6 +37,7 @@ wasm/src/               Rust コア
   common/               固定小数点・乱数・入力
   ppu/                  SFC(Mode 1)風 PPU: CGRAM, BG1/BG2/BG3, OBJ, カラー演算, ウィンドウ, HDMAテーブル
   assets/               パレット割り当て, 手描きスプライト(テキスト), 手続き生成の地形/オブジェ/HUD
+  assets/character/     主人公: ポーズ骨格 + 装備レイヤー(頭・上衣・下衣・足)からスプライトを生成
   world/                地形・配置物・当たり判定・島の生成・採取(伐採)ルール (描画非依存)
   render/               ワールド → PPU入力 (地形タイル生成, HUD, カメラ, スプライト順, 時間帯ライティング)
   entity/               プレイヤー(移動・斧アクション)・カニ・カモメ・パーティクル・移動/衝突

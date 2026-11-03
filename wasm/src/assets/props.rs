@@ -207,15 +207,14 @@ pub fn flowers() -> PropTile {
 
 // ---------------------------------------------------------------- palm tree (32x48)
 
-/// Stump left after felling a palm: 32x16 over sand (PAL_FOLIAGE), split
-/// into left/right cells like the trunk base.
-pub fn stump() -> (PropTile, PropTile) {
-    let mut a = PixelArt::filled(32, 16, 0);
-    shadow_ellipse(&mut a, 17.5, 12.5, 8.0, 2.6);
-    let mut s = PixelArt::filled(32, 16, 0);
-    let (cx, top, bottom) = (16.0f32, 7.0f32, 13.0f32);
+/// Stump left after felling a palm (PAL_FOLIAGE over sand, one cell).
+pub fn stump() -> PropTile {
+    let mut a = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut a, 9.5, 12.5, 7.0, 2.4);
+    let mut s = PixelArt::filled(16, 16, 0);
+    let (cx, top, bottom) = (8.0f32, 7.0f32, 13.0f32);
     for y in top as i32..=bottom as i32 {
-        let hw = 3.6 + (y as f32 - top) * 0.25 + if y as f32 > bottom - 2.0 { 1.0 } else { 0.0 };
+        let hw = 3.8 + (y as f32 - top) * 0.25 + if y as f32 > bottom - 2.0 { 1.0 } else { 0.0 };
         for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
             let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
             if (0.0..=1.0).contains(&u) {
@@ -225,49 +224,48 @@ pub fn stump() -> (PropTile, PropTile) {
         }
     }
     // Cut face with growth rings.
-    fill_ellipse(&mut s, cx, top, 3.8, 1.8, |_, _, nx, ny| {
+    fill_ellipse(&mut s, cx, top, 4.0, 1.9, |_, _, nx, ny| {
         let r = (nx * nx + ny * ny).sqrt();
         Some(if r > 0.75 { foliage::BARK[2] } else if r > 0.4 { foliage::SAND[1] } else if r > 0.25 { foliage::BARK[3] } else { foliage::SAND[1] })
     });
     a.overlay(&s.outlined(foliage::BARK[0]), 0, 0);
     // Wood chips scattered around.
-    for &(x, y) in &[(9, 13), (24, 12), (11, 9), (22, 14)] {
+    for &(x, y) in &[(1, 13), (14, 12), (2, 9), (13, 15)] {
         a.put(x, y, foliage::BARK[3]);
     }
-    (
-        PropTile { palette: PAL_FOLIAGE, ground: Ground::Sand, overlay: a.sub(0, 0, 16, 16) },
-        PropTile { palette: PAL_FOLIAGE, ground: Ground::Sand, overlay: a.sub(16, 0, 16, 16) },
-    )
+    PropTile { palette: PAL_FOLIAGE, ground: Ground::Sand, overlay: a }
 }
 
-/// Palm tree art. `upper` (32x32) goes on BG2 above sprites; `lower`
-/// (32x16, overlay) is the trunk base on BG1; `shade` (32x16, mask) is the
-/// canopy's shadow on the BG1 row under the canopy.
+/// Palm tree size in pixels (3x4 cells).
+pub const PALM_W: i32 = 48;
+pub const PALM_H: i32 = 64;
+
+/// Palm tree art. `upper` (48x48: canopy and upper trunk) goes on BG2 above
+/// sprites; `lower` (3 cells, overlay) is the trunk base on BG1; `shade`
+/// (3 cells, mask) is the canopy's shadow on the BG1 row under the canopy.
 pub struct PalmArt {
     pub upper: PixelArt,
-    pub lower: PropTile,
-    pub lower_right: PropTile,
-    pub shade: PropTile,
-    pub shade_right: PropTile,
+    pub lower: [PropTile; 3],
+    pub shade: [PropTile; 3],
 }
 
 fn trunk_x(t: f32) -> f32 {
-    // Base at x=16, crown at x=14.5, bowing to the right on the way up.
-    16.0 - 1.5 * t + 3.0 * (PI * t).sin()
+    // Base at x=24, crown at x=22, bowing to the right on the way up.
+    24.0 - 2.0 * t + 4.5 * (PI * t).sin()
 }
 
 pub fn palm() -> PalmArt {
-    let (crown_x, crown_y) = (trunk_x(1.0), 12.0);
-    let (base_y, top_y) = (45.0f32, 12.0f32);
+    let (crown_x, crown_y) = (trunk_x(1.0), 17.0);
+    let (base_y, top_y) = (61.0f32, 17.0f32);
 
     // Trunk with cylindrical shading and bark rings.
-    let mut trunk = PixelArt::filled(32, 48, 0);
+    let mut trunk = PixelArt::filled(PALM_W as usize, PALM_H as usize, 0);
     for y in top_y as i32..=base_y as i32 {
         let t = (base_y - y as f32) / (base_y - top_y);
         let cx = trunk_x(t);
-        let mut hw = 2.4 - 0.8 * t;
-        if y > 41 {
-            hw += (y - 41) as f32 * 0.6; // root flare
+        let mut hw = 3.3 - 1.2 * t;
+        if y > 56 {
+            hw += (y - 56) as f32 * 0.7; // root flare
         }
         let ring = (y % 3) == 0;
         for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
@@ -275,9 +273,13 @@ pub fn palm() -> PalmArt {
             if !(0.0..=1.0).contains(&u) {
                 continue;
             }
-            let mut i = if u < 0.3 { 3 } else if u < 0.6 { 2 } else { 1 };
+            let mut i = if u < 0.25 { 3 } else if u < 0.55 { 2 } else { 1 };
             if ring {
                 i -= 1;
+                // A lighter notch on the lit side of each ring.
+                if u < 0.2 {
+                    i = 3;
+                }
             }
             trunk.put(x, y, foliage::BARK[i.max(0) as usize]);
         }
@@ -285,14 +287,15 @@ pub fn palm() -> PalmArt {
     let trunk = trunk.outlined(foliage::BARK[0]);
 
     // Fronds: (angle°, length, droop, back layer). Each frond is a curved
-    // midrib with thin leaflets every other pixel, giving a feathery edge.
-    let mut canopy = PixelArt::filled(32, 48, 0);
+    // midrib with thin leaflets, giving a feathery edge.
+    let mut canopy = PixelArt::filled(PALM_W as usize, PALM_H as usize, 0);
     let leaf = foliage::LEAF;
-    let fronds: [(f32, f32, f32, bool); 9] = [
-        (-125.0, 11.0, 3.0, true), (-55.0, 11.0, 3.0, true),
-        (-172.0, 16.0, 12.0, false), (-8.0, 16.0, 12.0, false),
-        (160.0, 13.0, 13.0, false), (20.0, 13.0, 13.0, false),
-        (128.0, 10.0, 9.0, false), (52.0, 10.0, 9.0, false), (90.0, 6.0, 5.0, false),
+    let fronds: [(f32, f32, f32, bool); 12] = [
+        (-130.0, 15.0, 4.0, true), (-90.0, 12.0, 2.0, true), (-50.0, 15.0, 4.0, true),
+        (-170.0, 22.0, 16.0, false), (-10.0, 22.0, 16.0, false),
+        (163.0, 19.0, 18.0, false), (17.0, 19.0, 18.0, false),
+        (-150.0, 18.0, 9.0, false), (-30.0, 18.0, 9.0, false),
+        (130.0, 14.0, 12.0, false), (50.0, 14.0, 12.0, false), (92.0, 9.0, 7.0, false),
     ];
     for (fi, &(deg, len, droop, back)) in fronds.iter().enumerate() {
         let a = deg.to_radians();
@@ -309,7 +312,7 @@ pub fn palm() -> PalmArt {
                 (vx / l, vy / l)
             };
             // Leaflets sweep forward along the frond and droop under gravity.
-            let size = 4.2 * (PI * (t * 1.1).min(1.0)).sin().powf(0.7) * (1.0 - 0.3 * t) + 0.6;
+            let size = 5.6 * (PI * (t * 1.1).min(1.0)).sin().powf(0.7) * (1.0 - 0.3 * t) + 0.8;
             if s % 3 == 0 {
                 for side in [-1.0f32, 1.0] {
                     let (mut lx, mut ly) = (tx * 0.8 - ty * side * 0.6, ty * 0.8 + tx * side * 0.6);
@@ -321,7 +324,7 @@ pub fn palm() -> PalmArt {
                     let mut k = 1.0;
                     while k <= size {
                         let (x, y) = (px + lx * k, py + ly * k);
-                        let mut light = 0.85 - 0.35 * t - k * 0.03 + if upper { 0.1 } else { -0.2 };
+                        let mut light = 0.85 - 0.35 * t - k * 0.025 + if upper { 0.1 } else { -0.2 };
                         if back {
                             light -= 0.3;
                         }
@@ -335,15 +338,15 @@ pub fn palm() -> PalmArt {
         }
     }
     // Coconuts.
-    for &(cx, cy) in &[(crown_x - 1.6, crown_y + 2.2), (crown_x + 1.6, crown_y + 2.4), (crown_x, crown_y + 3.8)] {
-        fill_ellipse(&mut canopy, cx, cy, 1.7, 1.6, |_, _, nx, ny| {
-            Some(if nx + ny < -0.6 { foliage::BARK[3] } else { foliage::COCONUT })
+    for &(cx, cy) in &[(crown_x - 2.4, crown_y + 3.0), (crown_x + 2.2, crown_y + 3.2), (crown_x, crown_y + 5.2)] {
+        fill_ellipse(&mut canopy, cx, cy, 2.3, 2.1, |_, _, nx, ny| {
+            Some(if nx + ny < -0.6 { foliage::BARK[3] } else if nx + ny > 0.7 { foliage::BARK[0] } else { foliage::COCONUT })
         });
     }
     // Dark edge only below/beside leaves (light comes from above).
     let mut edged = canopy.clone();
-    for y in 0..48i32 {
-        for x in 0..32i32 {
+    for y in 0..PALM_H {
+        for x in 0..PALM_W {
             if canopy.at(x, y) == 0 && (canopy.at(x, y - 1) != 0 || (canopy.at(x - 1, y) != 0 && canopy.at(x + 1, y) != 0)) {
                 edged.put(x, y, leaf[0]);
             }
@@ -354,22 +357,17 @@ pub fn palm() -> PalmArt {
     let mut full = trunk.clone();
     full.overlay(&canopy, 0, 0);
 
-    // Lower row: trunk base over sand with a contact shadow.
-    let mut lower = PixelArt::filled(32, 16, 0);
-    shadow_ellipse(&mut lower, 17.5, 13.0, 8.0, 2.6);
-    lower.overlay(&full.sub(0, 32, 32, 16), 0, 0);
+    // Bottom row: trunk base over sand with a contact shadow.
+    let mut lower = PixelArt::filled(PALM_W as usize, 16, 0);
+    shadow_ellipse(&mut lower, 26.0, 13.5, 11.0, 2.8);
+    lower.overlay(&full.sub(0, 48, PALM_W as usize, 16), 0, 0);
 
     // Canopy shadow on the row above the base (cast down-right).
-    let mut shade = PixelArt::filled(32, 16, 0);
-    shadow_ellipse(&mut shade, 19.0, 9.0, 13.0, 5.5);
+    let mut shade = PixelArt::filled(PALM_W as usize, 16, 0);
+    shadow_ellipse(&mut shade, 28.0, 9.0, 19.0, 6.5);
 
-    let split = |art: &PixelArt, palette: u8| -> (PropTile, PropTile) {
-        (
-            PropTile { palette, ground: Ground::Sand, overlay: art.sub(0, 0, 16, 16) },
-            PropTile { palette, ground: Ground::Sand, overlay: art.sub(16, 0, 16, 16) },
-        )
+    let split = |art: &PixelArt, palette: u8| -> [PropTile; 3] {
+        std::array::from_fn(|i| PropTile { palette, ground: Ground::Sand, overlay: art.sub(i * 16, 0, 16, 16) })
     };
-    let (lower_l, lower_r) = split(&lower, PAL_FOLIAGE);
-    let (shade_l, shade_r) = split(&shade, PAL_SAND);
-    PalmArt { upper: full.sub(0, 0, 32, 32), lower: lower_l, lower_right: lower_r, shade: shade_l, shade_right: shade_r }
+    PalmArt { upper: full.sub(0, 0, PALM_W as usize, 48), lower: split(&lower, PAL_FOLIAGE), shade: split(&shade, PAL_SAND) }
 }

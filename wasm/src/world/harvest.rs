@@ -37,7 +37,7 @@ impl Harvest {
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
             // Only the trunk base can be reached and cut.
-            Feature::Palm(p) if p.dy as i32 == PalmPart::H - 1 => self.chop_palm(map, (x - p.dx as i32, y - p.dy as i32), p.flip),
+            Feature::Palm(p) if p.is_trunk_base() => self.chop_palm(map, (x - p.dx as i32, y - p.dy as i32), p.flip),
             Feature::Bush => Strike::Brush,
             f @ (Feature::Rock | Feature::Driftwood | Feature::Stump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
@@ -55,7 +55,8 @@ impl Harvest {
         for dy in 0..PalmPart::H {
             for dx in 0..PalmPart::W {
                 let (x, y) = (anchor.0 + dx, anchor.1 + dy);
-                let f = if dy == PalmPart::H - 1 { Feature::Stump(StumpPart { dx: dx as u8, flip }) } else { Feature::None };
+                let part = PalmPart { dx: dx as u8, dy: dy as u8, flip };
+                let f = if part.is_trunk_base() { Feature::Stump(StumpPart { flip }) } else { Feature::None };
                 map.set_feature(x, y, f);
                 changed.push((x, y));
             }

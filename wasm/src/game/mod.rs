@@ -5,7 +5,8 @@
 pub mod state;
 
 use crate::assets::Assets;
-use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram};
+use crate::assets::character::Outfit;
+use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::entity::{Crab, Gull, Particles, Player};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
@@ -157,6 +158,12 @@ impl Game {
             // Debug: give / take the lantern until items exist.
             self.inventory.lantern = !self.inventory.lantern;
         }
+        if self.input.pressed(Buttons::X) {
+            // Debug: cycle outfit presets until equipment exists.
+            let presets = Outfit::PRESETS;
+            let i = presets.iter().position(|o| *o == self.inventory.outfit).unwrap_or(0);
+            self.equip(presets[(i + 1) % presets.len()]);
+        }
 
         self.frame_count = self.frame_count.wrapping_add(1);
         if self.clock.tick() {
@@ -181,6 +188,14 @@ impl Game {
             gull.update();
         }
         self.camera.follow(pc, self.map.pixel_size());
+    }
+
+    /// Changes what the castaway wears: re-renders their frames into VRAM and
+    /// updates their palettes.
+    pub fn equip(&mut self, outfit: Outfit) {
+        self.inventory.outfit = outfit;
+        self.assets.sprites.player.rebuild(&mut self.assets.vram.sprites, &outfit);
+        set_player_palettes(&mut self.base_cgram, &outfit);
     }
 
     /// Applies an axe blow landing at `point` (world px).
@@ -263,7 +278,8 @@ impl Game {
         let list = &mut self.draw_list;
         list.clear();
         let sprites = &self.assets.sprites;
-        self.player.draw(list, &camera, sprites, self.frame_count, shadows);
+        let in_front = player_in_front_of_canopy(&self.map, &self.player);
+        self.player.draw(list, &camera, sprites, self.frame_count, shadows, in_front);
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }
@@ -333,5 +349,27 @@ impl Game {
 /// whose top-left cell is `anchor`.
 fn palm_canopy(anchor: (i32, i32)) -> ((i32, i32, i32, i32), i32) {
     let (x, y) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
-    ((x + 2, y + 4, 28, 22), y + 2 * TILE_SIZE + 4)
+    ((x + 2, y + 4, 44, 32), y + 3 * TILE_SIZE + 4)
+}
+
+/// Whether the castaway stands in front of (south of) a palm whose canopy
+/// tiles overlap their sprite, so they must be drawn above BG2.
+fn player_in_front_of_canopy(map: &WorldMap, player: &Player) -> bool {
+    use crate::assets::character::{CHAR_H, CHAR_ORIGIN, CHAR_W};
+    use crate::world::terrain::PalmPart;
+    let (px, py) = player.body.px();
+    let feet_row = player.body.feet().1.div_euclid(TILE_SIZE);
+    let (x0, y0) = (px - CHAR_ORIGIN.0, py - CHAR_ORIGIN.1);
+    let (x1, y1) = (x0 + CHAR_W as i32 - 1, y0 + CHAR_H as i32 - 1);
+    for cy in y0.div_euclid(TILE_SIZE)..=y1.div_euclid(TILE_SIZE) {
+        for cx in x0.div_euclid(TILE_SIZE)..=x1.div_euclid(TILE_SIZE) {
+            if let crate::world::Feature::Palm(p) = map.feature(cx, cy) {
+                let base_row = cy - p.dy as i32 + PalmPart::H - 1;
+                if feet_row > base_row {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }

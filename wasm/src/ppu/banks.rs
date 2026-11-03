@@ -97,6 +97,11 @@ impl SpriteBank {
         (self.sprites.len() - 1) as SpriteId
     }
 
+    /// Overwrites an existing sprite image (streaming new tiles into VRAM).
+    pub fn replace(&mut self, id: SpriteId, art: &PixelArt) {
+        self.sprites[id as usize] = SpriteGfx { w: art.w, h: art.h, px: art.px.clone() };
+    }
+
     #[inline]
     pub fn get(&self, id: SpriteId) -> &SpriteGfx {
         &self.sprites[id as usize]

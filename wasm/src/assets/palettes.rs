@@ -4,6 +4,7 @@
 //! Each palette module documents what its indices mean; generators refer to
 //! these names rather than raw numbers.
 
+use super::character::Outfit;
 use crate::ppu::palette::{Cgram, Rgb555};
 
 const fn c(r: u8, g: u8, b: u8) -> Rgb555 {
@@ -189,7 +190,7 @@ pub fn base_cgram() -> Cgram {
     );
 
     // Sprites
-    cg.set_obj_palette(OBJ_PLAYER, &player_colors());
+    set_player_palettes(&mut cg, &Outfit::CASTAWAY);
     let crab = [
         c(56, 16, 20), c(136, 32, 28), c(200, 64, 40), c(240, 120, 72),
         c(252, 186, 130), c(248, 248, 248), c(24, 8, 8),
@@ -216,31 +217,17 @@ pub fn base_cgram() -> Cgram {
     );
     cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
     cg.set_obj_palette(OBJ_WATER_FX, &[c(176, 232, 244), c(250, 255, 255), c(110, 190, 222)]);
-    // Submerged legs: the player's colours pulled toward sea green, then blended.
-    let wade = player_colors().map(|p| p.lerp(c(60, 170, 200), 0.45));
-    cg.set_obj_palette(OBJ_WADE, &wade);
     cg
 }
 
-fn player_colors() -> [Rgb555; 15] {
-    [
-        c(44, 24, 36),                                  // o outline
-        c(66, 38, 26), c(108, 64, 34), c(158, 102, 52), // hair
-        c(180, 106, 76), c(236, 164, 116), c(252, 206, 158), // skin
-        c(150, 30, 40), c(214, 56, 48), c(250, 116, 84),   // bandana
-        c(150, 160, 178), c(214, 218, 214), c(255, 255, 248), // shirt
-        c(40, 62, 118), c(72, 104, 176),                // shorts
-    ]
+/// Writes the castaway's palette for an outfit, plus the derived palette for
+/// submerged legs (pulled toward sea green, then blended by colour math).
+pub fn set_player_palettes(cg: &mut Cgram, outfit: &Outfit) {
+    let colors = outfit.palette();
+    cg.set_obj_palette(OBJ_PLAYER, &colors);
+    cg.set_obj_palette(OBJ_WADE, &colors.map(|p| p.lerp(c(60, 170, 200), 0.45)));
 }
 
-/// Legend for the player's text art (index = position in `player_colors` + 1).
-pub const PLAYER_LEGEND: &[(char, u8)] = &[
-    ('o', 1), ('h', 2), ('H', 3), ('i', 4), ('s', 5), ('S', 6), ('k', 7),
-    ('r', 8), ('R', 9), ('q', 10), ('t', 11), ('T', 12), ('W', 13), ('b', 14), ('B', 15),
-    // Hand pixels (skin / outline) in action poses; also extracted as an
-    // overlay so hands can be drawn over a held tool.
-    ('K', 6), ('O', 1),
-];
 pub const CRAB_LEGEND: &[(char, u8)] = &[('o', 1), ('r', 2), ('R', 3), ('q', 4), ('l', 5), ('w', 6), ('e', 7)];
 pub const FX_LEGEND: &[(char, u8)] = &[
     ('o', 1), ('w', 2), ('W', 3), ('m', 4), ('M', 5), ('L', 6), ('c', 7),

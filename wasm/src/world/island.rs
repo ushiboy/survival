@@ -133,16 +133,21 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
         for x in 0..MAP_W - pw + 1 {
             // Anchor on the trunk base (bottom row), which sits on the upper beach.
             let h = heights[((y + ph - 1) * MAP_W + x) as usize];
-            if !(2.5..SAND_BELOW + 1.0).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.12 {
+            if !(2.0..SAND_BELOW).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.16 {
                 continue;
             }
+            // The trunk base and canopy-shadow rows sit on clean sand; the
+            // canopy rows above only need dry, empty ground to overhang.
             let fits = (0..ph).all(|dy| {
                 (0..pw).all(|dx| {
-                    let h = heights[((y + dy) * MAP_W + x + dx) as usize];
-                    (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h)
-                        && map.terrain(x + dx, y + dy) == Terrain::Sand
-                        && map.feature(x + dx, y + dy) == Feature::None
-                        && !near_spawn(x + dx, y + dy)
+                    let (cx, cy) = (x + dx, y + dy);
+                    let h = heights[(cy * MAP_W + cx) as usize];
+                    let ground_ok = if dy >= ph - 2 {
+                        (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h) && map.terrain(cx, cy) == Terrain::Sand
+                    } else {
+                        map.terrain(cx, cy).is_land()
+                    };
+                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy)
                 })
             });
             // Keep a gap between trees.

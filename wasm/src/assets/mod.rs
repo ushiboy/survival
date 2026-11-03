@@ -1,6 +1,7 @@
 //! Loads all artwork into VRAM banks and exposes typed handles to it.
 //! Gameplay code refers to graphics only through these ids.
 
+pub mod character;
 pub mod hud_art;
 pub mod paint;
 pub mod palettes;
@@ -9,7 +10,9 @@ pub mod sprite_art;
 pub mod terrain;
 
 use crate::ppu::Vram;
-use crate::ppu::banks::{HudTileId, MetatileId, SpriteId};
+use crate::ppu::banks::{HudTileId, MetatileId, SpriteBank, SpriteId};
+use character::Outfit;
+use character::pose::{Pose, View};
 use crate::ppu::pattern::PixelArt;
 use palettes::PAL_FOLIAGE;
 use props::{PalmArt, PropTile};
@@ -19,41 +22,66 @@ use terrain::TerrainTextures;
 pub const SURF_PERIOD: u32 = 7;
 pub const SURF_FRAMES: usize = 8;
 
+/// One rendered castaway frame and the pieces cut from it.
 #[derive(Clone, Copy, Debug)]
-pub struct PlayerFrame {
+pub struct CharFrame {
     pub full: SpriteId,
     /// Above the waterline (wading).
     pub top: SpriteId,
     /// Below the waterline, drawn with the translucent wading palette.
     pub legs: SpriteId,
-}
-
-/// An action pose: body and a hands-only overlay for gripping tools.
-#[derive(Clone, Copy, Debug)]
-pub struct PoseSprite {
-    pub body: SpriteId,
+    /// Just the hands, drawn over a held tool.
     pub hands: SpriteId,
 }
 
-/// Axe swing poses, `[pulled back, strike]`; side views face right.
-#[derive(Clone, Copy, Debug)]
-pub struct ChopSprites {
-    pub down: [PoseSprite; 2],
-    pub up: [PoseSprite; 2],
-    pub side: [PoseSprite; 2],
-}
-
-#[derive(Clone, Copy, Debug)]
+/// All castaway frames for the current outfit. Views are indexed
+/// Front, Back, Side (facing right; left is mirrored).
+#[derive(Clone, Debug)]
 pub struct PlayerSprites {
-    /// `[stand, step]`; the second step is the mirror image.
-    pub down: [PlayerFrame; 2],
-    pub up: [PlayerFrame; 2],
-    /// `[stand, step A, step B]`, facing right.
-    pub side: [PlayerFrame; 3],
-    pub chop: ChopSprites,
+    pub walk: [[CharFrame; 4]; 3],
+    pub chop: [[CharFrame; 3]; 3],
+    pub chop_poses: [[Pose; 3]; 3],
 }
 
-#[derive(Clone, Copy, Debug)]
+pub const VIEWS: [View; 3] = [View::Front, View::Back, View::Side];
+
+fn render_frame(pose: &Pose, outfit: &Outfit) -> [PixelArt; 4] {
+    let r = character::render::render(pose, outfit);
+    let wade = character::WADE_ROW;
+    [r.body.clone(), r.body.keep_rows(0..wade), r.body.keep_rows(wade..r.body.h), r.hands]
+}
+
+impl PlayerSprites {
+    fn poses() -> ([[Pose; 4]; 3], [[Pose; 3]; 3]) {
+        (
+            VIEWS.map(|v| std::array::from_fn(|i| character::pose::walk(v, i))),
+            VIEWS.map(|v| std::array::from_fn(|i| character::pose::chop(v, i))),
+        )
+    }
+
+    pub fn build(bank: &mut SpriteBank, outfit: &Outfit) -> Self {
+        let (walk, chop) = Self::poses();
+        let mut add = |pose: &Pose| {
+            let [full, top, legs, hands] = render_frame(pose, outfit).map(|a| bank.add(&a));
+            CharFrame { full, top, legs, hands }
+        };
+        Self { walk: walk.map(|v| v.map(|p| add(&p))), chop: chop.map(|v| v.map(|p| add(&p))), chop_poses: chop }
+    }
+
+    /// Re-renders every frame in place for a new outfit (equipment change).
+    pub fn rebuild(&self, bank: &mut SpriteBank, outfit: &Outfit) {
+        let (walk, chop) = Self::poses();
+        let pairs = walk.iter().flatten().zip(self.walk.iter().flatten()).chain(chop.iter().flatten().zip(self.chop.iter().flatten()));
+        for (pose, f) in pairs {
+            let arts = render_frame(pose, outfit);
+            for (id, art) in [f.full, f.top, f.legs, f.hands].into_iter().zip(arts.iter()) {
+                bank.replace(id, art);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct SpriteIds {
     pub player: PlayerSprites,
     pub crab: [SpriteId; 2],
@@ -108,10 +136,10 @@ pub struct PropSet {
     pub bush: PropTile,
     pub flowers: PropTile,
     pub palm: PalmArt,
-    /// Stump `[left, right]` left after felling a palm.
-    pub stump: [PropTile; 2],
-    /// Palm canopy + upper trunk on BG2: `[TL, TR, ML, MR]`.
-    pub palm_upper: [MetatileId; 4],
+    /// Stump left after felling a palm.
+    pub stump: PropTile,
+    /// Palm canopy + upper trunk on BG2, 3x3 cells in row-major order.
+    pub palm_upper: [MetatileId; 9],
 }
 
 pub struct Assets {
@@ -134,8 +162,7 @@ impl Assets {
 
 fn load_props(vram: &mut Vram) -> PropSet {
     let palm = props::palm();
-    let mut q = |x, y| vram.metatiles.add_art(PAL_FOLIAGE, &palm.upper.sub(x, y, 16, 16));
-    let palm_upper = [q(0, 0), q(16, 0), q(0, 16), q(16, 16)];
+    let palm_upper = std::array::from_fn(|i| vram.metatiles.add_art(PAL_FOLIAGE, &palm.upper.sub(i % 3 * 16, i / 3 * 16, 16, 16)));
     PropSet {
         boulder: props::boulder(),
         pebbles: props::pebbles(),
@@ -144,10 +171,7 @@ fn load_props(vram: &mut Vram) -> PropSet {
         bush: props::bush(),
         flowers: props::flowers(),
         palm,
-        stump: {
-            let (l, r) = props::stump();
-            [l, r]
-        },
+        stump: props::stump(),
         palm_upper,
     }
 }
@@ -155,24 +179,7 @@ fn load_props(vram: &mut Vram) -> PropSet {
 fn load_sprites(vram: &mut Vram) -> SpriteIds {
     use sprite_art::*;
     let bank = &mut vram.sprites;
-    let mut frame = |art: PixelArt| PlayerFrame {
-        full: bank.add(&art),
-        top: bank.add(&art.keep_rows(0..PLAYER_WADE_ROW)),
-        legs: bank.add(&art.keep_rows(PLAYER_WADE_ROW..art.h)),
-    };
-    let player = PlayerSprites {
-        down: [frame(player_down_stand()), frame(player_down_step())],
-        up: [frame(player_up_stand()), frame(player_up_step())],
-        side: [frame(player_side_stand()), frame(player_side_step_a()), frame(player_side_step_b())],
-        chop: {
-            let mut pose = |p: ActionPose| PoseSprite { body: bank.add(&p.body), hands: bank.add(&p.hands) };
-            ChopSprites {
-                down: [pose(chop_down_back()), pose(chop_down_strike())],
-                up: [pose(chop_up_back()), pose(chop_up_strike())],
-                side: [pose(chop_side_back()), pose(chop_side_strike())],
-            }
-        },
-    };
+    let player = PlayerSprites::build(bank, &Outfit::CASTAWAY);
     let [c0, c1] = crab_frames();
     let [g0, g1] = gull_frames();
     let [r0, r1, r2] = wade_ripples();

@@ -1,6 +1,9 @@
 use super::body::Body;
 use crate::assets::palettes::{OBJ_FX, OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
-use crate::assets::{PlayerFrame, PlayerSprites, SpriteIds};
+use crate::assets::SpriteIds;
+use crate::assets::character::pose::AxeArt;
+use crate::assets::character::{CHAR_ORIGIN, CHAR_W};
+use crate::ppu::banks::SpriteId;
 use crate::common::input::{Buttons, InputState};
 use crate::common::math::{Dir, Rect};
 use crate::ppu::oam::ObjEntry;
@@ -24,6 +27,8 @@ const STEP_FRAMES_WALK: u32 = 8;
 const STEP_FRAMES_WADE: u32 = 12;
 /// Sprite priority for actors: above BG1/BG2 low tiles, below BG2 high (canopies).
 pub const ACTOR_PRIORITY: u8 = 2;
+/// Above BG2 high tiles: used while standing in front of a canopy.
+const FRONT_PRIORITY: u8 = 3;
 
 /// Axe swing timing (frames): pull back to the side, sweep past the body
 /// from `CHOP_SWEEP`, connect on `CHOP_STRIKE`, then recover.
@@ -130,32 +135,38 @@ impl Player {
         self.body.px().1 + SPRITE_H
     }
 
-    pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, clock: u32, shadows: bool) {
+    /// `in_front` raises the castaway above high-priority BG2 tiles (palm
+    /// canopies) when standing in front of them; otherwise canopies cover them.
+    pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, clock: u32, shadows: bool, in_front: bool) {
+        let prio = if in_front { FRONT_PRIORITY } else { ACTOR_PRIORITY };
         let (wx, wy) = self.body.px();
         let (sx, sy) = camera.to_screen(wx, wy);
         let depth = self.depth();
         let step_frames = if self.wading { STEP_FRAMES_WADE } else { STEP_FRAMES_WALK };
         // Start on a step frame so movement reads instantly.
         let phase = if self.moving { (self.walk_timer / step_frames + 1) % 4 } else { 0 };
-        let (frame, flip) = pick_frame(&sprites.player, self.facing, phase);
+        let (view, flip) = view_for(self.facing);
+        // The 24x32 character canvas is offset from the 16x24 logical frame.
+        let (cx, cy) = (sx - CHAR_ORIGIN.0, sy - CHAR_ORIGIN.1);
 
         if let Action::Chop { t } = self.action {
-            self.draw_chop(list, (sx, sy), depth, sprites, t);
+            self.draw_chop(list, (sx, sy), (cx, cy), depth, sprites, t, prio);
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             return;
         }
 
+        let frame = sprites.player.walk[view][phase as usize];
         if self.wading {
             // Foam ring first (in front), then the body above the waterline,
             // then the submerged legs in a blended palette.
             let ripple = sprites.ripples[(clock / 10) as usize % sprites.ripples.len()];
-            list.actor(depth, ObjEntry::new(sx - 4, sy + 14, ripple, OBJ_WATER_FX, ACTOR_PRIORITY));
-            list.actor(depth, ObjEntry::new(sx, sy, frame.top, OBJ_PLAYER, ACTOR_PRIORITY).flipped(flip));
-            list.actor(depth, ObjEntry::new(sx, sy, frame.legs, OBJ_WADE, ACTOR_PRIORITY).flipped(flip));
+            list.actor(depth, ObjEntry::new(sx - 4, sy + 14, ripple, OBJ_WATER_FX, prio));
+            list.actor(depth, ObjEntry::new(cx, cy, frame.top, OBJ_PLAYER, prio).flipped(flip));
+            list.actor(depth, ObjEntry::new(cx, cy, frame.legs, OBJ_WADE, prio).flipped(flip));
         } else {
-            list.actor(depth, ObjEntry::new(sx, sy, frame.full, OBJ_PLAYER, ACTOR_PRIORITY).flipped(flip));
+            list.actor(depth, ObjEntry::new(cx, cy, frame.full, OBJ_PLAYER, prio).flipped(flip));
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
@@ -164,65 +175,22 @@ impl Player {
 }
 
 impl Player {
-    /// A horizontal swing at trunk height: the axe is pulled back to one side,
-    /// sweeps past the body and ends pointing forward. Body pose and axe are
-    /// separate sprites; parts pushed before the body appear in front of it.
-    fn draw_chop(&self, list: &mut DrawList, (sx, sy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32) {
-        #[derive(Clone, Copy, PartialEq)]
-        enum Pose {
-            Back,
-            Sweep,
-            Strike,
-        }
-        #[derive(Clone, Copy)]
-        enum Axe {
-            Side,
-            Up,
-            Diag,
-        }
-        let pose = if t >= CHOP_STRIKE {
-            Pose::Strike
+    /// A horizontal swing at trunk height: wound up to one side, sweeping
+    /// past the body, then striking forward. The axe is a separate sprite
+    /// placed so its handle sits in the pose's hands; when it is in front of
+    /// the body the hands are overlaid on the handle.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_chop(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, prio: u8) {
+        let stage = if t >= CHOP_STRIKE {
+            2
         } else if t >= CHOP_SWEEP {
-            Pose::Sweep
+            1
         } else {
-            Pose::Back
+            0
         };
-
-        let chop = &sprites.player.chop;
-        let i = (pose != Pose::Back) as usize;
-        let (body, body_flip) = match self.facing {
-            Dir::Down => (chop.down[i], false),
-            Dir::Up => (chop.up[i], false),
-            d => (chop.side[i], d == Dir::Left),
-        };
-
-        // (dx, dy, axe image, flip_h, flip_v, in front of body). The handle
-        // end is placed under the pose's hands; when the axe is in front,
-        // the hands overlay is drawn over it so they grip the handle.
-        let (dx, dy, axe, fh, fv, front) = match (self.facing, pose) {
-            // Side view: back (pointing behind) → toward the camera → forward.
-            (Dir::Right, Pose::Back) => (-13, 6, Axe::Side, true, false, false),
-            (Dir::Right, Pose::Sweep) => (5, 12, Axe::Up, false, true, true),
-            (Dir::Right, Pose::Strike) => (12, 5, Axe::Side, false, false, false),
-            (Dir::Left, Pose::Back) => (13, 6, Axe::Side, false, false, false),
-            (Dir::Left, Pose::Sweep) => (-5, 12, Axe::Up, false, true, true),
-            (Dir::Left, Pose::Strike) => (-12, 5, Axe::Side, true, false, false),
-            // Facing the camera: from the right hand side (screen left) across the front.
-            (Dir::Down, Pose::Back) => (-13, 7, Axe::Side, true, false, false),
-            (Dir::Down, Pose::Sweep) => (-4, 11, Axe::Diag, true, true, true),
-            (Dir::Down, Pose::Strike) => (2, 14, Axe::Up, false, true, true),
-            // Facing away: from the right hand side (screen right) sweeping up behind.
-            (Dir::Up, Pose::Back) => (12, 6, Axe::Side, false, false, false),
-            (Dir::Up, Pose::Sweep) => (8, 1, Axe::Diag, false, false, false),
-            (Dir::Up, Pose::Strike) => (2, -4, Axe::Up, false, false, false),
-        };
-        let gfx = match axe {
-            Axe::Side => sprites.axe_side,
-            Axe::Up => sprites.axe_up,
-            Axe::Diag => sprites.axe_diag,
-        };
-        let mut axe = ObjEntry::new(sx + dx, sy + dy, gfx, OBJ_FX, ACTOR_PRIORITY).flipped(fh);
-        axe.flip_v = fv;
+        let (view, flip) = view_for(self.facing);
+        let frame = sprites.player.chop[view][stage];
+        let pose = &sprites.player.chop_poses[view][stage];
 
         if (CHOP_SWEEP..CHOP_STRIKE + SWOOSH_FRAMES).contains(&t) {
             let (ox, oy) = match self.facing {
@@ -232,16 +200,50 @@ impl Player {
                 Dir::Up => (-8, -4),
             };
             let swoosh = sprites.swoosh[self.facing as usize];
-            list.actor(depth, ObjEntry::new(sx + ox, sy + oy, swoosh, OBJ_WATER_FX, ACTOR_PRIORITY));
+            list.actor(depth, ObjEntry::new(sx + ox, sy + oy, swoosh, OBJ_WATER_FX, prio));
         }
-        if front {
-            list.actor(depth, ObjEntry::new(sx, sy, body.hands, OBJ_PLAYER, ACTOR_PRIORITY).flipped(body_flip));
+
+        let body = ObjEntry::new(cx, cy, frame.full, OBJ_PLAYER, prio).flipped(flip);
+        let Some(hold) = pose.tool else {
+            list.actor(depth, body);
+            return;
+        };
+        let (gfx, end) = axe_art(sprites, hold.art);
+        let (fh, fv) = (hold.flip_h ^ flip, hold.flip_v);
+        // Handle end in the axe image, after flips.
+        let end = (if fh { 15.0 - end.0 } else { end.0 }, if fv { 15.0 - end.1 } else { end.1 });
+        let (gx, gy) = pose.grip();
+        let gx = if flip { CHAR_W as f32 - gx } else { gx };
+        let mut axe = ObjEntry::new(cx + (gx - end.0).round() as i32, cy + (gy - end.1).round() as i32, gfx, OBJ_FX, prio).flipped(fh);
+        axe.flip_v = fv;
+
+        if hold.front {
+            list.actor(depth, ObjEntry::new(cx, cy, frame.hands, OBJ_PLAYER, prio).flipped(flip));
+            list.actor(depth, axe);
+            list.actor(depth, body);
+        } else {
+            list.actor(depth, body);
             list.actor(depth, axe);
         }
-        list.actor(depth, ObjEntry::new(sx, sy, body.body, OBJ_PLAYER, ACTOR_PRIORITY).flipped(body_flip));
-        if !front {
-            list.actor(depth, axe);
-        }
+    }
+}
+
+/// The axe image for a hold, and where its handle end sits in it (unflipped).
+fn axe_art(sprites: &SpriteIds, art: AxeArt) -> (SpriteId, (f32, f32)) {
+    match art {
+        AxeArt::Side => (sprites.axe_side, (1.5, 9.0)),
+        AxeArt::Up => (sprites.axe_up, (9.0, 14.0)),
+        AxeArt::Diag => (sprites.axe_diag, (4.0, 12.0)),
+    }
+}
+
+/// Character view index (Front, Back, Side) and whether to mirror it.
+fn view_for(facing: Dir) -> (usize, bool) {
+    match facing {
+        Dir::Down => (0, false),
+        Dir::Up => (1, false),
+        Dir::Right => (2, false),
+        Dir::Left => (2, true),
     }
 }
 
@@ -263,24 +265,5 @@ fn facing_for(current: Dir, ax: i32, ay: i32) -> Dir {
         (_, y) if y < 0 => Dir::Up,
         (_, y) if y > 0 => Dir::Down,
         _ => current,
-    }
-}
-
-/// Front/back cycle: stand, step, stand, step mirrored.
-/// Side cycle: stand, step A, stand, step B.
-fn pick_frame(s: &PlayerSprites, facing: Dir, phase: u32) -> (PlayerFrame, bool) {
-    match facing {
-        Dir::Down | Dir::Up => {
-            let set = if facing == Dir::Down { &s.down } else { &s.up };
-            (set[(phase % 2) as usize], phase == 3)
-        }
-        Dir::Right | Dir::Left => {
-            let f = match phase {
-                1 => s.side[1],
-                3 => s.side[2],
-                _ => s.side[0],
-            };
-            (f, facing == Dir::Left)
-        }
     }
 }

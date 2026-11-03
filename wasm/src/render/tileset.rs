@@ -18,6 +18,7 @@ use crate::ppu::pattern::PixelArt;
 use crate::ppu::{BgCell, BgLayer};
 use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::noise::value_noise;
+use crate::world::terrain::PalmPart;
 use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
@@ -312,27 +313,20 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
     let tile = match map.feature(x, y) {
         Feature::Palm(p) => {
             // Mirrored trees swap columns; BG2 uses the PPU's h-flip.
-            let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
-            if p.dy < 2 {
-                let id = props.palm_upper[p.dy as usize * 2 + col];
+            let last = PalmPart::W as u8 - 1;
+            let col = if p.flip { last - p.dx } else { p.dx } as usize;
+            let dy = p.dy as usize;
+            if dy < 3 {
+                let id = props.palm_upper[dy * 3 + col];
                 overhead = BgCell { tile: id, hflip: p.flip, high: true };
             }
-            match p.dy {
-                0 => b.interior(map.terrain(x, y), x, y),
-                1 => {
-                    let shade = if col == 0 { &props.palm.shade } else { &props.palm.shade_right };
-                    b.prop(10 + col as u8, shade, p.flip, x, y)
-                }
-                _ => {
-                    let lower = if col == 0 { &props.palm.lower } else { &props.palm.lower_right };
-                    b.prop(12 + col as u8, lower, p.flip, x, y)
-                }
+            match dy {
+                0 | 1 => b.terrain(map, x, y),
+                2 => b.prop(10 + col as u8, &props.palm.shade[col], p.flip, x, y),
+                _ => b.prop(13 + col as u8, &props.palm.lower[col], p.flip, x, y),
             }
         }
-        Feature::Stump(p) => {
-            let col = if p.flip { 1 - p.dx } else { p.dx } as usize;
-            b.prop(14 + col as u8, &props.stump[col], p.flip, x, y)
-        }
+        Feature::Stump(p) => b.prop(16, &props.stump, p.flip, x, y),
         Feature::Rock => b.prop(0, &props.boulder, false, x, y),
         Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
         Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
