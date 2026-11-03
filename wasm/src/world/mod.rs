@@ -5,6 +5,7 @@ pub mod harvest;
 pub mod island;
 pub mod map;
 pub mod noise;
+pub mod river;
 pub mod terrain;
 
 pub use map::{TILE_SIZE, WorldMap};

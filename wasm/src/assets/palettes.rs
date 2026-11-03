@@ -65,6 +65,12 @@ pub mod deep {
     pub const SHELF: [u8; 2] = [5, 6];
     pub const CYCLE: [u8; 3] = [7, 8, 9];
     pub const CREST: u8 = 10;
+    /// River water (drawn on BG2): shade under the banks, the body, and a
+    /// fast colour cycle that runs streaks of current downstream.
+    pub const RIVER_SHADE: u8 = 11;
+    pub const RIVER_BODY: u8 = 12;
+    /// Rotated so each colour steps downstream: body, mid, bright.
+    pub const RIVER_FLOW: [u8; 3] = [13, 14, 15];
 }
 
 /// Dry beach.
@@ -147,6 +153,8 @@ pub fn base_cgram() -> Cgram {
             WATER_EDGE[0], WATER_EDGE[1],
             c(40, 92, 156), c(76, 140, 196), c(150, 204, 236),
             c(214, 240, 250),
+            c(22, 60, 82), c(40, 98, 128),
+            c(46, 110, 140), c(98, 166, 190), c(186, 228, 236),
         ],
     );
     cg.set_bg_palette(
@@ -242,9 +250,10 @@ pub const GULL_LEGEND: &[(char, u8)] =
     &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
 
 /// Index ranges rotated for water animation: (CGRAM start, length).
-pub fn water_cycles() -> [(usize, usize); 2] {
+pub fn water_cycles() -> [(usize, usize); 3] {
     [
         (Cgram::bg_index(PAL_SHORE, shore::CYCLE[0]), shore::CYCLE.len()),
         (Cgram::bg_index(PAL_DEEP, deep::CYCLE[0]), deep::CYCLE.len()),
+        (Cgram::bg_index(PAL_DEEP, deep::RIVER_FLOW[0]), deep::RIVER_FLOW.len()),
     ]
 }

@@ -7,6 +7,7 @@
 use super::harvest::PALM_COCONUTS;
 use super::map::{TILE_SIZE, WorldMap};
 use super::noise::fbm;
+use super::river::River;
 use super::terrain::{Feature, PalmPart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 use std::f32::consts::TAU;
@@ -50,6 +51,53 @@ impl HeightField {
     }
 }
 
+impl HeightField {
+    /// The river flows in from beyond the north edge and into the cove.
+    fn river(&self) -> River {
+        let cove_x = MAP_W as f32 * 0.28;
+        let source_x = MAP_W as f32 * 0.38 + hash_unit(3, 4, self.seed ^ 0x5B1C) * 4.0;
+        River::new((source_x, -4.0), (cove_x, self.coast_y(cove_x) + 1.0), self.seed)
+    }
+}
+
+/// Marks the river's cells (impassable water) and the cells along it.
+fn lay_river(map: &mut WorldMap, river: &River) {
+    let ts = TILE_SIZE as f32;
+    for y in 0..MAP_H {
+        for x in 0..MAP_W {
+            let depth = river.depth_px((x as f32 + 0.5) * ts, (y as f32 + 0.5) * ts);
+            // Anything within half a cell's diagonal (+ the bank lip) of the water.
+            map.set_riverside(x, y, depth > -24.0);
+            if depth > -2.0 && map.terrain(x, y).is_land() {
+                map.set_terrain(x, y, Terrain::River);
+            }
+        }
+    }
+}
+
+/// Picks a bank of the upper river, in the open grassland (the jungle is too
+/// thick to reach the water), where water can be drawn.
+fn water_spot(map: &WorldMap, river: &River, heights: &[f32]) -> Option<(i32, i32)> {
+    let ts = TILE_SIZE as f32;
+    for i in 0..60 {
+        let t = 0.1 + i as f32 * 0.01;
+        let ((cx, cy), (nx, ny)) = river.point(t);
+        for side in [1.0, -1.0] {
+            let off = River::half_width(t) + 0.45;
+            let (bx, by) = (cx + nx * side * off, cy + ny * side * off);
+            let (gx, gy) = (bx.round() as i32, by.round() as i32);
+            if !map.in_bounds(gx, gy) || !map.terrain(gx, gy).is_land() {
+                continue;
+            }
+            let h = heights[(gy * MAP_W + gx) as usize];
+            if (SAND_BELOW + 1.0..JUNGLE_ABOVE - 1.0).contains(&h) {
+                return Some((((bx + 0.5) * ts) as i32, ((by + 0.5) * ts) as i32));
+            }
+        }
+    }
+    None
+}
+
 fn bump(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> f32 {
     let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
     (1.0 - d / r).max(0.0)
@@ -69,6 +117,7 @@ fn classify(h: f32) -> Terrain {
 
 pub fn generate(seed: u32) -> WorldMap {
     let field = HeightField { seed };
+    let river = field.river();
     let mut map = WorldMap::new(MAP_W, MAP_H, Terrain::DeepWater);
     let mut heights = vec![0.0f32; (MAP_W * MAP_H) as usize];
     for y in 0..MAP_H {
@@ -79,6 +128,19 @@ pub fn generate(seed: u32) -> WorldMap {
         }
     }
     enforce_transitions(&mut map);
+    // Cells turned to sand above keep sand-level elevation, so the grass
+    // fringe is drawn around them instead of a square edge.
+    for y in 0..MAP_H {
+        for x in 0..MAP_W {
+            let h = &mut heights[(y * MAP_W + x) as usize];
+            if map.terrain(x, y) == Terrain::Sand && *h >= SAND_BELOW {
+                *h = SAND_BELOW - 0.8;
+            }
+        }
+    }
+    lay_river(&mut map, &river);
+    map.water_spot = water_spot(&map, &river, &heights);
+    map.river = Some(river);
 
     let spawn_cell = find_spawn(&map, &heights);
     map.spawn = (spawn_cell.0 * TILE_SIZE, spawn_cell.1 * TILE_SIZE);
@@ -148,7 +210,7 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
                     } else {
                         map.terrain(cx, cy).is_land()
                     };
-                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy)
+                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy) && !map.is_riverside(cx, cy)
                 })
             });
             // Keep a gap between trees.
@@ -172,7 +234,7 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
 fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     for y in 0..MAP_H {
         for x in 0..MAP_W {
-            if map.feature(x, y) != Feature::None || near_spawn(x, y) {
+            if map.feature(x, y) != Feature::None || near_spawn(x, y) || map.is_riverside(x, y) {
                 continue;
             }
             let h = heights[(y * MAP_W + x) as usize];

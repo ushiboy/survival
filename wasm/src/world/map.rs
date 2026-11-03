@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use super::river::River;
 use super::terrain::{Feature, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
 
 /// Size of a map cell in pixels (one metatile).
 pub const TILE_SIZE: i32 = 16;
+/// How far (px) from the water-drawing spot the river can be reached.
+const DRAW_WATER_RANGE: f32 = 30.0;
 
 #[derive(Clone, Debug)]
 pub struct WorldMap {
@@ -15,6 +18,11 @@ pub struct WorldMap {
     /// Smooth elevation per cell (tiles above the waterline), sampled at cell
     /// centres. Used for organic, non-grid-aligned terrain edges.
     elevation: Vec<f32>,
+    pub river: Option<River>,
+    /// Cells the river's water or banks reach into.
+    riverside: Vec<bool>,
+    /// Bank of the upper river where water can be drawn (world px).
+    pub water_spot: Option<(i32, i32)>,
     /// Fruit still hanging on each tree, keyed by the tree's top-left cell.
     fruit: HashMap<(i32, i32), u8>,
     /// Player start position (pixels, sprite top-left).
@@ -32,6 +40,9 @@ impl WorldMap {
             terrain: vec![fill; n],
             features: vec![Feature::None; n],
             elevation: vec![0.0; n],
+            river: None,
+            riverside: vec![false; n],
+            water_spot: None,
             fruit: HashMap::new(),
             spawn: (0, 0),
             crab_spawns: Vec::new(),
@@ -106,6 +117,35 @@ impl WorldMap {
         let top = a + (b - a) * tx;
         let bot = c + (d - c) * tx;
         top + (bot - top) * ty
+    }
+
+    /// Whether the river's water (or the bank just beside it) reaches into
+    /// the cell.
+    pub fn is_riverside(&self, x: i32, y: i32) -> bool {
+        self.in_bounds(x, y) && self.riverside[self.idx(x, y)]
+    }
+
+    pub fn set_riverside(&mut self, x: i32, y: i32, on: bool) {
+        if self.in_bounds(x, y) {
+            let i = self.idx(x, y);
+            self.riverside[i] = on;
+        }
+    }
+
+    /// How far inside the river's water a world pixel is (px; negative =
+    /// outside).
+    pub fn river_depth_px(&self, px: f32, py: f32) -> f32 {
+        self.river.as_ref().map_or(f32::MIN, |r| r.depth_px(px, py))
+    }
+
+    /// Whether the world pixel is river water that can be drawn from the
+    /// bank at `water_spot`.
+    pub fn is_drinking_water(&self, px: i32, py: i32) -> bool {
+        let Some((sx, sy)) = self.water_spot else {
+            return false;
+        };
+        let (dx, dy) = ((px - sx) as f32, (py - sy) as f32);
+        dx * dx + dy * dy < DRAW_WATER_RANGE * DRAW_WATER_RANGE && self.river_depth_px(px as f32, py as f32) > -4.0
     }
 
     /// Fruit left on the tree whose top-left cell is `anchor`.

@@ -464,6 +464,34 @@ pub fn crouch(view: View) -> Pose {
     }
 }
 
+/// Drinking from cupped hands raised to the mouth, head tipped back.
+pub fn drink(view: View) -> Pose {
+    match view {
+        View::Side => {
+            let mut p = side_stand();
+            p.head = (12.0, 6.6);
+            p.arms = [
+                limb((12.4, 14.8), (15.0, 17.4), (15.6, 11.8), false),
+                limb((11.6, 15.0), (14.4, 17.8), (15.0, 12.2), true),
+            ];
+            p
+        }
+        View::Front | View::Back => {
+            let front = view == View::Front;
+            let mut p = front_stand(view);
+            p.head.1 -= 0.6;
+            // Hands meet in front of the chin (hidden behind the head from
+            // the back, so only the elbows show).
+            let hand_y = if front { 13.4 } else { 12.6 };
+            p.arms = [
+                limb((7.9, 14.8), (7.2, 18.6), (11.0, hand_y), front),
+                limb((16.1, 14.8), (16.8, 18.6), (13.0, hand_y), front),
+            ];
+            p
+        }
+    }
+}
+
 // ---------------------------------------------------------------- waking up
 
 /// Sprawled on his back, one arm flung above the head. Rendered front-on and

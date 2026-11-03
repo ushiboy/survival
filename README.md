@@ -18,7 +18,7 @@ Rust 単体でフレームを PPM に書き出す確認用ツール（入力ス�
 cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 ```
 
-終了時のプレイヤーのタイル座標を標準エラーに出力します。
+終了時のプレイヤーのタイル座標を標準エラーに出力します。環境変数 `SNAP_AT=x,y` を付けると、目覚めを飛ばしてそのセルから始めます。
 
 主人公の全ポーズ×服装プリセットの一覧シート:
 
@@ -26,7 +26,7 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 cd wasm && cargo run --release --example charsheet -- chars.ppm 4
 ```
 
-スポーン地点に近いヤシの木（幹の根元のセル）と残りの椰子の実の数:
+泉のセルと、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数:
 
 ```bash
 cd wasm && cargo run --release --example palms -- 1

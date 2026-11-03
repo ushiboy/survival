@@ -49,6 +49,12 @@ const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
 const PICK_GRAB: u32 = 7;
 const PICK_TOTAL: u32 = 16;
 
+/// Drawing water (frames): crouch and scoop until `SCOOP_RISE`, drink from
+/// cupped hands (a sip lands on `SCOOP_SIP`), then lower them.
+const SCOOP_RISE: u32 = 16;
+const SCOOP_SIP: u32 = 28;
+const SCOOP_TOTAL: u32 = 46;
+
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
 /// blink), sitting up, getting onto one knee, standing and looking around.
 const WAKE_STIR: u32 = 110;
@@ -70,6 +76,8 @@ pub enum Action {
     Shake { t: u32 },
     /// Crouching to pick something up.
     PickUp { t: u32 },
+    /// Scooping water in cupped hands and drinking it.
+    Scoop { t: u32 },
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -81,6 +89,8 @@ pub enum Deed {
     Shake((i32, i32)),
     /// Hands closed on whatever lies within reach.
     PickUp,
+    /// Drank a handful of river water.
+    Drink,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +157,11 @@ impl Player {
             self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
             return (t == PICK_GRAB).then_some(Deed::PickUp);
         }
+        if let Action::Scoop { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= SCOOP_TOTAL { Action::Idle } else { Action::Scoop { t } };
+            return (t == SCOOP_SIP).then_some(Deed::Drink);
+        }
         if let Action::Shake { t } = self.action {
             let t = t + 1;
             if t < SHAKE_TOTAL {
@@ -197,6 +212,16 @@ impl Player {
                 return None;
             }
             self.facing = before;
+        }
+        if !self.wading && input.pressed(Buttons::A) {
+            // Crouch at the water-drawing spot and drink from cupped hands.
+            let (rx, ry) = self.reach_point();
+            if map.is_drinking_water(rx, ry) {
+                self.action = Action::Scoop { t: 0 };
+                self.moving = false;
+                self.walk_timer = 0;
+                return None;
+            }
         }
         self.walk(input, map);
         None
@@ -280,6 +305,22 @@ impl Player {
             let gfx = if low { sprites.player.crouch[view] } else { sprites.player.walk[view][0].full };
             list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
             if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Scoop { t } = self.action {
+            let p = &sprites.player;
+            let gfx = if (3..SCOOP_RISE).contains(&t) {
+                p.crouch[view]
+            } else if (SCOOP_RISE + 2..SCOOP_TOTAL - 4).contains(&t) {
+                p.drink[view]
+            } else {
+                p.walk[view][0].full
+            };
+            list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
+            if shadows && !self.wading {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             return;

@@ -43,8 +43,10 @@ pub struct PlayerSprites {
     pub chop_poses: [[Pose; 3]; 3],
     /// Shaking a tree trunk: push, pull.
     pub shake: [[SpriteId; 2]; 3],
-    /// Crouching to pick something up.
+    /// Crouching to pick something up (or to scoop water).
     pub crouch: [SpriteId; 3],
+    /// Drinking from cupped hands.
+    pub drink: [SpriteId; 3],
     /// Waking up on the beach: lying (eyes closed, open; 32x24, head left),
     /// sitting up, kneeling (24x32, facing right).
     pub lying: [SpriteId; 2],
@@ -84,6 +86,7 @@ impl PlayerSprites {
             chop_poses: chop,
             shake: Self::shake_art(outfit).map(|v| v.map(|a| bank.add(&a))),
             crouch: Self::crouch_art(outfit).map(|a| bank.add(&a)),
+            drink: Self::drink_art(outfit).map(|a| bank.add(&a)),
             lying,
             sitting: bank.add(&sitting[0]),
             kneeling: bank.add(&kneeling[0]),
@@ -96,6 +99,10 @@ impl PlayerSprites {
 
     fn crouch_art(outfit: &Outfit) -> [PixelArt; 3] {
         VIEWS.map(|v| character::render::render(&character::pose::crouch(v), outfit).body)
+    }
+
+    fn drink_art(outfit: &Outfit) -> [PixelArt; 3] {
+        VIEWS.map(|v| character::render::render(&character::pose::drink(v), outfit).body)
     }
 
     fn wake_art(outfit: &Outfit) -> [[PixelArt; 2]; 3] {
@@ -124,7 +131,7 @@ impl PlayerSprites {
                 bank.replace(*id, art);
             }
         }
-        for (id, art) in self.crouch.iter().zip(Self::crouch_art(outfit)) {
+        for (id, art) in self.crouch.iter().zip(Self::crouch_art(outfit)).chain(self.drink.iter().zip(Self::drink_art(outfit))) {
             bank.replace(*id, &art);
         }
         let [lying, sitting, kneeling] = Self::wake_art(outfit);

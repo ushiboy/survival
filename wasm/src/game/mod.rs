@@ -24,6 +24,8 @@ use crate::world::{TILE_SIZE, WorldMap, island};
 use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
+/// Water gauge restored by one handful from the river (a quarter).
+const DRINK_WATER: u32 = 16;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
 /// Frames the action freezes when a blow lands (hit-stop).
@@ -190,6 +192,7 @@ impl Game {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
+            Some(Deed::Drink) => self.vitals.drink(DRINK_WATER),
             None => {}
         }
         self.particles.update();
@@ -420,6 +423,12 @@ impl Game {
         for (i, &tile) in self.assets.hud.light_mask.iter().enumerate() {
             self.frame.bg3.put(ox + i % n, oy + i / n, tile, HUD_LIGHT_MASK);
         }
+    }
+
+    /// Dev tools: puts the castaway, awake, with their feet in a cell.
+    pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
+        self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
+        self.camera.follow(self.player.center(), self.map.pixel_size());
     }
 
     pub fn rgba(&self) -> &[u8] {

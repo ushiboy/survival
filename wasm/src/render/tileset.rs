@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 
 use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_SAND, PAL_SHORE, deep, grass, shore};
+use crate::common::rng::hash_unit;
+use crate::world::river::River;
 use crate::assets::paint::{bayer, noise_px};
 use crate::assets::props::{Ground, PropTile, composite};
 use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
@@ -92,6 +94,47 @@ impl CellField {
     }
 }
 
+// ---------------------------------------------------------------- river field
+
+/// Where every pixel of one cell lies relative to the river: how far inside
+/// the water (px, negative on land) and its flow coordinates (px).
+struct RiverField {
+    depth: [f32; 256],
+    along: [f32; 256],
+    across: [f32; 256],
+    max: f32,
+}
+
+impl RiverField {
+    /// The cell's river field, if the water or its bank reaches into it.
+    fn sample(map: &WorldMap, cx: i32, cy: i32) -> Option<Self> {
+        let river = map.river.as_ref().filter(|_| map.is_riverside(cx, cy))?;
+        let ts = TILE_SIZE as f32;
+        let mut r = Self { depth: [0.0; 256], along: [0.0; 256], across: [0.0; 256], max: f32::MIN };
+        for i in 0..256 {
+            let (wx, wy) = ((cx * TILE_SIZE) as f32 + (i % 16) as f32 + 0.5, (cy * TILE_SIZE) as f32 + (i / 16) as f32 + 0.5);
+            let p = river.at_px(wx, wy);
+            // A slight wobble so the banks don't look ruled.
+            let wobble = value_noise(wx / 6.0, wy / 6.0, 91) * 1.4;
+            r.depth[i] = (River::half_width(p.t) - p.dist) * ts + wobble;
+            r.along[i] = p.along * ts;
+            r.across[i] = p.across * ts;
+            r.max = r.max.max(r.depth[i]);
+        }
+        // Cells the trampled landing reaches are drawn as bank too.
+        let near_spot = map.water_spot.is_some_and(|(sx, sy)| {
+            let (dx, dy) = ((cx * TILE_SIZE + 8 - sx) as f32, (cy * TILE_SIZE + 8 - sy) as f32);
+            dx.abs() < LANDING_RADIUS + 8.0 && dy.abs() < LANDING_RADIUS + 8.0
+        });
+        (r.max > BANK_LIP || near_spot).then_some(r)
+    }
+}
+
+/// Bank drawn this far (px) from the water's edge.
+const BANK_LIP: f32 = -4.5;
+/// Radius (px) of the trampled patch at the water-drawing spot.
+const LANDING_RADIUS: f32 = 11.0;
+
 fn compose(f: impl Fn(usize, usize) -> u8) -> PixelArt {
     let mut out = PixelArt::filled(16, 16, 0);
     for y in 0..16 {
@@ -156,12 +199,14 @@ impl Builder<'_> {
             Terrain::ShallowWater => bank.add_art(PAL_SHORE, &slice(&tex.shallow, vx, vy)),
             Terrain::Sand => bank.add_art(PAL_SAND, &slice(&tex.sand, vx, vy)),
             Terrain::Grass => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
+            // Transparent: the river is drawn on BG2.
+            Terrain::River => bank.add_art(PAL_DEEP, &PixelArt::filled(16, 16, 0)),
         })
     }
 
     /// Beach meeting the sea: dry sand, wet sand, lapping foam, then water
     /// darkening toward the reef. Animated by swapping frames (DMA).
-    fn coast(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+    fn coast(&mut self, f: &CellField, x: i32, y: i32, river: Option<&RiverField>) -> MetatileId {
         let water = slice(&self.tex.shallow, x, y);
         let sand = slice(&self.tex.sand, x, y).map(sand_to_shore);
         let frames = (0..SURF_FRAMES)
@@ -173,7 +218,17 @@ impl Builder<'_> {
                     let h = f.at(px, py);
                     let d = -h * PX_PER_UNIT;
                     let (ix, iy) = (px as i32, py as i32);
-                    if d < -1.5 {
+                    // Where the river runs out over the beach, BG2 shows its
+                    // water through this layer.
+                    let in_river = river.map_or(f32::MIN, |r| r.depth[py * 16 + px]);
+                    if in_river > 0.0 && h > -0.6 {
+                        0
+                    } else if in_river > 0.0 && h > -1.4 {
+                        // Churn where the current meets the sea.
+                        if bayer(ix, iy) < 0.5 { shore::FOAM } else { shore::FOAM_SHADE }
+                    } else if in_river > -2.0 && h > 0.0 {
+                        shore::WET_DARK
+                    } else if d < -1.5 {
                         sand.get(px, py)
                     } else if d < front {
                         if d < -0.5 && bayer(ix, iy) < 0.5 { shore::WET_DARK } else { shore::WET }
@@ -221,24 +276,106 @@ impl Builder<'_> {
 
     /// Grass giving way to sand with a ragged fringe.
     fn grass_edge(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let (g, s) = self.grass_and_sand(x, y);
+        let art = compose(|px, py| grass_or_sand(f, &g, &s, x, y, px, py));
+        self.bank.add_art(PAL_GRASS, &art)
+    }
+
+    /// Grass and sand texture slices for a cell, both in the grass palette.
+    fn grass_and_sand(&self, x: i32, y: i32) -> (PixelArt, PixelArt) {
         let g = slice(&self.tex.grass, x, y);
         let s = slice(&self.tex.sand, x, y).map(|v| sand_to(v, grass::SAND[0], grass::SAND[1], grass::SAND[2]));
-        let r = grass::RAMP;
+        (g, s)
+    }
+
+    /// Land along the river (BG1). The water itself is left transparent so
+    /// BG2's river shows through; the grass (or beach) runs right to it and
+    /// drops to an earthen lip at the waterline. Around the water-drawing
+    /// spot the bank is trampled bare, with flat stones at the edge.
+    fn river_bank(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        if f.min < 0.6 {
+            // Out on the beach the river runs into the surf.
+            return self.coast(f, x, y, Some(r));
+        }
+        let (g, s) = self.grass_and_sand(x, y);
+        let ramp = grass::RAMP;
+        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
         let art = compose(|px, py| {
+            let i = py * 16 + px;
+            let d = r.depth[i];
+            if d > 0.0 {
+                return 0;
+            }
             let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
-            let into = (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6;
-            if into < 0.0 {
-                // Stray blades poking out over the sand.
-                if into > -1.2 && noise_px(wx, wy, 0xB1AD) < 0.3 { r[4] } else { s.get(px, py) }
-            } else if into < 1.3 {
-                r[1]
-            } else if into < 2.4 {
-                if bayer(wx, wy) < 0.5 { r[2] } else { g.get(px, py) }
+            let grassy = (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0;
+            let trodden = spot.map_or(f32::MAX, |(sx, sy)| ((wx as f32 - sx).powi(2) + (wy as f32 - sy).powi(2)).sqrt());
+            let b = bayer(wx, wy);
+            let edge = LANDING_RADIUS + noise_px(wx / 2, wy / 2, 0x7A0D) * 4.0;
+            if trodden < edge {
+                if d > -7.0 && trodden < LANDING_RADIUS - 1.0 {
+                    // Flat stones set along the water's edge to kneel on.
+                    let (gx, gy) = (wx.div_euclid(6), wy.div_euclid(6));
+                    let (cxs, cys) = (gx as f32 * 6.0 + 3.0 + hash_unit(gx, gy, 0x5701) - 0.5, gy as f32 * 6.0 + 3.0 + hash_unit(gx, gy, 0x5702) - 0.5);
+                    let sd = ((wx as f32 + 0.5 - cxs).powi(2) + (wy as f32 + 0.5 - cys).powi(2)).sqrt();
+                    if sd < 2.9 && hash_unit(gx, gy, 0x5703) < 0.8 {
+                        // Lit from the top-left, dark rim.
+                        let lit = (wx as f32 + 0.5 - cxs) + (wy as f32 + 0.5 - cys) < -0.5;
+                        return if sd > 2.1 { grass::SAND[0] } else if lit { grass::WHITE } else { grass::SAND[2] };
+                    }
+                }
+                // Bare, trampled earth, fraying into the grass.
+                return if trodden > edge - 2.0 && b < 0.5 {
+                    ramp[1]
+                } else if b < 0.35 {
+                    grass::SOIL
+                } else if b < 0.85 {
+                    grass::SAND[0]
+                } else {
+                    grass::SAND[1]
+                };
+            }
+            if d > -1.5 {
+                if grassy { grass::SOIL } else { grass::SAND[0] }
+            } else if grassy && d > -3.0 {
+                // The turf overhangs the cut bank in a dark edge.
+                if b < 0.5 { ramp[0] } else { ramp[1] }
+            } else if grassy && d > -BANK_LIP.abs() {
+                if b < 0.5 { ramp[1] } else { grass_or_sand(f, &g, &s, x, y, px, py) }
             } else {
-                g.get(px, py)
+                grass_or_sand(f, &g, &s, x, y, px, py)
             }
         });
         self.bank.add_art(PAL_GRASS, &art)
+    }
+
+    /// River water (BG2, under BG1's transparent water pixels): dark under
+    /// the banks, deeper in the middle, with streaks of current whose
+    /// colours cycle so they race downstream.
+    fn river_water(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let art = compose(|px, py| {
+            let i = py * 16 + px;
+            let d = r.depth[i];
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            let b = bayer(wx, wy);
+            if d <= 0.0 {
+                return 0;
+            }
+            if d < 1.5 || (d < 3.0 && b < 0.5) {
+                return deep::RIVER_SHADE;
+            }
+            // Lanes of current 2px wide, broken into dashes along the flow.
+            let lane = (r.across[i] / 2.0).floor() as i32;
+            let along = r.along[i] + hash_unit(lane, 0, 0xF10E) * 40.0;
+            let dash = (along / 16.0).floor() as i32;
+            let on = d > 3.5 && hash_unit(lane, dash, 0xF10F) < 0.22 && along.rem_euclid(16.0) < 8.0;
+            if on {
+                // Colour index steps with distance downstream; the palette
+                // rotation then moves each colour one step down per tick.
+                return deep::RIVER_FLOW[(r.along[i] / 2.0).floor().rem_euclid(3.0) as usize];
+            }
+            if d > 12.0 && b < 0.3 { deep::RIVER_SHADE } else { deep::RIVER_BODY }
+        });
+        self.bank.add_art(PAL_DEEP, &art)
     }
 
     fn prop(&mut self, kind: u8, tile: &PropTile, flip: bool, x: i32, y: i32) -> MetatileId {
@@ -258,12 +395,29 @@ impl Builder<'_> {
         let t = map.terrain(x, y);
         let f = CellField::sample(map, x, y);
         match t {
-            Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y),
+            Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y, None),
             Terrain::ShallowWater if f.min < DEEP_BELOW + 1.7 => self.shallows(&f, x, y),
             Terrain::DeepWater if f.max > DEEP_BELOW - 1.0 => self.reef(&f, x, y),
             Terrain::Sand | Terrain::Grass if f.crosses(SAND_BELOW, 0.35, 0.3) => self.grass_edge(&f, x, y),
             _ => self.interior(t, x, y),
         }
+    }
+}
+
+/// One pixel of land where grass gives way to sand (grass palette).
+fn grass_or_sand(f: &CellField, g: &PixelArt, s: &PixelArt, x: i32, y: i32, px: usize, py: usize) -> u8 {
+    let r = grass::RAMP;
+    let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+    let into = (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6;
+    if into < 0.0 {
+        // Stray blades poking out over the sand.
+        if into > -1.2 && noise_px(wx, wy, 0xB1AD) < 0.3 { r[4] } else { s.get(px, py) }
+    } else if into < 1.3 {
+        r[1]
+    } else if into < 2.4 {
+        if bayer(wx, wy) < 0.5 { r[2] } else { g.get(px, py) }
+    } else {
+        g.get(px, py)
     }
 }
 
@@ -310,6 +464,7 @@ impl Tileset {
 /// BG1 and BG2 cells for one map cell.
 fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) -> (BgCell, BgCell) {
     let mut overhead = BgCell::EMPTY;
+    let river = RiverField::sample(map, x, y);
     let tile = match map.feature(x, y) {
         Feature::Palm(p) => {
             let col = if p.flip { PalmPart::W as u8 - 1 - p.dx } else { p.dx } as usize;
@@ -327,8 +482,14 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
         Feature::Bush => b.prop(4, &props.bush, false, x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
-        Feature::None => b.terrain(map, x, y),
+        Feature::None => match &river {
+            Some(r) => b.river_bank(map, &CellField::sample(map, x, y), r, x, y),
+            None => b.terrain(map, x, y),
+        },
     };
+    if let Some(r) = river.filter(|r| r.max > 0.0 && overhead.is_empty()) {
+        overhead = BgCell { tile: b.river_water(&r, x, y), hflip: false, high: false };
+    }
     (BgCell::new(tile), overhead)
 }
 

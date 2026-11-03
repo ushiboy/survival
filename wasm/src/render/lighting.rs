@@ -69,7 +69,8 @@ impl Lighting {
 /// Rotates the water colour ranges for shimmering caustics and rolling swell.
 pub fn cycle_water(cg: &mut Cgram, clock: u32) {
     for (k, (start, len)) in water_cycles().into_iter().enumerate() {
-        let speed = if k == 0 { 9 } else { 14 };
+        // Sea shimmer, deep swell, river current (fastest).
+        let speed = [9, 14, 3][k];
         cg.rotate(start, len, (clock / speed) as usize);
     }
 }

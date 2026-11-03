@@ -4,15 +4,19 @@ pub enum Terrain {
     ShallowWater,
     Sand,
     Grass,
+    /// The river: fast fresh water, too deep to wade.
+    River,
 }
 
 impl Terrain {
+    /// The sea.
     pub fn is_water(self) -> bool {
         matches!(self, Terrain::DeepWater | Terrain::ShallowWater)
     }
 
+    /// Dry ground.
     pub fn is_land(self) -> bool {
-        !self.is_water()
+        matches!(self, Terrain::Sand | Terrain::Grass)
     }
 }
 
@@ -83,7 +87,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         _ => false,
     };
     TileProps {
-        solid: feature_solid || terrain == Terrain::DeepWater,
+        solid: feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River),
         wading: terrain == Terrain::ShallowWater,
     }
 }

@@ -3,7 +3,8 @@
 //! Usage: cargo run --release --example snapshot -- <out.ppm> [script] [3h-skips]
 //! `script` is a comma-separated list of `buttons:frames` steps, where
 //! `buttons` is a SNES joypad word in hex (e.g. `0200:90,0400:40` = left for
-//! 90 frames, then down for 40). Default: `0:30`.
+//! 90 frames, then down for 40). Default: `0:30`. Set `SNAP_AT=x,y` to
+//! start awake in that cell instead of washed up at the spawn.
 use survival_core::game::Game;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
 
@@ -14,6 +15,11 @@ fn main() {
     let skips: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     let mut game = Game::new(1);
+    // SNAP_AT=x,y starts the castaway awake in that cell.
+    if let Ok(at) = std::env::var("SNAP_AT") {
+        let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
+        game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
+    }
     // Each SELECT press skips 3 in-game hours (debug feature).
     for _ in 0..skips {
         game.step(0x2000);

@@ -77,6 +77,12 @@ impl Vitals {
     }
 }
 
+impl Vitals {
+    pub fn drink(&mut self, amount: u32) {
+        self.water = (self.water + amount).min(Self::MAX);
+    }
+}
+
 impl Default for Vitals {
     fn default() -> Self {
         Self::new()
