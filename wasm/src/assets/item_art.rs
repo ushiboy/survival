@@ -83,8 +83,35 @@ pub fn icon_raw_water() -> PixelArt {
     PixelArt::parse(&rows, &legend)
 }
 
-/// The axe standing upright, 16x48 (head at the top, blade to the right).
-pub fn icon_axe() -> PixelArt {
+/// The stone axe standing upright, 16x32: a knapped stone set against the
+/// top of the handle and bound on with crossed turns of vine.
+pub fn icon_stone_axe() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    // Stone head, lit from the top left, with a pale chipped edge.
+    fill_ellipse(&mut a, 10.5, 8.0, 4.2, 5.6, |x, y, nx, ny| {
+        let edge = nx > 0.62 && bayer(x, y) < (nx - 0.5) * 3.0;
+        Some(if edge { i('L') } else { ramp(&[i('m'), i('M')], sphere_light(nx, ny), x, y, 0.5) })
+    });
+    // Handle, lit on the left, with a knot or two.
+    for y in 1..30 {
+        a.set(6, y, if y % 9 == 5 { i('w') } else { i('W') });
+        a.set(7, y, i('w'));
+    }
+    // Turns of vine binding the stone to the handle, lit on top.
+    for y in [4, 7, 10] {
+        for x in 5..10 {
+            a.set(x, y, i('G'));
+            a.set(x, y + 1, i('g'));
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The iron axe standing upright, 16x48 (head at the top, blade to the
+/// right). Kept for when iron tools can be made.
+#[allow(dead_code)]
+pub fn icon_iron_axe() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);
     let mut a = PixelArt::filled(16, 48, 0);
     // Handle, lit on the left.

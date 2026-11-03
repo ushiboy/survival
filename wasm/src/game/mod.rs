@@ -210,7 +210,7 @@ impl Game {
             return;
         }
         let situation = Situation {
-            has_axe: self.inventory.bag.has(ItemKind::Axe),
+            has_axe: self.inventory.bag.has(ItemKind::StoneAxe),
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
         };
         match self.player.update(&self.input, &self.map, situation) {
@@ -536,6 +536,11 @@ impl Game {
     pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
         self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
         self.camera.follow(self.player.center(), self.map.pixel_size());
+    }
+
+    /// Dev tools: puts an item straight into the bag (if it fits).
+    pub fn debug_give(&mut self, kind: ItemKind) {
+        self.inventory.bag.stow(kind);
     }
 
     pub fn rgba(&self) -> &[u8] {

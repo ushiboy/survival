@@ -4,8 +4,10 @@
 //! `script` is a comma-separated list of `buttons:frames` steps, where
 //! `buttons` is a SNES joypad word in hex (e.g. `0200:90,0400:40` = left for
 //! 90 frames, then down for 40). Default: `0:30`. Set `SNAP_AT=x,y` to
-//! start awake in that cell instead of washed up at the spawn.
+//! start awake in that cell instead of washed up at the spawn, and
+//! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag.
 use survival_core::game::Game;
+use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
 
 fn main() {
@@ -19,6 +21,21 @@ fn main() {
     if let Ok(at) = std::env::var("SNAP_AT") {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
         game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
+    }
+    if let Ok(give) = std::env::var("SNAP_GIVE") {
+        for name in give.split(',') {
+            let kind = match name {
+                "coconut" => ItemKind::Coconut,
+                "timber" => ItemKind::Timber,
+                "water" => ItemKind::RawWater,
+                "branch" => ItemKind::Branch,
+                "stone" => ItemKind::Stone,
+                "vine" => ItemKind::Vine,
+                "axe" => ItemKind::StoneAxe,
+                _ => panic!("unknown item {name}"),
+            };
+            game.debug_give(kind);
+        }
     }
     // Each SELECT press skips 3 in-game hours (debug feature).
     for _ in 0..skips {

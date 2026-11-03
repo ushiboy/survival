@@ -2,6 +2,7 @@
 //! rectangle the size of its footprint. Items may be turned a quarter (their
 //! footprint swaps width and height) to fit; nothing may overlap or stick out.
 
+use crate::crafting::Recipe;
 use crate::items::ItemKind;
 
 /// Bag size in cells.
@@ -104,5 +105,21 @@ impl Bag {
 
     pub fn has(&self, kind: ItemKind) -> bool {
         self.items.iter().any(|p| p.kind == kind)
+    }
+
+    /// Whether the bag holds every material a recipe needs.
+    pub fn can_make(&self, recipe: &Recipe) -> bool {
+        recipe.needs.iter().all(|&(kind, n)| self.count(kind) >= n)
+    }
+
+    /// Takes a recipe's materials out of the bag; the caller has checked it
+    /// `can_make` it.
+    pub fn use_up(&mut self, recipe: &Recipe) {
+        for &(kind, n) in recipe.needs {
+            for _ in 0..n {
+                let i = self.items.iter().position(|p| p.kind == kind).expect("material in the bag");
+                self.items.remove(i);
+            }
+        }
     }
 }

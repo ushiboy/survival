@@ -2,14 +2,23 @@
 //! rearrange items so more fit. Pure state and input handling; drawing lives
 //! in `render::bag_screen` and the effects of using or dropping in `Game`.
 //!
-//! Controls: d-pad moves the cursor (one cell, repeating while held).
-//! Browsing, A opens the item's commands and B/X closes the bag. Holding an
-//! item, A puts it down (swapping with the one item it covers, if any), Y
-//! turns it and B returns it where it came from (or, if it came off the
-//! ground or there's no room left, leaves it on the ground).
+//! Controls: the d-pad moves the cursor (repeating while held), A confirms
+//! and B cancels or goes back; everything else is picked from the screen.
+//! The one exception is Y, which turns an item held for placing. X closes
+//! the bag from anywhere but the hand.
+//!
+//! Pages are chosen on a tab row above the grid (pressing up off the top of
+//! the grid or the crafting list reaches it). On the items page, A on an
+//! item opens its commands; B closes the bag. On the crafting page, A makes
+//! the chosen recipe from materials in the bag (holding the result if
+//! there's no room for it) and B returns to the tabs. Holding an item, A
+//! puts it down (swapping with the one item it covers, if any) and B
+//! returns it where it came from (or, if it came off the ground or there's
+//! no room left, leaves it on the ground).
 
 use super::bag::{BAG_H, BAG_W, Bag, Placed, footprint};
 use crate::common::input::{Buttons, InputState};
+use crate::crafting::RECIPES;
 use crate::items::{ItemKind, Use};
 
 /// Frames a direction is held before the cursor repeats, and between
@@ -46,12 +55,34 @@ impl Command {
     }
 }
 
+/// Pages of the bag screen, in tab order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Items,
+    Craft,
+}
+
+impl Page {
+    pub const ALL: [Page; 2] = [Page::Items, Page::Craft];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Page::Items => "ITEMS",
+            Page::Craft => "CRAFT",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
+    /// On the tab row, about to pick a page.
+    Tabs(Page),
     Browse,
     /// Choosing what to do with the item at `item`.
     Commands { item: usize, choice: usize },
     Holding(HeldItem),
+    /// Choosing something to make from `RECIPES`.
+    Crafting { choice: usize },
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -98,14 +129,58 @@ impl BagMenu {
         }
     }
 
+    /// The page being shown.
+    pub fn page(&self) -> Page {
+        match self.mode {
+            Mode::Tabs(page) => page,
+            Mode::Crafting { .. } => Page::Craft,
+            _ => Page::Items,
+        }
+    }
+
+    fn open(&mut self, page: Page) {
+        self.notice = None;
+        self.mode = match page {
+            Page::Items => Mode::Browse,
+            Page::Craft => Mode::Crafting { choice: 0 },
+        };
+    }
+
     pub fn update(&mut self, input: &InputState, bag: &mut Bag) -> Outcome {
         let step = self.direction(input);
+        if input.pressed(Buttons::X) && !matches!(self.mode, Mode::Holding(_)) {
+            return Outcome::Close;
+        }
         match self.mode {
+            Mode::Tabs(page) => {
+                let i = Page::ALL.iter().position(|&p| p == page).unwrap_or(0) as i32;
+                match step {
+                    Some((dx, 0)) => {
+                        let next = Page::ALL[(i + dx).clamp(0, Page::ALL.len() as i32 - 1) as usize];
+                        if next != page {
+                            self.mode = Mode::Tabs(next);
+                            self.notice = None;
+                        }
+                    }
+                    Some((0, 1)) => self.open(page),
+                    _ => {}
+                }
+                if input.pressed(Buttons::A) {
+                    self.open(page);
+                } else if input.pressed(Buttons::B) {
+                    return Outcome::Close;
+                }
+                Outcome::Stay
+            }
             Mode::Browse => {
                 if let Some((dx, dy)) = step {
+                    if dy < 0 && self.cursor.1 == 0 {
+                        self.mode = Mode::Tabs(Page::Items);
+                        return Outcome::Stay;
+                    }
                     self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - 1), (self.cursor.1 + dy).clamp(0, BAG_H - 1));
                 }
-                if input.pressed(Buttons::B) || input.pressed(Buttons::X) {
+                if input.pressed(Buttons::B) {
                     return Outcome::Close;
                 }
                 if input.pressed(Buttons::A)
@@ -149,7 +224,39 @@ impl BagMenu {
                 }
             }
             Mode::Holding(held) => self.update_holding(input, bag, held, step),
+            Mode::Crafting { choice } => self.update_crafting(input, bag, choice, step),
         }
+    }
+
+    fn update_crafting(&mut self, input: &InputState, bag: &mut Bag, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+            if dy < 0 && choice == 0 {
+                self.mode = Mode::Tabs(Page::Craft);
+                return Outcome::Stay;
+            }
+            choice = (choice as i32 + dy).clamp(0, RECIPES.len() as i32 - 1) as usize;
+            self.mode = Mode::Crafting { choice };
+        }
+        if input.pressed(Buttons::B) {
+            self.mode = Mode::Tabs(Page::Craft);
+            self.notice = None;
+            return Outcome::Stay;
+        }
+        if !input.pressed(Buttons::A) {
+            return Outcome::Stay;
+        }
+        let recipe = &RECIPES[choice];
+        if !bag.can_make(recipe) {
+            self.notice = Some("NOT ENOUGH MATERIALS");
+            return Outcome::Stay;
+        }
+        bag.use_up(recipe);
+        if bag.stow(recipe.makes) {
+            self.notice = Some("MADE IT!");
+        } else {
+            *self = Self::holding(recipe.makes);
+        }
+        Outcome::Stay
     }
 
     fn update_holding(&mut self, input: &InputState, bag: &mut Bag, mut held: HeldItem, step: Option<(i32, i32)>) -> Outcome {

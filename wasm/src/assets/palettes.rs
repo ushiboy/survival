@@ -38,6 +38,8 @@ pub const HUD_HEART: u8 = 1;
 pub const HUD_FOOD: u8 = 2;
 pub const HUD_WATER: u8 = 3;
 pub const HUD_SKY: u8 = 4;
+/// Greyed-out text (tabs not shown, things out of reach).
+pub const HUD_DIM: u8 = 5;
 /// Bag screen slots: fill, shadowed rim, lit rim.
 pub const HUD_MENU: u8 = 6;
 /// Darkness levels of the lantern light mask (written each frame).
@@ -133,6 +135,7 @@ pub fn base_cgram() -> Cgram {
     cg.set_hud_palette(HUD_HEART, [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)]);
     cg.set_hud_palette(HUD_FOOD, [c(48, 24, 8), c(228, 128, 32), c(252, 216, 96)]);
     cg.set_hud_palette(HUD_WATER, [c(8, 24, 56), c(56, 136, 232), c(156, 220, 252)]);
+    cg.set_hud_palette(HUD_DIM, [c(10, 14, 32), c(70, 80, 112), c(104, 116, 150)]);
     cg.set_hud_palette(HUD_MENU, [c(20, 30, 58), c(8, 12, 28), c(70, 86, 128)]);
     cg.set_hud_palette(HUD_SKY, [c(64, 40, 16), c(248, 184, 40), c(255, 244, 168)]);
 

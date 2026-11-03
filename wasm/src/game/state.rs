@@ -2,7 +2,6 @@
 
 use super::bag::Bag;
 use crate::assets::character::Outfit;
-use crate::items::ItemKind;
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
 pub const FRAMES_PER_MINUTE: u32 = 20;
@@ -107,8 +106,6 @@ pub struct Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        let mut bag = Bag::default();
-        bag.stow(ItemKind::Axe);
-        Self { bag, lantern: false, outfit: Outfit::CASTAWAY }
+        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY }
     }
 }

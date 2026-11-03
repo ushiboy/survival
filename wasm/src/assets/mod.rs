@@ -151,7 +151,7 @@ pub struct BagSprites {
     pub timber: SpriteId,
     pub raw_water: SpriteId,
     /// Upright, turned.
-    pub axe: [SpriteId; 2],
+    pub stone_axe: [SpriteId; 2],
     /// Upright, turned.
     pub branch: [SpriteId; 2],
     pub stone: SpriteId,
@@ -167,7 +167,7 @@ impl BagSprites {
             ItemKind::Coconut => (self.coconut, palettes::OBJ_CRAB),
             ItemKind::Timber => (self.timber, palettes::OBJ_CRAB),
             ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
-            ItemKind::Axe => (self.axe[turned as usize], palettes::OBJ_FX),
+            ItemKind::StoneAxe => (self.stone_axe[turned as usize], palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -318,12 +318,12 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
     let [c0, c1] = crab_frames();
     let [g0, g1] = gull_frames();
     let [r0, r1, r2] = wade_ripples();
-    let axe = item_art::icon_axe();
+    let stone_axe = item_art::icon_stone_axe();
     let bag = BagSprites {
         coconut: bank.add(&item_art::icon_coconut()),
         timber: bank.add(&item_art::icon_timber()),
         raw_water: bank.add(&item_art::icon_raw_water()),
-        axe: [bank.add(&axe), bank.add(&axe.rotated_cw())],
+        stone_axe: [bank.add(&stone_axe), bank.add(&stone_axe.rotated_cw())],
         branch: {
             let b = item_art::icon_branch();
             [bank.add(&b), bank.add(&b.rotated_cw())]
@@ -342,9 +342,9 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         shadow_crab: bank.add(&shadow(16, 8, 6.5, 2.2)),
         shadow_gull: bank.add(&shadow(16, 8, 5.0, 1.8)),
         ripples: [bank.add(&r0), bank.add(&r1), bank.add(&r2)],
-        axe_side: bank.add(&axe_side()),
-        axe_up: bank.add(&axe_up()),
-        axe_diag: bank.add(&axe_diag()),
+        axe_side: bank.add(&stone_axe_side()),
+        axe_up: bank.add(&axe_up(stone_axe_side())),
+        axe_diag: bank.add(&axe_diag(stone_axe_side())),
         swoosh: swooshes().map(|a| bank.add(&a)),
         chip: chip_frames().map(|a| bank.add(&a)),
         leaf: leaf_frames().map(|a| bank.add(&a)),

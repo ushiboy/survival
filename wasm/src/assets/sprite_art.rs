@@ -110,8 +110,10 @@ pub fn wade_ripples() -> [PixelArt; 3] {
 // Tools & effects (OBJ_FX: o outline · w/W wood · m/M/L metal · c cut wood ·
 // g/G/h leaf · y/Y spark).
 
-/// Axe lying horizontally, head on the right with the edge facing right.
-pub fn axe_side() -> PixelArt {
+/// Iron axe lying horizontally, head on the right with the edge facing
+/// right. Kept for when iron tools can be made.
+#[allow(dead_code)]
+pub fn iron_axe_side() -> PixelArt {
     PixelArt::parse(
         &[
             "................",
@@ -135,15 +137,43 @@ pub fn axe_side() -> PixelArt {
     )
 }
 
-/// Axe held upright, head at the top with the edge facing up.
-pub fn axe_up() -> PixelArt {
-    axe_side().transposed().flipped_v()
+/// Stone axe lying horizontally: a knapped stone head lashed with vine to
+/// the end of a branch, edge facing right. The handle lies where the iron
+/// axe's does, so both share the grip offsets.
+pub fn stone_axe_side() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................",
+            "................",
+            "................",
+            "............oo..",
+            "...........oMLo.",
+            "..........oMMLo.",
+            "..........oMmMLo",
+            "ooooooooogGMmMLo",
+            "oWWWWWWWWGgmMmLo",
+            "owwwwwwwwgGmmmLo",
+            "ooooooooogGmmMLo",
+            "..........ommLo.",
+            "...........omLo.",
+            "............oo..",
+            "................",
+            "................",
+        ],
+        FX_LEGEND,
+    )
 }
 
-/// Axe at 45°, head at the top right. Rotated from the side view without
-/// its outline, then re-outlined so the edges stay clean.
-pub fn axe_diag() -> PixelArt {
-    let src = axe_side().map(|v| if v == 1 { 0 } else { v });
+/// An axe (given lying side-on) held upright, head at the top with the
+/// edge facing up.
+pub fn axe_up(side: PixelArt) -> PixelArt {
+    side.transposed().flipped_v()
+}
+
+/// An axe (given lying side-on) at 45°, head at the top right. Rotated
+/// without its outline, then re-outlined so the edges stay clean.
+pub fn axe_diag(side: PixelArt) -> PixelArt {
+    let src = side.map(|v| if v == 1 { 0 } else { v });
     let mut out = PixelArt::filled(16, 16, 0);
     let (c, k) = (7.5f32, std::f32::consts::FRAC_1_SQRT_2);
     for y in 0..16 {

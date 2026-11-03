@@ -3,6 +3,7 @@
 
 pub mod assets;
 pub mod common;
+pub mod crafting;
 pub mod entity;
 pub mod game;
 pub mod items;

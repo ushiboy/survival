@@ -3,10 +3,11 @@
 //! item icons and cursor (BG3's priority bit is cleared so they show in
 //! front of it).
 
-use crate::assets::palettes::{HUD_MENU, HUD_TEXT, OBJ_FX};
+use crate::assets::palettes::{HUD_DIM, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::game::bag::{BAG_H, BAG_W, Bag, footprint};
-use crate::game::menu::{BagMenu, Mode, commands_for};
+use crate::crafting::RECIPES;
+use crate::game::menu::{BagMenu, Mode, Page, commands_for};
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
 use crate::render::hud::{HUD_COLS, HUD_ROWS};
@@ -19,10 +20,17 @@ const CELL: i32 = 16;
 /// Rows of the BG3 map the screen uses.
 const LAST_ROW: usize = 27;
 const INFO_COL: usize = 17;
+/// The page tabs, and the columns between them.
+const TAB_ROW: usize = 5;
+const TAB_STRIDE: usize = 8;
 
 fn text(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
+    text_in(bg3, tiles, col, row, s, HUD_TEXT);
+}
+
+fn text_in(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str, palette: u8) {
     for (i, c) in s.chars().enumerate() {
-        bg3.put(col + i, row, tiles.glyph(c), HUD_TEXT);
+        bg3.put(col + i, row, tiles.glyph(c), palette);
     }
 }
 
@@ -37,8 +45,18 @@ fn cell_px(x: i32, y: i32) -> (i32, i32) {
 
 pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: &SpriteIds, bag: &Bag, menu: &BagMenu, clock: u32) {
     clear(bg3);
+    // Tabs: the page shown is lit, the others greyed; `>` marks the tab
+    // under the cursor while choosing one.
+    for (i, page) in Page::ALL.into_iter().enumerate() {
+        let col = GRID_COL + i * TAB_STRIDE;
+        if menu.mode == Mode::Tabs(page) {
+            text(bg3, tiles, col, TAB_ROW, ">");
+        }
+        text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
+    }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
-    text(bg3, tiles, GRID_COL, GRID_ROW - 2, &format!("BAG  {used:02}/{}", BAG_W * BAG_H));
+    let room = format!("{used:02}/{}", BAG_W * BAG_H);
+    text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), GRID_ROW + BAG_H as usize * 2, &room);
 
     for y in 0..BAG_H as usize {
         for x in 0..BAG_W as usize {
@@ -75,7 +93,8 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             None => (cx, cy, 1, 1, false),
         },
     };
-    if !blocked || clock / 6 % 2 == 0 {
+    let in_grid = matches!(menu.mode, Mode::Browse | Mode::Commands { .. } | Mode::Holding(_));
+    if in_grid && (!blocked || clock / 6 % 2 == 0) {
         let (x0, y0) = cell_px(bx, by);
         let (x1, y1) = (x0 + bw * CELL - 8, y0 + bh * CELL - 8);
         for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {
@@ -86,7 +105,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     }
 
     // What's under the cursor (or in hand), and what can be done with it.
-    let focus = held.map(|h| h.kind).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].kind));
+    let focus = held.map(|h| h.kind).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].kind)).filter(|_| in_grid);
     if let Some(kind) = focus {
         let (w, h) = footprint(kind, false);
         text(bg3, tiles, INFO_COL, GRID_ROW, kind.name());
@@ -102,13 +121,44 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             text(bg3, tiles, INFO_COL + 1, row, c.label(kind));
         }
     }
+    match menu.mode {
+        Mode::Crafting { choice } => draw_crafting(bg3, tiles, list, sprites, bag, choice, true),
+        Mode::Tabs(Page::Craft) => draw_crafting(bg3, tiles, list, sprites, bag, 0, false),
+        _ => {}
+    }
     if let Some(n) = menu.notice {
-        text(bg3, tiles, GRID_COL, GRID_ROW + BAG_H as usize * 2 + 1, n);
+        text(bg3, tiles, GRID_COL, GRID_ROW + BAG_H as usize * 2 + 2, n);
     }
     let help = match menu.mode {
+        Mode::Tabs(_) => "A OPEN   B CLOSE",
         Mode::Browse => "A CHOOSE   B CLOSE",
+        Mode::Crafting { .. } => "A MAKE   B BACK",
         Mode::Commands { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
+}
+
+/// The crafting list beside the grid: recipes with the chosen one's
+/// materials (have/need) and a picture of what it makes. `active` is false
+/// while only previewing it from the tab row.
+fn draw_crafting(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, choice: usize, active: bool) {
+    for (i, r) in RECIPES.iter().enumerate() {
+        let row = GRID_ROW + i;
+        if active && i == choice {
+            text(bg3, tiles, INFO_COL, row, ">");
+        }
+        text(bg3, tiles, INFO_COL + 1, row, r.makes.name());
+    }
+    let recipe = &RECIPES[choice];
+    let top = GRID_ROW + 1 + RECIPES.len();
+    text(bg3, tiles, INFO_COL, top, "NEEDS");
+    for (i, &(kind, n)) in recipe.needs.iter().enumerate() {
+        let have = bag.count(kind).min(9);
+        text(bg3, tiles, INFO_COL, top + 1 + i, &format!("{} {have}/{n}", kind.name()));
+    }
+    // The finished thing, standing at the right of the panel.
+    let (w, _) = footprint(recipe.makes, false);
+    let (gfx, pal) = sprites.bag.icon(recipe.makes, false);
+    list.sky(ObjEntry::new(31 * 8 - w * CELL, (GRID_ROW * 8) as i32, gfx, pal, 3));
 }

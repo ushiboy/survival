@@ -9,7 +9,8 @@ pub enum ItemKind {
     /// River water, not yet boiled. Carried in cupped leaves; it can't be
     /// put down, only poured away.
     RawWater,
-    Axe,
+    /// A sharp stone lashed to a branch with vine.
+    StoneAxe,
     /// A dead branch picked up off the ground.
     Branch,
     Stone,
@@ -29,9 +30,8 @@ impl ItemKind {
     pub fn size(self) -> (i32, i32) {
         match self {
             ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine => (1, 1),
-            ItemKind::Branch => (1, 2),
+            ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
             ItemKind::Timber => (2, 2),
-            ItemKind::Axe => (1, 3),
         }
     }
 
@@ -40,7 +40,7 @@ impl ItemKind {
             ItemKind::Coconut => "COCONUT",
             ItemKind::Timber => "TIMBER",
             ItemKind::RawWater => "RAW WATER",
-            ItemKind::Axe => "AXE",
+            ItemKind::StoneAxe => "STONE AXE",
             ItemKind::Branch => "BRANCH",
             ItemKind::Stone => "STONE",
             ItemKind::Vine => "VINE",
