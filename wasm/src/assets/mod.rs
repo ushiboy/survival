@@ -152,6 +152,7 @@ pub struct BagSprites {
     pub raw_water: SpriteId,
     /// Upright, turned.
     pub stone_axe: [SpriteId; 2],
+    pub fire_drill: SpriteId,
     /// Upright, turned.
     pub branch: [SpriteId; 2],
     pub stone: SpriteId,
@@ -168,6 +169,7 @@ impl BagSprites {
             ItemKind::Timber => (self.timber, palettes::OBJ_CRAB),
             ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
             ItemKind::StoneAxe => (self.stone_axe[turned as usize], palettes::OBJ_FX),
+            ItemKind::FireDrill => (self.fire_drill, palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -207,6 +209,7 @@ pub struct SpriteIds {
     pub branch: SpriteId,
     pub stone: SpriteId,
     pub vine_coil: SpriteId,
+    pub fire_drill: SpriteId,
 }
 
 #[derive(Clone, Debug)]
@@ -324,6 +327,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         timber: bank.add(&item_art::icon_timber()),
         raw_water: bank.add(&item_art::icon_raw_water()),
         stone_axe: [bank.add(&stone_axe), bank.add(&stone_axe.rotated_cw())],
+        fire_drill: bank.add(&item_art::fire_drill(16)),
         branch: {
             let b = item_art::icon_branch();
             [bank.add(&b), bank.add(&b.rotated_cw())]
@@ -357,6 +361,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         branch: bank.add(&branch()),
         stone: bank.add(&stone()),
         vine_coil: bank.add(&vine_coil()),
+        fire_drill: bank.add(&item_art::fire_drill(16)),
     }
 }
 

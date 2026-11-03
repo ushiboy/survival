@@ -108,6 +108,51 @@ pub fn icon_stone_axe() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A bow drill, `size` px square (16 in the bag and on the ground):
+/// a bent branch strung with vine, the string looped once round a
+/// pale spindle.
+pub fn fire_drill(size: usize) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let k = size as f32 / 32.0;
+    let mut a = PixelArt::filled(size, size, 0);
+    let dot = |a: &mut PixelArt, cx: f32, cy: f32, r: f32, c: u8| {
+        for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
+            for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
+                if (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) <= r * r {
+                    a.put(x, y, c);
+                }
+            }
+        }
+    };
+    // String, end to end of the bow.
+    let (ax, ay, bx, by) = (5.0 * k, 6.0 * k, 27.0 * k, 25.0 * k);
+    for s in 0..=64 {
+        let t = s as f32 / 64.0;
+        dot(&mut a, ax + (bx - ax) * t, ay + (by - ay) * t, 0.45, i('g'));
+    }
+    // Bow: a curve bulging toward the bottom left, lit along its outside.
+    let (qx, qy) = (4.0 * k, 28.0 * k);
+    let r = (1.4 * k).max(0.7);
+    for s in 0..=96 {
+        let t = s as f32 / 96.0;
+        let u = 1.0 - t;
+        let (x, y) = (u * u * ax + 2.0 * u * t * qx + t * t * bx, u * u * ay + 2.0 * u * t * qy + t * t * by);
+        dot(&mut a, x, y, r, i('w'));
+        dot(&mut a, x - 0.5 * k, y + 0.5 * k, r * 0.5, i('W'));
+    }
+    // Spindle crossing the string, with the loop of vine round it.
+    let (sx0, sy0, sx1, sy1) = (20.0 * k, 3.0 * k, 13.0 * k, 29.0 * k);
+    for s in 0..=64 {
+        let t = s as f32 / 64.0;
+        dot(&mut a, sx0 + (sx1 - sx0) * t, sy0 + (sy1 - sy0) * t, (1.0 * k).max(0.5), i('c'));
+    }
+    let (mx, my) = ((sx0 + sx1) / 2.0, (sy0 + sy1) / 2.0);
+    for d in [-1.0f32, 1.0] {
+        dot(&mut a, mx + d * 0.8 * k, my - d * 0.6 * k, (0.9 * k).max(0.5), i('G'));
+    }
+    a.outlined(i('o'))
+}
+
 /// The iron axe standing upright, 16x48 (head at the top, blade to the
 /// right). Kept for when iron tools can be made.
 #[allow(dead_code)]

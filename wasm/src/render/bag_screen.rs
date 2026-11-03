@@ -157,8 +157,9 @@ fn draw_crafting(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spri
         let have = bag.count(kind).min(9);
         text(bg3, tiles, INFO_COL, top + 1 + i, &format!("{} {have}/{n}", kind.name()));
     }
-    // The finished thing, standing at the right of the panel.
+    // The finished thing, at the right below the materials.
     let (w, _) = footprint(recipe.makes, false);
     let (gfx, pal) = sprites.bag.icon(recipe.makes, false);
-    list.sky(ObjEntry::new(31 * 8 - w * CELL, (GRID_ROW * 8) as i32, gfx, pal, 3));
+    let y = (top + 2 + recipe.needs.len()) * 8;
+    list.sky(ObjEntry::new(31 * 8 - w * CELL, y as i32, gfx, pal, 3));
 }

@@ -11,7 +11,7 @@ pub struct Recipe {
     pub needs: &'static [(ItemKind, u32)],
 }
 
-pub const RECIPES: &[Recipe] = &[Recipe {
-    makes: ItemKind::StoneAxe,
-    needs: &[(ItemKind::Stone, 1), (ItemKind::Vine, 1), (ItemKind::Branch, 1)],
-}];
+pub const RECIPES: &[Recipe] = &[
+    Recipe { makes: ItemKind::StoneAxe, needs: &[(ItemKind::Stone, 1), (ItemKind::Vine, 1), (ItemKind::Branch, 1)] },
+    Recipe { makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)] },
+];

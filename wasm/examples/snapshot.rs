@@ -32,6 +32,7 @@ fn main() {
                 "stone" => ItemKind::Stone,
                 "vine" => ItemKind::Vine,
                 "axe" => ItemKind::StoneAxe,
+                "drill" => ItemKind::FireDrill,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
