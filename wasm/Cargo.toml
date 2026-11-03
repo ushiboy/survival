@@ -1,0 +1,18 @@
+[package]
+name = "survival-core"
+version = "0.1.0"
+edition = "2024"
+description = "Game core for the castaway survival game (compiled to WebAssembly)"
+license = "UNLICENSED"
+repository = ""
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -1,0 +1,192 @@
+//! Procedural generation of the southern beach area of the island.
+//!
+//! Layout (north → south): dense jungle, grassland, a wide beach with palms,
+//! the surf line, shallows and then open sea. A cove cuts into the beach and a
+//! small sandbar sits offshore.
+
+use super::map::{TILE_SIZE, WorldMap};
+use super::noise::fbm;
+use super::terrain::{Feature, PalmPart, Terrain};
+use crate::common::rng::{Rng, hash_unit};
+use std::f32::consts::TAU;
+
+pub const MAP_W: i32 = 64;
+pub const MAP_H: i32 = 48;
+
+const DEEP_BELOW: f32 = -5.0;
+const SAND_BELOW: f32 = 7.0;
+const JUNGLE_ABOVE: f32 = 17.0;
+const CRAB_COUNT: usize = 7;
+
+/// Height of the land relative to the shoreline, in tiles (negative = sea).
+struct HeightField {
+    seed: u32,
+}
+
+impl HeightField {
+    fn coast_y(&self, x: f32) -> f32 {
+        let t = x / MAP_W as f32 * TAU;
+        MAP_H as f32 * 0.52 + 3.5 * (t + 0.6).sin() + 2.0 * (t * 2.7 + 1.9).sin()
+    }
+
+    fn at(&self, x: i32, y: i32) -> f32 {
+        let (fx, fy) = (x as f32, y as f32);
+        let n = fbm(fx * 0.11, fy * 0.11, self.seed, 3);
+        let mut h = (self.coast_y(fx) - fy) + n * 3.0;
+
+        // Cove cutting into the beach.
+        let cove_x = MAP_W as f32 * 0.28;
+        h -= bump(fx, fy, cove_x, self.coast_y(cove_x) - 2.0, 6.0) * 7.0;
+        // Offshore sandbar.
+        let bar_x = MAP_W as f32 * 0.72;
+        h += bump(fx, fy, bar_x, self.coast_y(bar_x) + 9.0, 5.0) * 13.0;
+        h
+    }
+}
+
+fn bump(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> f32 {
+    let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+    (1.0 - d / r).max(0.0)
+}
+
+fn classify(h: f32) -> Terrain {
+    if h < DEEP_BELOW {
+        Terrain::DeepWater
+    } else if h < 0.0 {
+        Terrain::ShallowWater
+    } else if h < SAND_BELOW {
+        Terrain::Sand
+    } else {
+        Terrain::Grass
+    }
+}
+
+pub fn generate(seed: u32) -> WorldMap {
+    let field = HeightField { seed };
+    let mut map = WorldMap::new(MAP_W, MAP_H, Terrain::DeepWater);
+    let mut heights = vec![0.0f32; (MAP_W * MAP_H) as usize];
+    for y in 0..MAP_H {
+        for x in 0..MAP_W {
+            let h = field.at(x, y);
+            heights[(y * MAP_W + x) as usize] = h;
+            map.set_terrain(x, y, classify(h));
+        }
+    }
+    enforce_transitions(&mut map);
+
+    let spawn_cell = find_spawn(&map, &heights);
+    map.spawn = (spawn_cell.0 * TILE_SIZE, spawn_cell.1 * TILE_SIZE);
+    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3;
+
+    place_palms(&mut map, &heights, seed, &near_spawn);
+    place_scatter(&mut map, &heights, seed, &near_spawn);
+    map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
+    map
+}
+
+/// Guarantees the sea → shallows → sand → grass ordering so every edge has a
+/// matching transition tile.
+fn enforce_transitions(map: &mut WorldMap) {
+    let snapshot = map.clone();
+    let neighbours = |x: i32, y: i32, pred: &dyn Fn(Terrain) -> bool| {
+        (-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && snapshot.in_bounds(x + dx, y + dy) && pred(snapshot.terrain(x + dx, y + dy))))
+    };
+    for y in 0..map.height() {
+        for x in 0..map.width() {
+            match snapshot.terrain(x, y) {
+                Terrain::DeepWater if neighbours(x, y, &|t| t.is_land()) => {
+                    map.set_terrain(x, y, Terrain::ShallowWater)
+                }
+                Terrain::Grass if neighbours(x, y, &|t| t.is_water()) => map.set_terrain(x, y, Terrain::Sand),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Lower beach near the middle of the map, with open space around it.
+fn find_spawn(map: &WorldMap, heights: &[f32]) -> (i32, i32) {
+    let cx = MAP_W / 2;
+    for dx in 0..MAP_W / 2 {
+        for x in [cx + dx, cx - dx] {
+            for y in 0..MAP_H {
+                let h = heights[(y * MAP_W + x) as usize];
+                let clear = (-1..=1).all(|oy| (-1..=1).all(|ox| map.terrain(x + ox, y + oy) == Terrain::Sand));
+                if (1.5..3.5).contains(&h) && clear {
+                    return (x, y);
+                }
+            }
+        }
+    }
+    (cx, MAP_H / 2)
+}
+
+fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
+    for y in 0..MAP_H - 1 {
+        for x in 0..MAP_W - 1 {
+            let h = heights[(y * MAP_W + x) as usize];
+            if !(3.0..SAND_BELOW + 1.0).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.10 {
+                continue;
+            }
+            let cells = [(0, 0), (1, 0), (0, 1), (1, 1)];
+            let fits = cells.iter().all(|&(dx, dy)| {
+                map.terrain(x + dx, y + dy) == Terrain::Sand
+                    && map.feature(x + dx, y + dy) == Feature::None
+                    && !near_spawn(x + dx, y + dy)
+            });
+            // Keep a one-cell gap between trees.
+            let crowded = (-1..=2).any(|dy| {
+                (-1..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_)))
+            });
+            if fits && !crowded {
+                let parts = [PalmPart::TopLeft, PalmPart::TopRight, PalmPart::BottomLeft, PalmPart::BottomRight];
+                for (&(dx, dy), part) in cells.iter().zip(parts) {
+                    map.set_feature(x + dx, y + dy, Feature::Palm(part));
+                }
+            }
+        }
+    }
+}
+
+fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
+    for y in 0..MAP_H {
+        for x in 0..MAP_W {
+            if map.feature(x, y) != Feature::None || near_spawn(x, y) {
+                continue;
+            }
+            let h = heights[(y * MAP_W + x) as usize];
+            let r = hash_unit(x, y, seed ^ 0xF00D);
+            let feature = match map.terrain(x, y) {
+                Terrain::Grass if h > JUNGLE_ABOVE => {
+                    if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
+                }
+                Terrain::Grass => {
+                    if r < 0.05 { Feature::Bush } else if r < 0.12 { Feature::Flower } else { Feature::None }
+                }
+                Terrain::Sand => {
+                    if r < 0.02 { Feature::Rock } else if r < 0.032 { Feature::Driftwood } else if r < 0.06 { Feature::Shell } else { Feature::None }
+                }
+                _ => Feature::None,
+            };
+            map.set_feature(x, y, feature);
+        }
+    }
+}
+
+fn pick_crab_spawns(map: &WorldMap, seed: u32, spawn: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut rng = Rng::new(seed ^ 0xC4AB);
+    let mut out = Vec::new();
+    for _ in 0..2000 {
+        if out.len() >= CRAB_COUNT {
+            break;
+        }
+        let (x, y) = (rng.between(0, MAP_W - 1), rng.between(0, MAP_H - 1));
+        let ok = map.terrain(x, y) == Terrain::Sand
+            && !map.props(x, y).solid
+            && ((x - spawn.0).abs() > 4 || (y - spawn.1).abs() > 4);
+        if ok {
+            out.push((x * TILE_SIZE, y * TILE_SIZE));
+        }
+    }
+    out
+}
