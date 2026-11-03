@@ -4,6 +4,7 @@
 use crate::assets::HudTiles;
 use crate::assets::palettes::{HUD_COCONUT, HUD_FOOD, HUD_HEART, HUD_SKY, HUD_TEXT, HUD_WATER};
 use crate::game::state::{GameClock, Inventory, Vitals};
+use crate::items::ItemKind;
 use crate::ppu::Bg3Layer as HudLayer;
 
 const GAUGE_TILES: usize = 8;
@@ -42,11 +43,11 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &I
     gauge(hud, tiles, 2, 3, vitals.water, Vitals::MAX, HUD_WATER);
 
     hud.put(1, 4, tiles.wood, HUD_FOOD);
-    text(hud, tiles, 2, 4, &format!("{:02}", inventory.wood.min(99)));
+    text(hud, tiles, 2, 4, &format!("{:02}", inventory.bag.count(ItemKind::Timber).min(99)));
     hud.put(5, 4, tiles.coconut, HUD_COCONUT);
-    text(hud, tiles, 6, 4, &format!("{:02}", inventory.coconuts.min(99)));
+    text(hud, tiles, 6, 4, &format!("{:02}", inventory.bag.count(ItemKind::Coconut).min(99)));
     hud.put(9, 4, tiles.raw_water, HUD_WATER);
-    text(hud, tiles, 10, 4, &format!("{:02}", inventory.raw_water.min(99)));
+    text(hud, tiles, 10, 4, &format!("{:02}", inventory.bag.count(ItemKind::RawWater).min(99)));
 
     if inventory.lantern {
         hud.put(21, 1, tiles.lantern, HUD_SKY);

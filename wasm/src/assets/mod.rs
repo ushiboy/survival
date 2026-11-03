@@ -3,6 +3,7 @@
 
 pub mod character;
 pub mod hud_art;
+pub mod item_art;
 pub mod paint;
 pub mod palettes;
 pub mod props;
@@ -11,6 +12,7 @@ pub mod terrain;
 
 use crate::ppu::Vram;
 use crate::ppu::banks::{HudTileId, MetatileId, SpriteBank, SpriteId};
+use crate::items::ItemKind;
 use character::Outfit;
 use character::pose::{Pose, View};
 use crate::ppu::pattern::PixelArt;
@@ -142,8 +144,33 @@ impl PlayerSprites {
     }
 }
 
+/// Bag-screen icons and cursor.
+#[derive(Clone, Debug)]
+pub struct BagSprites {
+    pub coconut: SpriteId,
+    pub timber: SpriteId,
+    pub raw_water: SpriteId,
+    /// Upright, turned.
+    pub axe: [SpriteId; 2],
+    /// Top-left bracket; flipped for the other corners.
+    pub corner: SpriteId,
+}
+
+impl BagSprites {
+    /// The icon for an item as laid in the bag, and its sprite palette.
+    pub fn icon(&self, kind: ItemKind, turned: bool) -> (SpriteId, u8) {
+        match kind {
+            ItemKind::Coconut => (self.coconut, palettes::OBJ_CRAB),
+            ItemKind::Timber => (self.timber, palettes::OBJ_CRAB),
+            ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
+            ItemKind::Axe => (self.axe[turned as usize], palettes::OBJ_FX),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SpriteIds {
+    pub bag: BagSprites,
     pub player: PlayerSprites,
     pub crab: [SpriteId; 2],
     pub gull: [SpriteId; 2],
@@ -184,6 +211,9 @@ pub struct HudTiles {
     pub wood: HudTileId,
     pub coconut: HudTileId,
     pub raw_water: HudTileId,
+    /// A bag cell's four 8x8 quarters: top-left, top-right, bottom-left,
+    /// bottom-right.
+    pub bag_cell: [HudTileId; 4],
     /// Gauge segments indexed by filled pixels (0..=8).
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
@@ -276,7 +306,16 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
     let [c0, c1] = crab_frames();
     let [g0, g1] = gull_frames();
     let [r0, r1, r2] = wade_ripples();
+    let axe = item_art::icon_axe();
+    let bag = BagSprites {
+        coconut: bank.add(&item_art::icon_coconut()),
+        timber: bank.add(&item_art::icon_timber()),
+        raw_water: bank.add(&item_art::icon_raw_water()),
+        axe: [bank.add(&axe), bank.add(&axe.rotated_cw())],
+        corner: bank.add(&item_art::cursor_corner()),
+    };
     SpriteIds {
+        bag,
         player,
         crab: [bank.add(&c0), bank.add(&c1)],
         gull: [bank.add(&g0), bank.add(&g1)],
@@ -318,6 +357,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         wood: bank.add(&hud_art::icon_wood()),
         coconut: bank.add(&hud_art::icon_coconut()),
         raw_water: bank.add(&hud_art::icon_raw_water()),
+        bag_cell: hud_art::bag_cell().map(|a| bank.add(&a)),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
         gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),

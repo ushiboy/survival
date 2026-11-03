@@ -4,7 +4,7 @@
 //! position + height) like particles.
 
 use crate::assets::SpriteIds;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_SHADOW};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_FX, OBJ_SHADOW};
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
@@ -21,12 +21,7 @@ const IN_CANOPY_Z: f32 = 18.0;
 /// be picked up.
 const PICKUP_RANGE: f32 = 13.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ItemKind {
-    Coconut,
-    /// A squared length of palm wood.
-    Timber,
-}
+pub use crate::items::ItemKind;
 
 #[derive(Clone, Debug)]
 pub struct Item {
@@ -113,6 +108,9 @@ impl Item {
         let (w, gfx, shadow) = match self.kind {
             ItemKind::Coconut => (8, sprites.coconut, sprites.shadow_coconut),
             ItemKind::Timber => (16, [sprites.timber; 2], sprites.shadow_player),
+            ItemKind::Axe => (16, [sprites.axe_side; 2], sprites.shadow_player),
+            // Water never lies on the ground.
+            ItemKind::RawWater => return,
         };
         let (wx, wy) = (self.x as i32 - w / 2, (self.y - self.z) as i32 - 7);
         if !camera.sees(wx, wy, w, 8 + self.z as i32) {
@@ -121,7 +119,11 @@ impl Item {
         let (sx, sy) = camera.to_screen(wx, wy);
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
-        let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
+        let palette = match self.kind {
+            ItemKind::Axe => OBJ_FX,
+            _ if night => OBJ_CRAB_NIGHT,
+            _ => OBJ_CRAB,
+        };
         let priority = if self.z > IN_CANOPY_Z { 3 } else { 2 };
         let flip = airborne && self.anim / 8 % 2 == 1;
         list.actor(self.y as i32, ObjEntry::new(sx, sy, gfx[frame], palette, priority).flipped(flip));

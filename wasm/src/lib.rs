@@ -5,6 +5,7 @@ pub mod assets;
 pub mod common;
 pub mod entity;
 pub mod game;
+pub mod items;
 pub mod ppu;
 pub mod render;
 pub mod world;

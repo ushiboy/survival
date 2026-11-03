@@ -123,6 +123,11 @@ pub struct FrameState {
     pub brightness: u8,
     /// Global animation clock for animated tiles.
     pub clock: u32,
+    /// Layers enabled on the main screen (TM), `layer::*` bits.
+    pub main_layers: u8,
+    /// BG3 high-priority tiles in front of everything (BGMODE bit 3). When
+    /// off, BG3 sits behind sprites of priority 1-3.
+    pub bg3_priority: bool,
 }
 
 impl Default for FrameState {
@@ -137,6 +142,8 @@ impl Default for FrameState {
             lines: LineTables::default(),
             brightness: 15,
             clock: 0,
+            main_layers: layer::BG1 | layer::BG2 | layer::BG3 | layer::OBJ,
+            bg3_priority: true,
         }
     }
 }
@@ -220,29 +227,39 @@ impl Ppu {
             Self::bg_line(vram, frame, bg1, y, 0, &mut l1);
             Self::bg_line(vram, frame, bg2, y, frame.lines.bg2_hofs[y], &mut l2);
             Self::bg3_line(vram, frame, y, &mut l3);
-            let (bg3_main, bg3_sub) = (frame.lines.bg3_main[y], frame.lines.bg3_sub[y]);
+            let tm = frame.main_layers;
+            let (bg3_main, bg3_sub) = (frame.lines.bg3_main[y] && tm & layer::BG3 != 0, frame.lines.bg3_sub[y]);
             self.obj_line(vram, frame, y, &mut obj);
 
             let row = &mut self.rgba[y * SCREEN_W * 4..(y + 1) * SCREEN_W * 4];
             for x in 0..SCREEN_W {
                 let (a, b, c, o) = (l1[x], l2[x], l3[x], obj[x]);
-                // Mode 1 priority (front to back), BG3 tiles always high.
-                let (src, idx) = if bg3_main && c.color != 0 {
+                // Layers off the main screen still feed the sub-screen.
+                let on = |bit: u8| tm & bit != 0;
+                let (ma, mb) = (if on(layer::BG1) { a } else { BgPx::default() }, if on(layer::BG2) { b } else { BgPx::default() });
+                let mo = if on(layer::OBJ) { o } else { ObjPx::default() };
+                let bg3 = bg3_main && c.color != 0;
+                // Mode 1 priority (front to back); BG3 tiles are all high.
+                let (src, idx) = if bg3 && frame.bg3_priority {
                     (Src::Bg3, c.color)
-                } else if o.color != 0 && o.priority == 3 {
-                    (Src::Obj, o.color)
-                } else if a.color != 0 && a.high {
-                    (Src::Bg1, a.color)
-                } else if b.color != 0 && b.high {
-                    (Src::Bg2, b.color)
-                } else if o.color != 0 && o.priority == 2 {
-                    (Src::Obj, o.color)
-                } else if a.color != 0 {
-                    (Src::Bg1, a.color)
-                } else if b.color != 0 {
-                    (Src::Bg2, b.color)
-                } else if o.color != 0 {
-                    (Src::Obj, o.color)
+                } else if mo.color != 0 && mo.priority == 3 {
+                    (Src::Obj, mo.color)
+                } else if ma.color != 0 && ma.high {
+                    (Src::Bg1, ma.color)
+                } else if mb.color != 0 && mb.high {
+                    (Src::Bg2, mb.color)
+                } else if mo.color != 0 && mo.priority == 2 {
+                    (Src::Obj, mo.color)
+                } else if ma.color != 0 {
+                    (Src::Bg1, ma.color)
+                } else if mb.color != 0 {
+                    (Src::Bg2, mb.color)
+                } else if mo.color != 0 && mo.priority >= 1 {
+                    (Src::Obj, mo.color)
+                } else if bg3 {
+                    (Src::Bg3, c.color)
+                } else if mo.color != 0 {
+                    (Src::Obj, mo.color)
                 } else {
                     (Src::Backdrop, 0)
                 };

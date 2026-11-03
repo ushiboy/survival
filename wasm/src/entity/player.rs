@@ -10,6 +10,7 @@ use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
+use crate::items::Use;
 use crate::world::harvest::can_shake;
 
 pub const SPRITE_W: i32 = 16;
@@ -103,10 +104,6 @@ pub struct Situation {
     pub has_axe: bool,
     /// Where something lies close enough to pick up.
     pub item_in_reach: Option<(i32, i32)>,
-    /// Something to eat in the bag.
-    pub has_food: bool,
-    /// Water to drink in the bag.
-    pub has_water: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -120,9 +117,9 @@ pub enum Deed {
     PickUp,
     /// Scooped up water to carry.
     DrawWater,
-    /// Drank some carried water (it is used up).
+    /// Drank some water taken from the bag.
     Drink,
-    /// Ate a bite (the food is used up).
+    /// Finished eating something taken from the bag.
     Eat,
 }
 
@@ -167,7 +164,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { has_axe, item_in_reach, has_food, has_water } = situation;
+        let Situation { has_axe, item_in_reach } = situation;
         if let Action::WakeUp { t } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { WAKE_END } else { t + 1 };
@@ -222,18 +219,6 @@ impl Player {
             let (ax, ay) = input.axis();
             self.facing = facing_for(self.facing, ax, ay);
             self.action = Action::Chop { t: 0 };
-            self.moving = false;
-            self.walk_timer = 0;
-            return None;
-        }
-        if has_food && !self.wading && input.pressed(Buttons::Y) {
-            self.action = Action::Eat { t: 0 };
-            self.moving = false;
-            self.walk_timer = 0;
-            return None;
-        }
-        if has_water && !self.wading && input.pressed(Buttons::R) {
-            self.action = Action::Drink { t: 0 };
             self.moving = false;
             self.walk_timer = 0;
             return None;
@@ -314,6 +299,32 @@ impl Player {
 
         // Keep walking in place against walls, like classic action RPGs.
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
+    }
+
+    /// Standing ready: not mid-action (so the bag can be opened).
+    pub fn is_idle(&self) -> bool {
+        self.action == Action::Idle
+    }
+
+    /// Starts eating or drinking something taken from the bag.
+    pub fn consume(&mut self, how: Use) {
+        self.action = match how {
+            Use::Eat => Action::Eat { t: 0 },
+            Use::Drink => Action::Drink { t: 0 },
+        };
+        self.moving = false;
+        self.walk_timer = 0;
+    }
+
+    /// Where something put down lands: just in front of the feet.
+    pub fn front_of_feet(&self) -> (i32, i32) {
+        let (fx, fy) = self.body.feet();
+        match self.facing {
+            Dir::Up => (fx, fy - 6),
+            Dir::Down => (fx, fy + 6),
+            Dir::Left => (fx - 9, fy),
+            Dir::Right => (fx + 9, fy),
+        }
     }
 
     /// Point the camera follows (roughly the torso).

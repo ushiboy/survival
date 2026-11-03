@@ -1,6 +1,8 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
+use super::bag::Bag;
 use crate::assets::character::Outfit;
+use crate::items::ItemKind;
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
 pub const FRAMES_PER_MINUTE: u32 = 20;
@@ -93,23 +95,20 @@ impl Default for Vitals {
     }
 }
 
-/// Items the castaway carries. Placeholder until an item system exists.
+/// What the castaway carries and wears.
 #[derive(Clone, Debug)]
 pub struct Inventory {
-    /// Lets the castaway chop trees.
-    pub axe: bool,
-    /// Lights the surroundings at night.
+    pub bag: Bag,
+    /// Lights the surroundings at night (debug toggle until it's an item).
     pub lantern: bool,
-    pub wood: u32,
-    pub coconuts: u32,
-    /// Water drawn from the river, not yet boiled.
-    pub raw_water: u32,
     /// What the castaway is wearing.
     pub outfit: Outfit,
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { axe: true, lantern: false, wood: 0, coconuts: 0, raw_water: 0, outfit: Outfit::CASTAWAY }
+        let mut bag = Bag::default();
+        bag.stow(ItemKind::Axe);
+        Self { bag, lantern: false, outfit: Outfit::CASTAWAY }
     }
 }

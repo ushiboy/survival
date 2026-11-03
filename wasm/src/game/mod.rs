@@ -2,6 +2,8 @@
 //! `step` advances simulation; `render` produces the picture. They are kept
 //! separate so the host can run fixed-rate updates independent of display.
 
+pub mod bag;
+pub mod menu;
 pub mod state;
 
 use crate::assets::Assets;
@@ -10,17 +12,20 @@ use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
-use crate::entity::{Crab, Deed, Gull, Item, ItemKind, Particles, Player, Situation};
+use crate::entity::{Crab, Deed, Gull, Item, Particles, Player, Situation};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
 use crate::render::camera::Camera;
+use crate::items::ItemKind;
+use crate::render::bag_screen;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::lighting::{self, Light, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{Harvest, Shaken, Strike};
 use crate::world::{TILE_SIZE, WorldMap, island};
+use menu::{BagMenu, Outcome};
 use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
@@ -98,6 +103,8 @@ pub struct Game {
     inventory: Inventory,
     input: InputState,
     paused: bool,
+    /// The bag screen, while open (the world stands still).
+    menu: Option<BagMenu>,
     frame_count: u32,
     base_cgram: Cgram,
     draw_list: DrawList,
@@ -145,6 +152,7 @@ impl Game {
             inventory: Inventory::default(),
             input: InputState::default(),
             paused: false,
+            menu: None,
             frame_count: 0,
             base_cgram: base_cgram(),
             draw_list: DrawList::default(),
@@ -173,7 +181,7 @@ impl Game {
             // Debug: give / take the lantern until items exist.
             self.inventory.lantern = !self.inventory.lantern;
         }
-        if self.input.pressed(Buttons::X) {
+        if self.input.pressed(Buttons::R) {
             // Debug: cycle outfit presets until equipment exists.
             let presets = Outfit::PRESETS;
             let i = presets.iter().position(|o| *o == self.inventory.outfit).unwrap_or(0);
@@ -181,6 +189,15 @@ impl Game {
         }
 
         self.frame_count = self.frame_count.wrapping_add(1);
+        if let Some(menu) = &mut self.menu {
+            let outcome = menu.update(&self.input, &mut self.inventory.bag);
+            self.resolve_menu(outcome);
+            return;
+        }
+        if self.input.pressed(Buttons::X) && self.player.is_idle() {
+            self.menu = Some(BagMenu::browse());
+            return;
+        }
         if self.clock.tick() {
             self.vitals.on_minute(&self.clock);
         }
@@ -192,16 +209,14 @@ impl Game {
             return;
         }
         let situation = Situation {
-            has_axe: self.inventory.axe,
+            has_axe: self.inventory.bag.has(ItemKind::Axe),
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
-            has_food: self.inventory.coconuts > 0,
-            has_water: self.inventory.raw_water > 0,
         };
         match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
-            Some(Deed::DrawWater) => self.inventory.raw_water += 1,
+            Some(Deed::DrawWater) => self.take(ItemKind::RawWater),
             Some(Deed::Drink) => self.drink_water(),
             Some(Deed::Eat) => self.eat_coconut(),
             None => {}
@@ -348,27 +363,54 @@ impl Game {
         let item = self.items.swap_remove(i);
         let (x, y) = item.ground();
         self.particles.sparks((x, y - 4), 1);
-        match item.kind {
-            ItemKind::Coconut => self.inventory.coconuts += 1,
-            ItemKind::Timber => self.inventory.wood += 1,
+        self.take(item.kind);
+    }
+
+    /// Puts something just obtained into the bag; if it doesn't fit, the
+    /// bag opens with it in hand so room can be made (or it can be left).
+    fn take(&mut self, kind: ItemKind) {
+        if !self.inventory.bag.stow(kind) {
+            self.menu = Some(BagMenu::holding(kind));
         }
     }
 
-    /// Drinks one draw of carried water.
-    fn drink_water(&mut self) {
-        if self.inventory.raw_water > 0 {
-            self.inventory.raw_water -= 1;
-            self.vitals.drink(DRINK_WATER);
+    /// Acts on what happened in the bag screen.
+    fn resolve_menu(&mut self, outcome: Outcome) {
+        match outcome {
+            Outcome::Stay => {}
+            Outcome::Close => self.menu = None,
+            Outcome::Use(kind) => {
+                self.menu = None;
+                if let Some(how) = kind.usage() {
+                    self.player.consume(how);
+                }
+            }
+            Outcome::Drop(kind) => self.put_down(kind),
         }
     }
 
-    /// Finishes a coconut from the bag, with a few bits of husk falling
-    /// from the castaway's mouth.
-    fn eat_coconut(&mut self) {
-        if self.inventory.coconuts == 0 {
+    /// Leaves an item from the bag on the ground in front of the castaway
+    /// (water is poured away).
+    fn put_down(&mut self, kind: ItemKind) {
+        if !kind.can_put_down() {
             return;
         }
-        self.inventory.coconuts -= 1;
+        let (fx, fy) = self.player.body.feet();
+        let (mut x, mut y) = self.player.front_of_feet();
+        if !self.map.terrain(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)).is_land() || self.map.props_at_px(x, y).solid {
+            (x, y) = (fx, fy + 1);
+        }
+        self.items.push(Item::falling(kind, (x as f32, y as f32 - 10.0), (x as f32, y as f32), (0.0, 0.0)));
+    }
+
+    /// Drinks water taken from the bag.
+    fn drink_water(&mut self) {
+        self.vitals.drink(DRINK_WATER);
+    }
+
+    /// Finishes a coconut taken from the bag, with a few bits of husk
+    /// falling from the castaway's mouth.
+    fn eat_coconut(&mut self) {
         self.vitals.eat(COCONUT_FOOD);
         self.vitals.drink(COCONUT_WATER);
         let (fx, fy) = self.player.body.feet();
@@ -407,6 +449,26 @@ impl Game {
         f.cgram.clone_from(&self.base_cgram);
         lighting::cycle_water(&mut f.cgram, self.frame_count);
         lighting.apply(&mut f.cgram);
+
+        if let Some(menu) = &self.menu {
+            // The bag screen: world layers off, BG3 behind the icon sprites.
+            f.cgram.clone_from(&self.base_cgram);
+            f.lines.clear();
+            f.math = ColorMath::OFF;
+            f.main_layers = layer::BG3 | layer::OBJ;
+            f.bg3_priority = false;
+            hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
+            let list = &mut self.draw_list;
+            list.clear();
+            bag_screen::draw(&mut f.bg3, list, &self.assets.hud, &self.assets.sprites, &self.inventory.bag, menu, self.frame_count);
+            f.oam.clear();
+            list.flush(&mut f.oam);
+            self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
+            return;
+        }
+        f.main_layers = layer::BG1 | layer::BG2 | layer::BG3 | layer::OBJ;
+        f.bg3_priority = true;
+        bag_screen::clear(&mut f.bg3);
 
         // Colour math + HDMA tables.
         if night {

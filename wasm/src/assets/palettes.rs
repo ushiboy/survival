@@ -39,6 +39,8 @@ pub const HUD_FOOD: u8 = 2;
 pub const HUD_WATER: u8 = 3;
 pub const HUD_SKY: u8 = 4;
 pub const HUD_COCONUT: u8 = 5;
+/// Bag screen slots: fill, shadowed rim, lit rim.
+pub const HUD_MENU: u8 = 6;
 /// Darkness levels of the lantern light mask (written each frame).
 pub const HUD_LIGHT_MASK: u8 = 7;
 
@@ -132,6 +134,7 @@ pub fn base_cgram() -> Cgram {
     cg.set_hud_palette(HUD_HEART, [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)]);
     cg.set_hud_palette(HUD_FOOD, [c(48, 24, 8), c(228, 128, 32), c(252, 216, 96)]);
     cg.set_hud_palette(HUD_WATER, [c(8, 24, 56), c(56, 136, 232), c(156, 220, 252)]);
+    cg.set_hud_palette(HUD_MENU, [c(20, 30, 58), c(8, 12, 28), c(70, 86, 128)]);
     cg.set_hud_palette(HUD_COCONUT, [c(36, 22, 14), c(134, 88, 46), c(206, 160, 98)]);
     cg.set_hud_palette(HUD_SKY, [c(64, 40, 16), c(248, 184, 40), c(255, 244, 168)]);
 
@@ -227,6 +230,7 @@ pub fn base_cgram() -> Cgram {
             c(226, 186, 128),                                // c fresh-cut wood
             c(36, 96, 44), c(88, 158, 58), c(164, 212, 92),  // g/G/h leaf
             c(255, 226, 112), c(255, 255, 240),              // y/Y spark
+            c(40, 112, 188), c(92, 172, 228), c(206, 240, 252), // b/l/i water
         ],
     );
     cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
@@ -248,6 +252,7 @@ pub const ITEM_LEGEND: &[(char, u8)] =
 pub const FX_LEGEND: &[(char, u8)] = &[
     ('o', 1), ('w', 2), ('W', 3), ('m', 4), ('M', 5), ('L', 6), ('c', 7),
     ('g', 8), ('G', 9), ('h', 10), ('y', 11), ('Y', 12),
+    ('b', 13), ('l', 14), ('i', 15),
 ];
 pub const GULL_LEGEND: &[(char, u8)] =
     &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
