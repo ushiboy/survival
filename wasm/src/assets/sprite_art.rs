@@ -299,3 +299,31 @@ pub fn handful_frames() -> [PixelArt; 2] {
     let tipped = ["........", "...cc...", "..cbac..", ".cabaac.", "..caac..", "...cc...", "........", "........"];
     [PixelArt::parse(&level, legend), PixelArt::parse(&tipped, legend)]
 }
+
+/// A dead branch lying on the ground, 16x8: grey-brown, forked, with a
+/// broken stub.
+pub fn branch() -> PixelArt {
+    let rows = [
+        "................",
+        "...........oo...",
+        "..........oWdo..",
+        ".oooooooooWdoo..",
+        "oWWhWWWWWWwwwooo",
+        "odwdddwddddwdWho",
+        ".oooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// A fist-sized stone, 8x8.
+pub fn stone() -> PixelArt {
+    let rows = ["........", "........", "..ooooo.", ".ofFFsso", "oFfFFsso", "oFFssss.", ".oooooo.", "........"];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// A coil of vine on the ground, 8x8 (effects palette greens).
+pub fn vine_coil() -> PixelArt {
+    let rows = ["........", "..oooo..", ".oGhGGo.", "oGoooGgo", "oGo.oGgo", "ogGGGgo.", ".ooooo..", "........"];
+    PixelArt::parse(&rows, FX_LEGEND)
+}

@@ -23,7 +23,7 @@ use crate::render::hud::{self, HUD_LINES};
 use crate::render::lighting::{self, Light, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
-use crate::world::harvest::{Harvest, Shaken, Strike};
+use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::{TILE_SIZE, WorldMap, island};
 use menu::{BagMenu, Outcome};
 use state::{GameClock, Inventory, Vitals};
@@ -116,6 +116,7 @@ impl Game {
     pub fn new(seed: u32) -> Self {
         let mut assets = Assets::load();
         let map = island::generate(seed);
+        let items = map.loot.iter().map(|&(kind, (x, y))| Item::lying(kind, (x as f32, y as f32))).collect();
         let mut tileset = Tileset::default();
         let visual = tileset.build(&map, &mut assets);
         // The story opens with the castaway washed up on the beach.
@@ -138,7 +139,7 @@ impl Game {
             visual,
             harvest: Harvest::default(),
             particles: Particles::new(seed ^ 0xFA57),
-            items: Vec::new(),
+            items,
             rng: Rng::new(seed ^ 0xC0C0),
             hitstop: 0,
             tree_shake: None,
@@ -216,6 +217,7 @@ impl Game {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
+            Some(Deed::PullVine(point)) => self.pull_vine(point),
             Some(Deed::DrawWater) => self.take(ItemKind::RawWater),
             Some(Deed::Drink) => self.drink_water(),
             Some(Deed::Eat) => self.eat_coconut(),
@@ -364,6 +366,17 @@ impl Game {
         let (x, y) = item.ground();
         self.particles.sparks((x, y - 4), 1);
         self.take(item.kind);
+    }
+
+    /// Takes a vine from the climbing plant at `point`.
+    fn pull_vine(&mut self, point: (i32, i32)) {
+        let Some((x, y)) = harvest::pull_vine(&mut self.map, point) else {
+            return;
+        };
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
+        let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);
+        self.particles.leaves((px + 2, py, 12, 10), py + 14, 3);
+        self.take(ItemKind::Vine);
     }
 
     /// Puts something just obtained into the bag; if it doesn't fit, the

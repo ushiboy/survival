@@ -61,6 +61,22 @@ fn trunk_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), PalmPar
     }
 }
 
+/// Whether there's a vine at the world pixel to pull off.
+pub fn can_pull_vine(map: &WorldMap, (px, py): (i32, i32)) -> bool {
+    map.feature(px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE)) == Feature::Vine
+}
+
+/// Pulls the vine off a climbing plant at the world pixel, leaving its bare
+/// stake. Returns the cell, which needs redrawing.
+pub fn pull_vine(map: &mut WorldMap, point: (i32, i32)) -> Option<(i32, i32)> {
+    if !can_pull_vine(map, point) {
+        return None;
+    }
+    let cell = (point.0.div_euclid(TILE_SIZE), point.1.div_euclid(TILE_SIZE));
+    map.set_feature(cell.0, cell.1, Feature::VineStake);
+    Some(cell)
+}
+
 /// Whether there's a trunk at the world pixel to take hold of and shake.
 pub fn can_shake(map: &WorldMap, point: (i32, i32)) -> bool {
     trunk_at(map, point).is_some()
@@ -75,7 +91,7 @@ impl Harvest {
         }
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
-            Feature::Bush => Strike::Brush,
+            Feature::Bush | Feature::Vine => Strike::Brush,
             f @ (Feature::Rock | Feature::Driftwood | Feature::Stump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
         }

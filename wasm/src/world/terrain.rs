@@ -67,6 +67,10 @@ pub enum Feature {
     Driftwood,
     Shell,
     Flower,
+    /// A climbing plant whose vine can be pulled off (once).
+    Vine,
+    /// What's left once the vine is taken: the bare stake it climbed.
+    VineStake,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +87,7 @@ impl TileProps {
 pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
         Feature::Palm(p) => p.is_trunk_base(),
-        Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood => true,
+        Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };
     TileProps {

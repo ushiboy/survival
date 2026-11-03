@@ -481,6 +481,8 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
         Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
         Feature::Bush => b.prop(4, &props.bush, false, x, y),
+        Feature::Vine => b.prop(17, &props.vine, x % 2 == 0, x, y),
+        Feature::VineStake => b.prop(18, &props.vine_stake, x % 2 == 0, x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::None => match &river {
             Some(r) => b.river_bank(map, &CellField::sample(map, x, y), r, x, y),

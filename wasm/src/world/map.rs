@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::river::River;
 use super::terrain::{Feature, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
+use crate::items::ItemKind;
 
 /// Size of a map cell in pixels (one metatile).
 pub const TILE_SIZE: i32 = 16;
@@ -29,6 +30,8 @@ pub struct WorldMap {
     pub spawn: (i32, i32),
     /// Suggested crab start cells.
     pub crab_spawns: Vec<(i32, i32)>,
+    /// Things lying about when the castaway arrives (world px).
+    pub loot: Vec<(ItemKind, (i32, i32))>,
 }
 
 impl WorldMap {
@@ -46,6 +49,7 @@ impl WorldMap {
             fruit: HashMap::new(),
             spawn: (0, 0),
             crab_spawns: Vec::new(),
+            loot: Vec::new(),
         }
     }
 

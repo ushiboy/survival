@@ -10,6 +10,11 @@ pub enum ItemKind {
     /// put down, only poured away.
     RawWater,
     Axe,
+    /// A dead branch picked up off the ground.
+    Branch,
+    Stone,
+    /// A length of vine pulled from a climbing plant, coiled up.
+    Vine,
 }
 
 /// What using an item does.
@@ -23,7 +28,8 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine => (1, 1),
+            ItemKind::Branch => (1, 2),
             ItemKind::Timber => (2, 2),
             ItemKind::Axe => (1, 3),
         }
@@ -35,6 +41,9 @@ impl ItemKind {
             ItemKind::Timber => "TIMBER",
             ItemKind::RawWater => "RAW WATER",
             ItemKind::Axe => "AXE",
+            ItemKind::Branch => "BRANCH",
+            ItemKind::Stone => "STONE",
+            ItemKind::Vine => "VINE",
         }
     }
 
@@ -42,7 +51,7 @@ impl ItemKind {
         match self {
             ItemKind::Coconut => Some(Use::Eat),
             ItemKind::RawWater => Some(Use::Drink),
-            ItemKind::Timber | ItemKind::Axe => None,
+            _ => None,
         }
     }
 

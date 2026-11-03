@@ -205,6 +205,54 @@ pub fn flowers() -> PropTile {
     PropTile { palette: PAL_GRASS, ground: Ground::Grass, overlay: a }
 }
 
+/// A climbing plant on an old stake: twisting stems wound round it and
+/// heart-shaped leaves. With `leaves` false, the stake after the vine was
+/// pulled off: torn stem ends at its foot.
+pub fn vine(leaves: bool) -> PropTile {
+    let r = grass::RAMP;
+    let mut a = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut a, 9.0, 13.5, 5.5, 2.0);
+    let mut p = PixelArt::filled(16, 16, 0);
+    // The stake: a weathered stick, lit on the left.
+    for y in 2..14 {
+        p.set(7, y, grass::SAND[1]);
+        p.set(8, y, grass::SOIL);
+    }
+    p.set(7, 2, grass::SAND[2]);
+    if leaves {
+        // Woody stems twisting up round the stake: brown against the
+        // grass, lit on their front turns.
+        for (phase, top) in [(0.0f32, 1.0f32), (2.6, 3.0)] {
+            let mut y = 14.5;
+            while y >= top {
+                let turn = y * 0.8 + phase;
+                let x = 7.5 + 3.0 * turn.sin() * (0.5 + 0.5 * (14.0 - y) / 13.0);
+                p.put(x.round() as i32, y as i32, if turn.cos() > 0.2 { grass::SAND[1] } else { grass::SOIL });
+                y -= 0.5;
+            }
+        }
+        // A few broad, bright heart-shaped leaves.
+        for &(x, y) in &[(4.0, 3.5), (11.5, 5.0), (4.5, 9.0), (11.0, 10.5), (8.0, 1.5)] {
+            fill_ellipse(&mut p, x, y, 2.4, 1.9, |px, py, nx, ny| {
+                // Notch at the top makes the heart.
+                if ny < -0.5 && nx.abs() < 0.25 {
+                    return None;
+                }
+                Some(ramp(&r[3..7], sphere_light(nx, ny) * 0.9 + 0.15, px, py, 0.5))
+            });
+        }
+    } else {
+        // Torn stem ends and a dead leaf or two at the foot.
+        for &(x, y) in &[(5, 13), (6, 12), (10, 13), (10, 12), (9, 11)] {
+            p.set(x, y, grass::SOIL);
+        }
+        p.set(4, 14, grass::SAND[0]);
+        p.set(11, 14, grass::SAND[0]);
+    }
+    a.overlay(&p.outlined(r[0]), 0, 0);
+    PropTile { palette: PAL_GRASS, ground: Ground::Grass, overlay: a }
+}
+
 // ---------------------------------------------------------------- palm tree (32x48)
 
 /// Stump left after felling a palm (PAL_FOLIAGE over sand, one cell).

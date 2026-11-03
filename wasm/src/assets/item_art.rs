@@ -124,6 +124,64 @@ pub fn icon_axe() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A dead branch standing upright, 16x32, forking near the top.
+pub fn icon_branch() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    let mut stroke = |x0: f32, y0: f32, x1: f32, y1: f32, r: f32| {
+        let steps = ((x1 - x0).abs().max((y1 - y0).abs()) * 2.0) as i32;
+        for k in 0..=steps {
+            let t = k as f32 / steps as f32;
+            let (cx, cy) = (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+            for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
+                for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
+                    let dx = x as f32 + 0.5 - cx;
+                    if dx * dx + (y as f32 + 0.5 - cy).powi(2) <= r * r && (0..16).contains(&x) && (0..32).contains(&y) {
+                        // Lit from the left; knots darken the bark.
+                        let c = if dx < -0.4 { i('W') } else if dx > 0.6 || (y % 9 == 4) { i('d') } else { i('w') };
+                        a.set(x as usize, y as usize, c);
+                    }
+                }
+            }
+        }
+    };
+    stroke(7.0, 29.0, 8.0, 12.0, 1.6);
+    stroke(8.0, 13.0, 4.0, 3.0, 1.0);
+    stroke(8.0, 14.0, 12.0, 6.0, 1.1);
+    stroke(7.5, 22.0, 10.5, 19.0, 0.7);
+    // Pale broken ends.
+    a.set(4, 2, i('h'));
+    a.set(12, 5, i('h'));
+    a.outlined(i('o'))
+}
+
+/// A rounded stone, 16x16.
+pub fn icon_stone() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    fill_ellipse(&mut a, 8.0, 9.0, 6.0, 4.6, |x, y, nx, ny| Some(ramp(&[i('s'), i('F'), i('f')], sphere_light(nx, ny), x, y, 0.5)));
+    a.outlined(i('o'))
+}
+
+/// A coil of vine with a few leaves still on it, 16x16.
+pub fn icon_vine() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    // Loops of a spiral.
+    for k in 0..220 {
+        let t = k as f32 / 220.0 * std::f32::consts::TAU * 2.6;
+        let r = 2.2 + t * 0.32;
+        let (x, y) = ((8.0 + r * t.cos() * 1.1) as i32, (8.5 + r * t.sin() * 0.85) as i32);
+        if (0..16).contains(&x) && (0..16).contains(&y) {
+            a.set(x as usize, y as usize, if t.sin() < -0.3 { i('G') } else { i('g') });
+        }
+    }
+    for (x, y) in [(3, 4), (12, 11), (11, 3)] {
+        fill_ellipse(&mut a, x as f32, y as f32, 1.6, 1.2, |_, _, nx, ny| Some(if nx + ny < 0.0 { i('h') } else { i('G') }));
+    }
+    a.outlined(i('o'))
+}
+
 /// One corner of the cursor bracket, 8x8 (top-left; flip for the others).
 pub fn cursor_corner() -> PixelArt {
     PixelArt::parse(&["ooooo...", "oYYYo...", "oYooo...", "oYo.....", "ooo.....", "........", "........", "........"], FX_LEGEND)

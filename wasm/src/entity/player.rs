@@ -11,7 +11,7 @@ use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
 use crate::items::Use;
-use crate::world::harvest::can_shake;
+use crate::world::harvest::{can_pull_vine, can_shake};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -69,6 +69,11 @@ const EAT_BITES: [u32; 3] = [16, 30, 44];
 const EAT_BITE: u32 = EAT_BITES[2];
 const EAT_TOTAL: u32 = 60;
 
+/// Pulling a vine off its stake (frames): take hold, then yank it free on
+/// `PULL_YANK`.
+const PULL_YANK: u32 = 14;
+const PULL_TOTAL: u32 = 26;
+
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
 /// blink), sitting up, getting onto one knee, standing and looking around.
 const WAKE_STIR: u32 = 110;
@@ -96,6 +101,8 @@ pub enum Action {
     Drink { t: u32 },
     /// Eating something from the bag (a coconut).
     Eat { t: u32 },
+    /// Tugging a vine off a climbing plant.
+    Pull { t: u32 },
 }
 
 /// What the castaway has to hand and what lies around them this frame.
@@ -115,6 +122,8 @@ pub enum Deed {
     Shake((i32, i32)),
     /// Hands closed on whatever lies within reach.
     PickUp,
+    /// A vine came away from the plant at the point.
+    PullVine((i32, i32)),
     /// Scooped up water to carry.
     DrawWater,
     /// Drank some water taken from the bag.
@@ -188,6 +197,11 @@ impl Player {
             self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
             return (t == PICK_GRAB).then_some(Deed::PickUp);
         }
+        if let Action::Pull { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= PULL_TOTAL { Action::Idle } else { Action::Pull { t } };
+            return (t == PULL_YANK).then(|| Deed::PullVine(self.reach_point()));
+        }
         if let Action::Eat { t } = self.action {
             let t = t + 1;
             self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t } };
@@ -248,6 +262,12 @@ impl Player {
             self.facing = facing_for(self.facing, ax, ay);
             if can_shake(map, self.reach_point()) {
                 self.action = Action::Shake { t: 0 };
+                self.moving = false;
+                self.walk_timer = 0;
+                return None;
+            }
+            if can_pull_vine(map, self.reach_point()) {
+                self.action = Action::Pull { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
                 return None;
@@ -371,6 +391,16 @@ impl Player {
             let low = (2..PICK_TOTAL - 3).contains(&t);
             let gfx = if low { sprites.player.crouch[view] } else { sprites.player.walk[view][0].full };
             list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Pull { t } = self.action {
+            // Lean in and grip, then throw the weight back as it tears free.
+            let stage = (t >= PULL_YANK) as usize;
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.shake[view][stage], OBJ_PLAYER, prio).flipped(flip));
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }

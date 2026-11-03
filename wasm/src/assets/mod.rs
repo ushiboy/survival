@@ -152,6 +152,10 @@ pub struct BagSprites {
     pub raw_water: SpriteId,
     /// Upright, turned.
     pub axe: [SpriteId; 2],
+    /// Upright, turned.
+    pub branch: [SpriteId; 2],
+    pub stone: SpriteId,
+    pub vine: SpriteId,
     /// Top-left bracket; flipped for the other corners.
     pub corner: SpriteId,
 }
@@ -164,6 +168,9 @@ impl BagSprites {
             ItemKind::Timber => (self.timber, palettes::OBJ_CRAB),
             ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
             ItemKind::Axe => (self.axe[turned as usize], palettes::OBJ_FX),
+            ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
+            ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
+            ItemKind::Vine => (self.vine, palettes::OBJ_FX),
         }
     }
 }
@@ -196,6 +203,10 @@ pub struct SpriteIds {
     /// A coconut being eaten, after 1, 2 and 3 bites.
     pub coconut_bitten: [SpriteId; 3],
     pub timber: SpriteId,
+    /// Ground items: a dead branch, a stone, a coiled vine.
+    pub branch: SpriteId,
+    pub stone: SpriteId,
+    pub vine_coil: SpriteId,
 }
 
 #[derive(Clone, Debug)]
@@ -235,6 +246,8 @@ pub struct PropSet {
     pub shell: PropTile,
     pub bush: PropTile,
     pub flowers: PropTile,
+    pub vine: PropTile,
+    pub vine_stake: PropTile,
     pub palm: PalmArt,
     /// Stump left after felling a palm.
     pub stump: PropTile,
@@ -290,6 +303,8 @@ fn load_props(vram: &mut Vram) -> PropSet {
         shell: props::shell(),
         bush: props::bush(),
         flowers: props::flowers(),
+        vine: props::vine(true),
+        vine_stake: props::vine(false),
         palm,
         stump: props::stump(),
         palm_tiles,
@@ -309,6 +324,12 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         timber: bank.add(&item_art::icon_timber()),
         raw_water: bank.add(&item_art::icon_raw_water()),
         axe: [bank.add(&axe), bank.add(&axe.rotated_cw())],
+        branch: {
+            let b = item_art::icon_branch();
+            [bank.add(&b), bank.add(&b.rotated_cw())]
+        },
+        stone: bank.add(&item_art::icon_stone()),
+        vine: bank.add(&item_art::icon_vine()),
         corner: bank.add(&item_art::cursor_corner()),
     };
     SpriteIds {
@@ -333,6 +354,9 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         coconut_bitten: std::array::from_fn(|i| bank.add(&bitten_coconut(i + 1))),
         handful: handful_frames().map(|a| bank.add(&a)),
         timber: bank.add(&timber()),
+        branch: bank.add(&branch()),
+        stone: bank.add(&stone()),
+        vine_coil: bank.add(&vine_coil()),
     }
 }
 

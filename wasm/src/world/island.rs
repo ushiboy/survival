@@ -5,6 +5,7 @@
 //! small sandbar sits offshore.
 
 use super::harvest::PALM_COCONUTS;
+use crate::items::ItemKind;
 use super::map::{TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
@@ -24,6 +25,11 @@ pub const SAND_BELOW: f32 = 7.0;
 const PROP_MARGIN: f32 = 1.2;
 const JUNGLE_ABOVE: f32 = 17.0;
 const CRAB_COUNT: usize = 7;
+/// Vines grow within this much elevation below the jungle.
+const VINE_BELT: f32 = 5.0;
+/// Dead branches and loose stones lying about.
+const BRANCH_COUNT: usize = 16;
+const STONE_COUNT: usize = 16;
 
 /// Height of the land relative to the shoreline, in tiles (negative = sea).
 struct HeightField {
@@ -150,6 +156,7 @@ pub fn generate(seed: u32) -> WorldMap {
     place_scatter(&mut map, &heights, seed, &near_spawn);
     map.set_elevation(heights);
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
+    map.loot = scatter_loot(&map, seed);
     map
 }
 
@@ -247,6 +254,8 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
                 Terrain::Grass if h > JUNGLE_ABOVE => {
                     if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
                 }
+                // Climbers thrive at the jungle's edge.
+                Terrain::Grass if r > 0.93 && h > JUNGLE_ABOVE - VINE_BELT => Feature::Vine,
                 Terrain::Grass => {
                     if r < 0.05 { Feature::Bush } else if r < 0.12 { Feature::Flower } else { Feature::None }
                 }
@@ -268,6 +277,33 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
             map.set_feature(x, y, feature);
         }
     }
+}
+
+/// Dead branches (mostly on the grass, fallen from the jungle) and loose
+/// stones (mostly on the beach and the riverbanks), on open ground.
+fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
+    let mut rng = Rng::new(seed ^ 0x100F);
+    let mut out: Vec<(ItemKind, (i32, i32))> = Vec::new();
+    for (kind, count, prefer) in [(ItemKind::Branch, BRANCH_COUNT, Terrain::Grass), (ItemKind::Stone, STONE_COUNT, Terrain::Sand)] {
+        let mut placed = 0;
+        for _ in 0..4000 {
+            if placed >= count {
+                break;
+            }
+            let (x, y) = (rng.between(0, MAP_W - 1), rng.between(0, MAP_H - 1));
+            let t = map.terrain(x, y);
+            let liked = t == prefer || (kind == ItemKind::Stone && map.is_riverside(x, y));
+            let open = t.is_land() && !map.props(x, y).solid && matches!(map.feature(x, y), Feature::None | Feature::Flower | Feature::Shell);
+            let taken = out.iter().any(|&(_, (px, py))| px.div_euclid(TILE_SIZE) == x && py.div_euclid(TILE_SIZE) == y);
+            if !open || taken || (!liked && !rng.chance(0.25)) {
+                continue;
+            }
+            let at = (x * TILE_SIZE + 8 + rng.between(-4, 4), y * TILE_SIZE + 10 + rng.between(-3, 3));
+            out.push((kind, at));
+            placed += 1;
+        }
+    }
+    out
 }
 
 fn pick_crab_spawns(map: &WorldMap, seed: u32, spawn: (i32, i32)) -> Vec<(i32, i32)> {
