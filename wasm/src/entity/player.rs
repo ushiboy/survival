@@ -76,6 +76,14 @@ const EAT_BITES: [u32; 3] = [16, 30, 44];
 const EAT_BITE: u32 = EAT_BITES[2];
 const EAT_TOTAL: u32 = 60;
 
+/// Lighting a fire (frames): kneeling and sawing the drill's bow back and
+/// forth (one stroke every `DRILL_STROKE`), smoke from `DRILL_SMOKE`, until
+/// the tinder catches on `DRILL_CATCH`.
+const DRILL_STROKE: u32 = 6;
+const DRILL_SMOKE: u32 = 50;
+const DRILL_CATCH: u32 = 100;
+const DRILL_TOTAL: u32 = 112;
+
 /// Pulling a vine off its stake (frames): take hold, then yank it free on
 /// `PULL_YANK`.
 const PULL_YANK: u32 = 14;
@@ -110,6 +118,8 @@ pub enum Action {
     Drink { t: u32 },
     /// Eating something from the bag.
     Eat { t: u32, food: ItemKind },
+    /// Kneeling to drill a fire.
+    Drill { t: u32 },
     /// Tugging a vine off a climbing plant, or leaves off a bush.
     Pull { t: u32 },
 }
@@ -146,6 +156,10 @@ pub enum Deed {
     Drink,
     /// Finished eating something taken from the bag.
     Eat(ItemKind),
+    /// The drill is smoking at the point (ground px).
+    Smoulder((i32, i32)),
+    /// A fire caught at the point (ground px).
+    LightFire((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +244,15 @@ impl Player {
             let t = t + 1;
             self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t, food } };
             return (t == EAT_BITE).then_some(Deed::Eat(food));
+        }
+        if let Action::Drill { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= DRILL_TOTAL { Action::Idle } else { Action::Drill { t } };
+            let spot = self.front_of_feet();
+            if t == DRILL_CATCH {
+                return Some(Deed::LightFire(spot));
+            }
+            return (t >= DRILL_SMOKE && t < DRILL_CATCH && t % 8 == 0).then_some(Deed::Smoulder(spot));
         }
         if let Action::Scoop { t } = self.action {
             let t = t + 1;
@@ -371,6 +394,7 @@ impl Player {
         self.action = match kind.usage() {
             Some(Use::Eat) => Action::Eat { t: 0, food: kind },
             Some(Use::Drink) => Action::Drink { t: 0 },
+            Some(Use::Light) => Action::Drill { t: 0 },
             None => return,
         };
         self.moving = false;
@@ -463,6 +487,27 @@ impl Player {
 
         if let Action::Drink { t } = self.action {
             self.draw_drinking(list, (cx, cy), depth, sprites, t, prio);
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Drill { t } = self.action {
+            // Kneeling over the drill, sawing its bow from side to side;
+            // it's behind the body when facing away.
+            let body = ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip);
+            let (dx, dy) = self.front_of_feet();
+            let (fx, fy) = self.body.feet();
+            let saw = if t < DRILL_CATCH && t / DRILL_STROKE % 2 == 0 { 1 } else { -1 };
+            let drill = ObjEntry::new(sx + 8 + (dx - fx) - 8 + saw, sy + SPRITE_H + (dy - fy) - 13, sprites.fire_drill, OBJ_FX, prio);
+            if self.facing == Dir::Up {
+                list.actor(depth, body);
+                list.actor(depth, drill);
+            } else {
+                list.actor(depth, drill);
+                list.actor(depth, body);
+            }
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }

@@ -237,6 +237,16 @@ pub struct SpriteIds {
     pub fire_drill: SpriteId,
     pub crab_caught: SpriteId,
     pub leaves: SpriteId,
+    pub fire: FireSprites,
+}
+
+/// A campfire: the stone ring (16x8) and flame frames (16x16), lively and
+/// dying down.
+#[derive(Clone, Debug)]
+pub struct FireSprites {
+    pub ring: SpriteId,
+    pub flames: [SpriteId; 3],
+    pub small: [SpriteId; 3],
 }
 
 #[derive(Clone, Debug)]
@@ -401,6 +411,11 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         fire_drill: bank.add(&item_art::fire_drill(16)),
         crab_caught: bank.add(&crab_caught()),
         leaves: bank.add(&leaves()),
+        fire: FireSprites {
+            ring: bank.add(&fire_ring()),
+            flames: flames(12.0, 4.6).map(|a| bank.add(&a)),
+            small: flames(6.0, 3.0).map(|a| bank.add(&a)),
+        },
     }
 }
 

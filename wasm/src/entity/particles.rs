@@ -1,4 +1,4 @@
-//! Short-lived effect sprites: wood chips, falling leaves, sparks.
+//! Short-lived effect sprites: wood chips, falling leaves, sparks, embers.
 //! Simulated in pseudo-3D (ground position + height) so they arc and bounce.
 
 use crate::assets::SpriteIds;
@@ -13,6 +13,8 @@ enum Kind {
     Chip,
     Leaf,
     Spark,
+    /// A glowing speck rising from a fire.
+    Ember,
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +85,13 @@ impl Particles {
         }
     }
 
+    /// An ember drifting up from a fire at `(x, y)` (ground px).
+    pub fn ember(&mut self, (x, y): (i32, i32)) {
+        let (dx, vx) = (self.rand(-3.0, 3.0), self.rand(-0.15, 0.15));
+        let life = self.rng.between(24, 40);
+        self.spawn(Kind::Ember, x as f32 + dx, y as f32, 10.0, (vx, 0.0, 0.45), life);
+    }
+
     pub fn update(&mut self) {
         for p in &mut self.list {
             p.life -= 1;
@@ -115,6 +124,10 @@ impl Particles {
                     }
                 }
                 Kind::Spark => {}
+                Kind::Ember => {
+                    p.x += p.vx + p.phase.sin() * 0.2;
+                    p.z += p.vz;
+                }
             }
         }
         self.list.retain(|p| p.life > 0);
@@ -122,7 +135,7 @@ impl Particles {
 
     pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, clock: u32) {
         for p in &self.list {
-            if p.life < BLINK_FRAMES && p.life % 4 < 2 && p.kind != Kind::Spark {
+            if matches!(p.kind, Kind::Chip | Kind::Leaf) && p.life < BLINK_FRAMES && p.life % 4 < 2 {
                 continue;
             }
             let (wx, wy) = (p.x as i32 - 4, (p.y - p.z) as i32 - 4);
@@ -135,6 +148,7 @@ impl Particles {
                 // High leaves fall in front of the canopy (BG2 high).
                 Kind::Leaf => (sprites.leaf[(p.phase.sin() > 0.0) as usize], if p.z > 12.0 { 3 } else { 2 }),
                 Kind::Spark => (sprites.spark[(p.life < 5) as usize], 3),
+                Kind::Ember => (sprites.spark[1], 3),
             };
             let flip = p.kind == Kind::Leaf && p.phase.cos() < 0.0;
             list.actor(p.y as i32, ObjEntry::new(sx, sy, gfx, OBJ_FX, priority).flipped(flip));

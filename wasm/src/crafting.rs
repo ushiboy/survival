@@ -1,5 +1,6 @@
 //! Recipes for making things out of gathered materials. Crafting happens in
-//! the bag screen and uses up materials carried in the bag.
+//! the bag screen and uses up materials carried in the bag; some recipes
+//! can only be made beside a campfire.
 
 use crate::items::ItemKind;
 
@@ -9,10 +10,12 @@ pub struct Recipe {
     pub makes: ItemKind,
     /// Materials used up, with how many of each.
     pub needs: &'static [(ItemKind, u32)],
+    /// Only made beside a burning campfire.
+    pub at_fire: bool,
 }
 
 pub const RECIPES: &[Recipe] = &[
-    Recipe { makes: ItemKind::StoneAxe, needs: &[(ItemKind::Stone, 1), (ItemKind::Vine, 1), (ItemKind::Branch, 1)] },
-    Recipe { makes: ItemKind::WoodSpear, needs: &[(ItemKind::Branch, 1), (ItemKind::Stone, 1)] },
-    Recipe { makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)] },
+    Recipe { makes: ItemKind::StoneAxe, needs: &[(ItemKind::Stone, 1), (ItemKind::Vine, 1), (ItemKind::Branch, 1)], at_fire: false },
+    Recipe { makes: ItemKind::WoodSpear, needs: &[(ItemKind::Branch, 1), (ItemKind::Stone, 1)], at_fire: false },
+    Recipe { makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], at_fire: false },
 ];

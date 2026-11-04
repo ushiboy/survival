@@ -140,6 +140,9 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         Mode::Tabs(Page::Craft) => draw_crafting(bg3, tiles, list, sprites, bag, 0, false),
         _ => {}
     }
+    if menu.page() == Page::Craft && menu.near_fire {
+        text(bg3, tiles, INFO_COL, GRID_ROW + BAG_H as usize * 2, "BY THE FIRE");
+    }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, GRID_ROW + BAG_H as usize * 2 + 2, n);
     }
@@ -188,9 +191,12 @@ fn draw_crafting(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spri
         let have = bag.count(kind).min(9);
         text(bg3, tiles, INFO_COL, top + 1 + i, &format!("{} {have}/{n}", kind.name()));
     }
+    if recipe.at_fire {
+        text(bg3, tiles, INFO_COL, top + 1 + recipe.needs.len(), "AT A FIRE");
+    }
     // The finished thing, at the right below the materials.
     let (w, _) = footprint(recipe.makes, false);
     let (gfx, pal) = sprites.bag.icon(recipe.makes, false);
-    let y = (top + 2 + recipe.needs.len()) * 8;
+    let y = (top + 2 + recipe.needs.len() + recipe.at_fire as usize) * 8;
     list.sky(ObjEntry::new(31 * 8 - w * CELL, y as i32, gfx, pal, 3));
 }

@@ -42,6 +42,11 @@ impl GameClock {
         (self.minute / 60, self.minute % 60)
     }
 
+    /// Minutes since the start of day 0, for timing things across days.
+    pub fn total_minutes(&self) -> u32 {
+        self.day * MINUTES_PER_DAY + self.minute
+    }
+
     /// Fractional minute of day, for smooth lighting.
     pub fn minute_f(&self) -> f32 {
         self.minute as f32 + self.sub as f32 / FRAMES_PER_MINUTE as f32

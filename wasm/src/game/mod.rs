@@ -12,12 +12,12 @@ use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
-use crate::entity::{Crab, Deed, Gull, Item, Particles, Player, Situation};
+use crate::entity::{Campfire, Crab, Deed, Gull, Item, Particles, Player, Situation};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
 use crate::render::camera::Camera;
-use crate::items::ItemKind;
+use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::lighting::{self, Light, Lighting};
@@ -38,6 +38,12 @@ const HITSTOP_TREE: u32 = 4;
 const HITSTOP_FELL: u32 = 7;
 const HITSTOP_HARD: u32 = 3;
 const HITSTOP_CRAB: u32 = 5;
+/// Standing within this distance of a campfire counts as being by it (px).
+const NEAR_FIRE: i32 = 40;
+/// No two fires closer than this (px).
+const FIRE_SPACING: i32 = 24;
+/// Frames between embers rising from a fire (on average).
+const EMBER_EVERY: u32 = 14;
 /// How close to the spear's line a crab must be to be caught (px).
 const CRAB_HIT_RADIUS: f32 = 9.0;
 /// Frames a struck canopy wobbles, and the wobble offsets (BG2 line scroll).
@@ -95,6 +101,7 @@ pub struct Game {
     camera_shake: u32,
     player: Player,
     crabs: Vec<Crab>,
+    fires: Vec<Campfire>,
     gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
@@ -145,6 +152,7 @@ impl Game {
             camera_shake: 0,
             player,
             crabs,
+            fires: Vec::new(),
             gulls,
             camera: Camera::new(0),
             clock: GameClock::new(1, START_HOUR),
@@ -189,7 +197,9 @@ impl Game {
         }
 
         self.frame_count = self.frame_count.wrapping_add(1);
+        let near_fire = self.near_fire();
         if let Some(menu) = &mut self.menu {
+            menu.near_fire = near_fire;
             let outcome = menu.update(&self.input, &mut self.inventory.bag, self.inventory.tool);
             self.resolve_menu(outcome);
             self.inventory.settle_tool();
@@ -223,7 +233,16 @@ impl Game {
             Some(Deed::Drink) => self.drink_water(),
             Some(Deed::Thrust(from, to)) => self.resolve_thrust(from, to),
             Some(Deed::Eat(food)) => self.eat(food),
+            Some(Deed::Smoulder(spot)) => self.particles.ember(spot),
+            Some(Deed::LightFire(spot)) => self.light_fire(spot),
             None => {}
+        }
+        let now = self.clock.total_minutes();
+        self.fires.retain(|f| !f.burnt_out(now));
+        for fire in &self.fires {
+            if self.rng.range(EMBER_EVERY) == 0 {
+                self.particles.ember(fire.flame_point());
+            }
         }
         self.particles.update();
         for item in &mut self.items {
@@ -429,12 +448,54 @@ impl Game {
             Outcome::Stay => {}
             Outcome::Close => self.menu = None,
             Outcome::Use(kind) => {
+                if kind.usage() == Some(Use::Light)
+                    && let Err(why) = self.fire_spot()
+                {
+                    // Stay in the bag and say why.
+                    if let Some(menu) = &mut self.menu {
+                        menu.notice = Some(why);
+                    }
+                    return;
+                }
                 self.menu = None;
                 self.player.consume(kind);
             }
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Wield(kind) => self.inventory.tool = Some(kind),
         }
+    }
+
+    /// Whether the castaway stands by a burning campfire.
+    fn near_fire(&self) -> bool {
+        let feet = self.player.body.feet();
+        self.fires.iter().any(|f| f.within(feet, NEAR_FIRE))
+    }
+
+    /// Where a fire would be lit (in front of the castaway's feet), or why
+    /// one can't be: no fuel, or no bare dry ground there.
+    fn fire_spot(&self) -> Result<(i32, i32), &'static str> {
+        if !self.inventory.bag.has(ItemKind::Branch) {
+            return Err("NEEDS A BRANCH TO BURN");
+        }
+        let (x, y) = self.player.front_of_feet();
+        let dry = self.map.terrain(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)).is_land();
+        if self.player.wading || !dry || self.map.props_at_px(x, y).solid {
+            return Err("NO DRY GROUND HERE");
+        }
+        if self.fires.iter().any(|f| f.within((x, y), FIRE_SPACING)) {
+            return Err("A FIRE IS ALREADY HERE");
+        }
+        Ok((x, y))
+    }
+
+    /// The drill has caught: a branch goes on as fuel and the fire burns
+    /// for a day.
+    fn light_fire(&mut self, spot: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::Branch) {
+            return;
+        }
+        self.fires.push(Campfire::new(spot, self.clock.total_minutes()));
+        self.particles.sparks((spot.0, spot.1 - 6), 3);
     }
 
     /// Leaves an item from the bag on the ground in front of the castaway
@@ -521,8 +582,17 @@ impl Game {
 
         // Colour math + HDMA tables.
         if night {
+            // One light source: the lantern, or else the fire nearest the
+            // middle of the screen.
             let (cx, cy) = self.player.center();
-            let light = self.inventory.lantern.then(|| Light { center: camera.to_screen(cx, cy) });
+            let lantern = self.inventory.lantern.then_some((cx, cy));
+            let mid = (camera.x + SCREEN_W as i32 / 2, camera.y + SCREEN_H as i32 / 2);
+            let fire = self
+                .fires
+                .iter()
+                .map(|f| f.flame_point())
+                .min_by_key(|&(x, y)| (x - mid.0).pow(2) + (y - mid.1).pow(2));
+            let light = lantern.or(fire).map(|p| Light { center: camera.to_screen(p.0, p.1) });
             let t = ((lighting.darkness - NIGHT_THRESHOLD) / (1.0 - NIGHT_THRESHOLD)).clamp(0.0, 1.0);
             let strength = t * t * (3.0 - 2.0 * t);
             lighting::night(&mut f.lines, &mut f.cgram, light, HUD_LINES, strength, self.frame_count);
@@ -541,6 +611,10 @@ impl Game {
         let sprites = &self.assets.sprites;
         let in_front = player_in_front_of_canopy(&self.map, &self.player);
         self.player.draw(list, &camera, sprites, self.frame_count, shadows, in_front);
+        let now = self.clock.total_minutes();
+        for fire in &self.fires {
+            fire.draw(list, &camera, sprites, self.frame_count, now);
+        }
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }

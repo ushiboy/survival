@@ -182,6 +182,82 @@ pub fn spear_side() -> PixelArt {
     )
 }
 
+// Campfire (crab palette: its reds for flames, the item browns and stone
+// greys for the ring).
+
+/// A ring of stones round two crossed sticks with glowing embers, 16x8.
+pub fn fire_ring() -> PixelArt {
+    let i = |c| ITEM_LEGEND.iter().chain(CRAB_LEGEND).find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    let mut a = PixelArt::filled(16, 8, 0);
+    // Crossed sticks, charred at the middle.
+    for x in 3..13 {
+        let t = (x - 3) as f32 / 9.0;
+        let (y0, y1) = ((2.0 + t * 3.0).round() as usize, (5.0 - t * 3.0).round() as usize);
+        a.set(x, y0, if (6..10).contains(&x) { i('d') } else { i('W') });
+        a.set(x, y1, if (6..10).contains(&x) { i('d') } else { i('w') });
+    }
+    for (x, y) in [(7, 3), (8, 4), (7, 4), (9, 3)] {
+        a.set(x, y, crab_ix('q'));
+    }
+    a.set(8, 3, crab_ix('l'));
+    // Stones round the rim, lit on top; the far ones sit higher.
+    for k in 0..8 {
+        let ang = k as f32 / 8.0 * std::f32::consts::TAU;
+        let (cx, cy) = (8.0 + ang.cos() * 6.3, 4.0 + ang.sin() * 2.6);
+        fill_ellipse(&mut a, cx, cy, 1.6, 1.2, |_, _, _, ny| Some(if ny < -0.3 { i('F') } else { i('s') }));
+    }
+    a.outlined(i('o'))
+}
+
+fn crab_ix(c: char) -> u8 {
+    CRAB_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0)
+}
+
+/// Flickering flames, 16x16 per frame, standing on the bottom edge: three
+/// frames of a lively fire (`height` ~12) or a dying one (~6).
+pub fn flames(height: f32, width: f32) -> [PixelArt; 3] {
+    std::array::from_fn(|f| {
+        let mut a = PixelArt::filled(16, 16, 0);
+        let phase = f as f32 * 2.1;
+        for y in 0..16 {
+            for x in 0..16 {
+                let up = 15.5 - y as f32;
+                // Three tongues of different heights, swaying with the frame.
+                let tongue = |off: f32, h: f32, k: f32| {
+                    let h = h * (1.0 + 0.12 * (phase + k).sin());
+                    if up > h {
+                        return None;
+                    }
+                    let along = up / h;
+                    let sway = (along * 2.6 + phase + k).sin() * 1.3 * along;
+                    let half = width * (1.0 - along).powf(0.7) * (0.6 + 0.4 * (1.0 - along));
+                    let d = (x as f32 + 0.5 - 8.0 - off - sway).abs() / half.max(0.01);
+                    (d <= 1.0).then_some((d, along))
+                };
+                let best = [tongue(0.0, height, 0.0), tongue(-2.6, height * 0.62, 1.7), tongue(2.4, height * 0.7, 3.1)]
+                    .into_iter()
+                    .flatten()
+                    .min_by(|p, q| p.0.total_cmp(&q.0));
+                let Some((d, along)) = best else { continue };
+                let heat = (1.0 - d) * (1.0 - along * 0.8);
+                let c = if heat > 0.55 {
+                    'w'
+                } else if heat > 0.36 {
+                    'l'
+                } else if heat > 0.18 {
+                    'q'
+                } else if d < 0.9 || bayer(x as i32, y as i32) < 0.5 {
+                    'R'
+                } else {
+                    'r'
+                };
+                a.set(x, y, crab_ix(c));
+            }
+        }
+        a
+    })
+}
+
 /// A few leaves lying on the ground, 8x8 (effects palette greens).
 pub fn leaves() -> PixelArt {
     let rows = ["........", "....oo..", "..ooGho.", ".oGhGgo.", "ohGgGo..", "oGggoo..", ".ooo....", "........"];

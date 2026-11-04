@@ -31,6 +31,15 @@ pub enum ItemKind {
 pub enum Use {
     Eat,
     Drink,
+    /// Drill a fire into being (the drill is kept; a branch is burnt).
+    Light,
+}
+
+impl Use {
+    /// Whether using it uses it up.
+    pub fn uses_up(self) -> bool {
+        self != Use::Light
+    }
 }
 
 impl ItemKind {
@@ -64,6 +73,7 @@ impl ItemKind {
         match self {
             ItemKind::Coconut | ItemKind::Crab => Some(Use::Eat),
             ItemKind::RawWater => Some(Use::Drink),
+            ItemKind::FireDrill => Some(Use::Light),
             _ => None,
         }
     }

@@ -52,6 +52,7 @@ impl Command {
         match self {
             Command::Use(Use::Eat) => "EAT",
             Command::Use(Use::Drink) => "DRINK",
+            Command::Use(Use::Light) => "LIGHT FIRE",
             Command::Move => "MOVE",
             Command::Wield => "TAKE IN HAND",
             Command::Drop if kind.can_put_down() => "PUT DOWN",
@@ -95,7 +96,8 @@ pub enum Mode {
 pub enum Outcome {
     Stay,
     Close,
-    /// An item was taken out to be used (the bag closes).
+    /// An item was taken out (or, if it isn't used up, chosen) to be used;
+    /// the bag closes unless the game finds it can't be used here.
     Use(ItemKind),
     /// Items (`count` of a kind) were taken out to leave on the ground.
     Drop(ItemKind, u32),
@@ -110,6 +112,8 @@ pub struct BagMenu {
     pub mode: Mode,
     /// A short message about the last action.
     pub notice: Option<&'static str>,
+    /// Standing by a campfire (recipes made at a fire are possible).
+    pub near_fire: bool,
     held_frames: u32,
 }
 
@@ -122,7 +126,7 @@ pub fn commands_for(kind: ItemKind, in_hand: bool) -> Vec<Command> {
 
 impl BagMenu {
     pub fn browse() -> Self {
-        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, held_frames: 0 }
+        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, held_frames: 0 }
     }
 
     /// Opens holding something just picked up (`count` of a kind) that
@@ -226,8 +230,10 @@ impl BagMenu {
                 }
                 self.mode = Mode::Browse;
                 match commands[choice] {
-                    Command::Use(_) => {
-                        bag.take_one(item);
+                    Command::Use(how) => {
+                        if how.uses_up() {
+                            bag.take_one(item);
+                        }
                         Outcome::Use(kind)
                     }
                     Command::Wield => {
@@ -270,6 +276,10 @@ impl BagMenu {
             return Outcome::Stay;
         }
         let recipe = &RECIPES[choice];
+        if recipe.at_fire && !self.near_fire {
+            self.notice = Some("NEEDS A FIRE");
+            return Outcome::Stay;
+        }
         if !bag.can_make(recipe) {
             self.notice = Some("NOT ENOUGH MATERIALS");
             return Outcome::Stay;
@@ -278,7 +288,7 @@ impl BagMenu {
         if bag.stow_one(recipe.makes) {
             self.notice = Some("MADE IT!");
         } else {
-            *self = Self::holding(recipe.makes, 1);
+            *self = Self { near_fire: self.near_fire, ..Self::holding(recipe.makes, 1) };
         }
         Outcome::Stay
     }
