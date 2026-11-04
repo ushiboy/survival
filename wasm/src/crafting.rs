@@ -10,7 +10,8 @@ pub struct Recipe {
     pub makes: ItemKind,
     /// Materials used up, with how many of each.
     pub needs: &'static [(ItemKind, u32)],
-    /// Only made beside a burning campfire.
+    /// Only made beside a burning campfire, by holding the first material
+    /// over the flames.
     pub at_fire: bool,
 }
 

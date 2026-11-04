@@ -17,6 +17,7 @@ use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
 use crate::render::camera::Camera;
+use crate::crafting::{RECIPES, Recipe};
 use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
 use crate::render::hud::{self, HUD_LINES};
@@ -236,6 +237,7 @@ impl Game {
                 self.particles.chips((fx, fy - 2), (0, 1), 2);
             }
             Some(Deed::Smoulder(spot)) => self.particles.ember(spot),
+            Some(Deed::Cooked(dish)) => self.take(dish, 1),
             Some(Deed::LightFire(spot)) => self.light_fire(spot),
             None => {}
         }
@@ -473,13 +475,33 @@ impl Game {
             }
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Wield(kind) => self.inventory.tool = Some(kind),
+            Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
         }
     }
 
     /// Whether the castaway stands by a burning campfire.
     fn near_fire(&self) -> bool {
-        let feet = self.player.body.feet();
-        self.fires.iter().any(|f| f.within(feet, NEAR_FIRE))
+        self.nearest_fire().is_some()
+    }
+
+    /// The campfire the castaway stands by, if any.
+    fn nearest_fire(&self) -> Option<&Campfire> {
+        let (fx, fy) = self.player.body.feet();
+        self.fires
+            .iter()
+            .filter(|f| f.within((fx, fy), NEAR_FIRE))
+            .min_by_key(|f| (f.x - fx).pow(2) + (f.y - fy).pow(2))
+    }
+
+    /// Takes a recipe's materials and kneels to cook it over the nearest
+    /// fire; it goes in the bag when done.
+    fn start_cooking(&mut self, recipe: &Recipe) {
+        let Some(at) = self.nearest_fire().map(|f| (f.x, f.y)) else {
+            return;
+        };
+        self.menu = None;
+        self.inventory.bag.use_up(recipe);
+        self.player.cook(recipe.needs[0].0, recipe.makes, at);
     }
 
     /// Where a fire would be lit (in front of the castaway's feet), or why
@@ -488,7 +510,7 @@ impl Game {
         if !self.inventory.bag.has(ItemKind::Branch) {
             return Err("NEEDS A BRANCH TO BURN");
         }
-        let (x, y) = self.player.front_of_feet();
+        let (x, y) = self.player.fire_spot();
         let dry = self.map.terrain(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)).is_land();
         if self.player.wading || !dry || self.map.props_at_px(x, y).solid {
             return Err("NO DRY GROUND HERE");

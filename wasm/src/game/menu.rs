@@ -103,6 +103,9 @@ pub enum Outcome {
     Drop(ItemKind, u32),
     /// A tool was chosen to hold in hand.
     Wield(ItemKind),
+    /// The recipe (index into `RECIPES`) is to be cooked over the fire;
+    /// its materials are still in the bag.
+    Cook(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -283,6 +286,10 @@ impl BagMenu {
         if !bag.can_make(recipe) {
             self.notice = Some("NOT ENOUGH MATERIALS");
             return Outcome::Stay;
+        }
+        if recipe.at_fire {
+            // Cooked over the fire, outside the bag.
+            return Outcome::Cook(choice);
         }
         bag.use_up(recipe);
         if bag.stow_one(recipe.makes) {

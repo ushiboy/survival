@@ -84,6 +84,12 @@ const DRILL_SMOKE: u32 = 50;
 const DRILL_CATCH: u32 = 100;
 const DRILL_TOTAL: u32 = 112;
 
+/// Cooking over a fire (frames): kneeling with the food held over the
+/// flames (turned every `COOK_TURN`) until it's done on `COOK_DONE`.
+const COOK_TURN: u32 = 24;
+const COOK_DONE: u32 = 150;
+const COOK_TOTAL: u32 = 162;
+
 /// Pulling a vine off its stake (frames): take hold, then yank it free on
 /// `PULL_YANK`.
 const PULL_YANK: u32 = 14;
@@ -120,6 +126,9 @@ pub enum Action {
     Eat { t: u32, food: ItemKind },
     /// Kneeling to drill a fire.
     Drill { t: u32 },
+    /// Kneeling by the fire at `fire` (ground px), holding `food` over it
+    /// until it becomes `dish`.
+    Cook { t: u32, food: ItemKind, dish: ItemKind, fire: (i32, i32) },
     /// Tugging a vine off a climbing plant, or leaves off a bush.
     Pull { t: u32 },
 }
@@ -160,6 +169,8 @@ pub enum Deed {
     Smoulder((i32, i32)),
     /// A fire caught at the point (ground px).
     LightFire((i32, i32)),
+    /// Finished cooking this.
+    Cooked(ItemKind),
 }
 
 #[derive(Clone, Debug)]
@@ -248,11 +259,20 @@ impl Player {
         if let Action::Drill { t } = self.action {
             let t = t + 1;
             self.action = if t >= DRILL_TOTAL { Action::Idle } else { Action::Drill { t } };
-            let spot = self.front_of_feet();
+            let spot = self.fire_spot();
             if t == DRILL_CATCH {
                 return Some(Deed::LightFire(spot));
             }
             return (t >= DRILL_SMOKE && t < DRILL_CATCH && t % 8 == 0).then_some(Deed::Smoulder(spot));
+        }
+        if let Action::Cook { t, food, dish, fire } = self.action {
+            let t = t + 1;
+            self.action = if t >= COOK_TOTAL { Action::Idle } else { Action::Cook { t, food, dish, fire } };
+            if t == COOK_DONE {
+                return Some(Deed::Cooked(dish));
+            }
+            // Smoke and sparks rise off it while it cooks.
+            return (t < COOK_DONE && t % 10 == 0).then_some(Deed::Smoulder((fire.0, fire.1 - 4)));
         }
         if let Action::Scoop { t } = self.action {
             let t = t + 1;
@@ -402,6 +422,34 @@ impl Player {
         self.walk_timer = 0;
     }
 
+    /// Kneels facing the fire at `fire` (ground px) to cook `food` into
+    /// `dish`.
+    pub fn cook(&mut self, food: ItemKind, dish: ItemKind, fire: (i32, i32)) {
+        let (fx, fy) = self.body.feet();
+        let (dx, dy) = (fire.0 - fx, fire.1 - fy);
+        self.facing = if dx.abs() > dy.abs() {
+            if dx < 0 { Dir::Left } else { Dir::Right }
+        } else if dy < 0 {
+            Dir::Up
+        } else {
+            Dir::Down
+        };
+        self.action = Action::Cook { t: 0, food, dish, fire };
+        self.moving = false;
+        self.walk_timer = 0;
+    }
+
+    /// Where a fire is lit: a step ahead, clear of the castaway.
+    pub fn fire_spot(&self) -> (i32, i32) {
+        let (fx, fy) = self.body.feet();
+        match self.facing {
+            Dir::Up => (fx, fy - 14),
+            Dir::Down => (fx, fy + 12),
+            Dir::Left => (fx - 16, fy),
+            Dir::Right => (fx + 16, fy),
+        }
+    }
+
     /// Where something put down lands: just in front of the feet.
     pub fn front_of_feet(&self) -> (i32, i32) {
         let (fx, fy) = self.body.feet();
@@ -509,6 +557,14 @@ impl Player {
                 list.actor(depth, drill);
                 list.actor(depth, body);
             }
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Cook { t, food, fire, .. } = self.action {
+            self.draw_cooking(list, camera, (cx, cy), depth, sprites, (t, food, fire), prio);
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
@@ -697,6 +753,34 @@ impl Player {
 }
 
 impl Player {
+    /// Kneeling by the fire with the food held out toward the flames at
+    /// arm's length, bobbing as it's turned. Crabs are turned over now and
+    /// then; a pot is held steady. Facing away, it's hidden by the body.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_cooking(&self, list: &mut DrawList, camera: &Camera, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (t, food, fire): (u32, ItemKind, (i32, i32)), prio: u8) {
+        let (view, flip) = view_for(self.facing);
+        list.actor(depth, ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip));
+        let (fx, fy) = self.body.feet();
+        let (dx, dy) = match self.facing {
+            Dir::Up => (0, -10),
+            Dir::Down => (0, 8),
+            Dir::Left => (-13, 0),
+            Dir::Right => (13, 0),
+        };
+        let (ix, iy) = (fx + dx, fy + dy - 11);
+        let bob = ((t / 6) % 2) as i32;
+        let (gfx, w, palette) = match food {
+            ItemKind::Crab => (sprites.crab_caught, 16, OBJ_CRAB),
+            _ => (sprites.bark_pot, 8, OBJ_FX),
+        };
+        let turned = food == ItemKind::Crab && (t / COOK_TURN) % 2 == 1;
+        let (sx, sy) = camera.to_screen(ix - w / 2, iy - 4 + bob);
+        // In front of the fire, and of the body unless facing away.
+        let item = ObjEntry::new(sx, sy, gfx, palette, prio).flipped(turned);
+        let depth = if self.facing == Dir::Up { depth - 1 } else { depth.max(fire.1) + 1 };
+        list.actor(depth, item);
+    }
+
     /// A jab with the spear: drawn back, then lunging with the point out.
     /// The spear sprite is placed so the hands hold it 8px from the butt;
     /// facing away it's behind the body, otherwise in front with the hands
