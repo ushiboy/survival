@@ -26,6 +26,8 @@ pub use crate::items::ItemKind;
 #[derive(Clone, Debug)]
 pub struct Item {
     pub kind: ItemKind,
+    /// How many lie here together (a stack put down whole).
+    pub count: u32,
     /// Ground position (world px) and height above it.
     x: f32,
     y: f32,
@@ -43,7 +45,7 @@ impl Item {
     /// Already lying still on the ground at `at` (world px), e.g. placed when
     /// the island is made.
     pub fn lying(kind: ItemKind, at: (f32, f32)) -> Self {
-        Self { kind, x: at.0, y: at.1, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, bounces: BOUNCES.len() + 1, roll: (0.0, 0.0), anim: 0 }
+        Self { kind, count: 1, x: at.0, y: at.1, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, bounces: BOUNCES.len() + 1, roll: (0.0, 0.0), anim: 0 }
     }
 
     /// Drops from `from` (world px, as seen on screen) to land on the ground
@@ -51,7 +53,12 @@ impl Item {
     pub fn falling(kind: ItemKind, from: (f32, f32), to: (f32, f32), roll: (f32, f32)) -> Self {
         let z = (to.1 - from.1).max(0.0);
         let frames = (2.0 * z / GRAVITY).sqrt().max(1.0);
-        Self { kind, x: from.0, y: to.1, z, vx: (to.0 - from.0) / frames, vy: 0.0, vz: 0.0, bounces: 0, roll, anim: 0 }
+        Self { kind, count: 1, x: from.0, y: to.1, z, vx: (to.0 - from.0) / frames, vy: 0.0, vz: 0.0, bounces: 0, roll, anim: 0 }
+    }
+
+    /// The same, as a stack of `count`.
+    pub fn with_count(self, count: u32) -> Self {
+        Self { count, ..self }
     }
 
     pub fn update(&mut self, map: &WorldMap) {
@@ -118,6 +125,7 @@ impl Item {
             ItemKind::FireDrill => (16, [sprites.fire_drill; 2], sprites.shadow_player),
             ItemKind::WoodSpear => (32, [sprites.spear_side; 2], sprites.shadow_lying),
             ItemKind::Crab => (16, [sprites.crab_caught; 2], sprites.shadow_crab),
+            ItemKind::Leaf => (8, [sprites.leaves; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),
             ItemKind::Vine => (8, [sprites.vine_coil; 2], sprites.shadow_coconut),
@@ -132,7 +140,7 @@ impl Item {
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
         let palette = match self.kind {
-            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine => OBJ_FX,
+            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf => OBJ_FX,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,
         };

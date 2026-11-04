@@ -31,6 +31,8 @@ const REPEAT_EVERY: u32 = 5;
 pub struct HeldItem {
     pub kind: ItemKind,
     pub turned: bool,
+    /// How many are in hand (a stack is moved whole).
+    pub count: u32,
     /// Where it was in the bag, or `None` if it came off the ground.
     pub origin: Option<Placed>,
 }
@@ -95,8 +97,8 @@ pub enum Outcome {
     Close,
     /// An item was taken out to be used (the bag closes).
     Use(ItemKind),
-    /// An item was taken out to leave on the ground.
-    Drop(ItemKind),
+    /// Items (`count` of a kind) were taken out to leave on the ground.
+    Drop(ItemKind, u32),
     /// A tool was chosen to hold in hand.
     Wield(ItemKind),
 }
@@ -123,15 +125,25 @@ impl BagMenu {
         Self { cursor: (0, 0), mode: Mode::Browse, notice: None, held_frames: 0 }
     }
 
-    /// Opens holding something just picked up that didn't fit anywhere.
-    pub fn holding(kind: ItemKind) -> Self {
-        Self { mode: Mode::Holding(HeldItem { kind, turned: false, origin: None }), notice: Some("NO ROOM - MAKE SPACE"), ..Self::browse() }
+    /// Opens holding something just picked up (`count` of a kind) that
+    /// didn't fit anywhere.
+    pub fn holding(kind: ItemKind, count: u32) -> Self {
+        let held = HeldItem { kind, turned: false, count, origin: None };
+        Self { mode: Mode::Holding(held), notice: Some("NO ROOM - MAKE SPACE"), ..Self::browse() }
+    }
+
+    /// How many are in hand while placing.
+    pub fn held_count(&self) -> u32 {
+        match self.mode {
+            Mode::Holding(h) => h.count,
+            _ => 0,
+        }
     }
 
     /// Where the held item would go at the cursor.
     pub fn held_placement(&self) -> Option<Placed> {
         match self.mode {
-            Mode::Holding(h) => Some(Placed { kind: h.kind, x: self.cursor.0, y: self.cursor.1, turned: h.turned }),
+            Mode::Holding(h) => Some(Placed { kind: h.kind, x: self.cursor.0, y: self.cursor.1, turned: h.turned, count: h.count }),
             _ => None,
         }
     }
@@ -215,7 +227,7 @@ impl BagMenu {
                 self.mode = Mode::Browse;
                 match commands[choice] {
                     Command::Use(_) => {
-                        bag.remove(item);
+                        bag.take_one(item);
                         Outcome::Use(kind)
                     }
                     Command::Wield => {
@@ -225,13 +237,13 @@ impl BagMenu {
                     Command::Move => {
                         let p = bag.remove(item);
                         self.cursor = (p.x, p.y);
-                        self.mode = Mode::Holding(HeldItem { kind, turned: p.turned, origin: Some(p) });
+                        self.mode = Mode::Holding(HeldItem { kind, turned: p.turned, count: p.count, origin: Some(p) });
                         Outcome::Stay
                     }
                     Command::Drop => {
-                        bag.remove(item);
+                        let p = bag.remove(item);
                         self.notice = Some(if kind.can_put_down() { "PUT IT DOWN" } else { "POURED IT OUT" });
-                        Outcome::Drop(kind)
+                        Outcome::Drop(kind, p.count)
                     }
                 }
             }
@@ -263,10 +275,10 @@ impl BagMenu {
             return Outcome::Stay;
         }
         bag.use_up(recipe);
-        if bag.stow(recipe.makes) {
+        if bag.stow_one(recipe.makes) {
             self.notice = Some("MADE IT!");
         } else {
-            *self = Self::holding(recipe.makes);
+            *self = Self::holding(recipe.makes, 1);
         }
         Outcome::Stay
     }
@@ -281,8 +293,19 @@ impl BagMenu {
         self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - w), (self.cursor.1 + dy).clamp(0, BAG_H - h));
 
         if input.pressed(Buttons::A) {
-            let spot = Placed { kind: held.kind, x: self.cursor.0, y: self.cursor.1, turned: held.turned };
+            let spot = Placed { kind: held.kind, x: self.cursor.0, y: self.cursor.1, turned: held.turned, count: held.count };
             match bag.overlapping(&spot)[..] {
+                // Onto a stack of the same: top it up, keeping any left over.
+                [other] if bag.items()[other].kind == held.kind && held.kind.max_stack() > 1 => {
+                    let left = bag.add_to(other, held.count);
+                    if left == 0 {
+                        self.mode = Mode::Browse;
+                        self.notice = None;
+                    } else {
+                        self.mode = Mode::Holding(HeldItem { count: left, ..held });
+                        self.notice = Some("THAT STACK IS FULL");
+                    }
+                }
                 [] => {
                     bag.put(spot);
                     self.mode = Mode::Browse;
@@ -292,7 +315,7 @@ impl BagMenu {
                     // Swap: put this one down and pick up the one beneath.
                     let lifted = bag.remove(other);
                     bag.put(spot);
-                    let next = HeldItem { kind: lifted.kind, turned: lifted.turned, origin: Some(lifted) };
+                    let next = HeldItem { kind: lifted.kind, turned: lifted.turned, count: lifted.count, origin: Some(lifted) };
                     let (w, h) = footprint(next.kind, next.turned);
                     self.cursor = (self.cursor.0.min(BAG_W - w), self.cursor.1.min(BAG_H - h));
                     self.mode = Mode::Holding(next);
@@ -304,14 +327,15 @@ impl BagMenu {
         }
         if input.pressed(Buttons::B) || input.pressed(Buttons::X) {
             self.mode = Mode::Browse;
-            if let Some(origin) = held.origin.filter(|o| bag.fits(o)) {
+            // Back where it was (as many as are still in hand).
+            if let Some(origin) = held.origin.map(|o| Placed { count: held.count, ..o }).filter(|o| bag.fits(o)) {
                 bag.put(origin);
                 self.cursor = (origin.x, origin.y);
                 self.notice = None;
                 return Outcome::Stay;
             }
             self.notice = Some(if held.kind.can_put_down() { "LEFT IT ON THE GROUND" } else { "POURED IT OUT" });
-            return Outcome::Drop(held.kind);
+            return Outcome::Drop(held.kind, held.count);
         }
         Outcome::Stay
     }

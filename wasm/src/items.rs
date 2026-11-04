@@ -22,6 +22,8 @@ pub enum ItemKind {
     WoodSpear,
     /// A crab caught with the spear.
     Crab,
+    /// A broad leaf picked from a bush; folded into a cup it holds water.
+    Leaf,
 }
 
 /// What using an item does.
@@ -35,7 +37,7 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::Leaf => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
             ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber => (2, 2),
@@ -54,6 +56,7 @@ impl ItemKind {
             ItemKind::Vine => "VINE",
             ItemKind::WoodSpear => "WOOD SPEAR",
             ItemKind::Crab => "CRAB",
+            ItemKind::Leaf => "LEAF",
         }
     }
 
@@ -73,6 +76,14 @@ impl ItemKind {
             ItemKind::Coconut => (22, 6),
             ItemKind::Crab => (30, 2),
             _ => (0, 0),
+        }
+    }
+
+    /// How many fit in one stack in the bag (1 for things that don't stack).
+    pub fn max_stack(self) -> u32 {
+        match self {
+            ItemKind::Leaf => 20,
+            _ => 1,
         }
     }
 

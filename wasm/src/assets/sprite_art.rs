@@ -182,6 +182,12 @@ pub fn spear_side() -> PixelArt {
     )
 }
 
+/// A few leaves lying on the ground, 8x8 (effects palette greens).
+pub fn leaves() -> PixelArt {
+    let rows = ["........", "....oo..", "..ooGho.", ".oGhGgo.", "ohGgGo..", "oGggoo..", ".ooo....", "........"];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
 /// A crab lying on its back, legs curled up, 16x8.
 pub fn crab_caught() -> PixelArt {
     let rows = [

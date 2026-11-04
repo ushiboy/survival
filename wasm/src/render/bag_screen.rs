@@ -6,7 +6,7 @@
 use crate::assets::palettes::{HUD_DIM, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::game::state::Inventory;
-use crate::game::bag::{BAG_H, BAG_W, Bag, footprint};
+use crate::game::bag::{BAG_H, BAG_W, Bag, Placed, footprint};
 use crate::crafting::RECIPES;
 use crate::game::menu::{BagMenu, Mode, Page, commands_for};
 use crate::ppu::Bg3Layer;
@@ -71,10 +71,15 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     let icons = &sprites.bag;
     // The held item floats over the grid, lifted a little.
     let held = menu.held_placement();
+    // Counts go in first so they're drawn over the icons.
     if let Some(h) = held {
         let (px, py) = cell_px(h.x, h.y);
+        draw_count(list, sprites, &h, (px - 2, py - 3));
         let (gfx, pal) = icons.icon(h.kind, h.turned);
         list.sky(ObjEntry::new(px - 2, py - 3, gfx, pal, 3));
+    }
+    for p in bag.items() {
+        draw_count(list, sprites, p, cell_px(p.x, p.y));
     }
     for p in bag.items() {
         let (px, py) = cell_px(p.x, p.y);
@@ -115,6 +120,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         if inventory.tool == Some(kind) {
             text(bg3, tiles, INFO_COL, GRID_ROW + 2, "IN HAND");
         }
+        let count = held.map(|h| h.count).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].count));
+        if let Some(n) = count.filter(|_| kind.max_stack() > 1) {
+            text(bg3, tiles, INFO_COL, GRID_ROW + 2, &format!("{n} OF {}", kind.max_stack()));
+        }
     }
     if let Mode::Commands { item, choice } = menu.mode {
         let kind = bag.items()[item].kind;
@@ -142,6 +151,23 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
+}
+
+/// The number in a stack, over the bottom right of its icon (whose top
+/// left is at `at`). Only things that stack are counted.
+fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i32)) {
+    if p.kind.max_stack() <= 1 {
+        return;
+    }
+    let (w, h) = p.size();
+    let digits = p.count.to_string();
+    // Glyphs are 7px wide with their outline; overlap them a pixel.
+    let mut x = at.0 + w * CELL - 7 - (digits.len() as i32 - 1) * 6;
+    let y = at.1 + h * CELL - 8;
+    for d in digits.chars().filter_map(|c| c.to_digit(10)) {
+        list.sky(ObjEntry::new(x, y, sprites.bag.digits[d as usize], OBJ_FX, 3));
+        x += 6;
+    }
 }
 
 /// The crafting list beside the grid: recipes with the chosen one's

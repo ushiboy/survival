@@ -211,14 +211,15 @@ impl Game {
         }
         let situation = Situation {
             tool: self.inventory.tool,
+            has_leaf: self.inventory.bag.has(ItemKind::Leaf),
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
         };
         match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
-            Some(Deed::PullVine(point)) => self.pull_vine(point),
-            Some(Deed::DrawWater) => self.take(ItemKind::RawWater),
+            Some(Deed::Pull(point)) => self.pull(point),
+            Some(Deed::DrawWater) => self.draw_water(),
             Some(Deed::Drink) => self.drink_water(),
             Some(Deed::Thrust(from, to)) => self.resolve_thrust(from, to),
             Some(Deed::Eat(food)) => self.eat(food),
@@ -381,25 +382,43 @@ impl Game {
         let item = self.items.swap_remove(i);
         let (x, y) = item.ground();
         self.particles.sparks((x, y - 4), 1);
-        self.take(item.kind);
+        self.take(item.kind, item.count);
     }
 
-    /// Takes a vine from the climbing plant at `point`.
-    fn pull_vine(&mut self, point: (i32, i32)) {
-        let Some((x, y)) = harvest::pull_vine(&mut self.map, point) else {
+    /// Tugs at the plant at `point`: takes the vine off a climbing plant,
+    /// or a handful of leaves off a bush (only rustling one already
+    /// stripped today).
+    fn pull(&mut self, point: (i32, i32)) {
+        if let Some((x, y)) = harvest::pull_vine(&mut self.map, point) {
+            self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
+            let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);
+            self.particles.leaves((px + 2, py, 12, 10), py + 14, 3);
+            self.take(ItemKind::Vine, 1);
             return;
-        };
-        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
-        let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);
-        self.particles.leaves((px + 2, py, 12, 10), py + 14, 3);
-        self.take(ItemKind::Vine);
+        }
+        let (px, py) = (point.0.div_euclid(TILE_SIZE) * TILE_SIZE, point.1.div_euclid(TILE_SIZE) * TILE_SIZE);
+        if self.harvest.pick_leaves(&self.map, point, self.clock.day).is_some() {
+            self.particles.leaves((px + 2, py, 12, 10), py + 14, 2);
+            self.take(ItemKind::Leaf, harvest::BUSH_LEAVES);
+        } else {
+            self.particles.leaves((px + 2, py, 12, 10), py + 14, 1);
+        }
     }
 
-    /// Puts something just obtained into the bag; if it doesn't fit, the
-    /// bag opens with it in hand so room can be made (or it can be left).
-    fn take(&mut self, kind: ItemKind) {
-        if !self.inventory.bag.stow(kind) {
-            self.menu = Some(BagMenu::holding(kind));
+    /// Scoops water up in a leaf folded into a cup.
+    fn draw_water(&mut self) {
+        if self.inventory.bag.take_kind(ItemKind::Leaf) {
+            self.take(ItemKind::RawWater, 1);
+        }
+    }
+
+    /// Puts `count` of something just obtained into the bag; if they don't
+    /// all fit, the bag opens with the rest in hand so room can be made (or
+    /// they can be left).
+    fn take(&mut self, kind: ItemKind, count: u32) {
+        let left = self.inventory.bag.stow(kind, count);
+        if left > 0 {
+            self.menu = Some(BagMenu::holding(kind, left));
         }
         self.inventory.settle_tool();
     }
@@ -413,14 +432,14 @@ impl Game {
                 self.menu = None;
                 self.player.consume(kind);
             }
-            Outcome::Drop(kind) => self.put_down(kind),
+            Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Wield(kind) => self.inventory.tool = Some(kind),
         }
     }
 
     /// Leaves an item from the bag on the ground in front of the castaway
     /// (water is poured away).
-    fn put_down(&mut self, kind: ItemKind) {
+    fn put_down(&mut self, kind: ItemKind, count: u32) {
         if !kind.can_put_down() {
             return;
         }
@@ -429,7 +448,7 @@ impl Game {
         if !self.map.terrain(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)).is_land() || self.map.props_at_px(x, y).solid {
             (x, y) = (fx, fy + 1);
         }
-        self.items.push(Item::falling(kind, (x as f32, y as f32 - 10.0), (x as f32, y as f32), (0.0, 0.0)));
+        self.items.push(Item::falling(kind, (x as f32, y as f32 - 10.0), (x as f32, y as f32), (0.0, 0.0)).with_count(count));
     }
 
     /// Drinks water taken from the bag.
@@ -564,9 +583,10 @@ impl Game {
         }
     }
 
-    /// Dev tools: puts an item straight into the bag (if it fits).
+    /// Dev tools: puts an item (a full stack of stackables) straight into
+    /// the bag, if it fits.
     pub fn debug_give(&mut self, kind: ItemKind) {
-        self.inventory.bag.stow(kind);
+        self.inventory.bag.stow(kind, kind.max_stack());
         self.inventory.settle_tool();
     }
 

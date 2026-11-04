@@ -11,7 +11,7 @@ use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
 use crate::items::{ItemKind, Use};
-use crate::world::harvest::{can_pull_vine, can_shake};
+use crate::world::harvest::{can_pull_vine, can_shake, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -110,7 +110,7 @@ pub enum Action {
     Drink { t: u32 },
     /// Eating something from the bag.
     Eat { t: u32, food: ItemKind },
-    /// Tugging a vine off a climbing plant.
+    /// Tugging a vine off a climbing plant, or leaves off a bush.
     Pull { t: u32 },
 }
 
@@ -121,6 +121,8 @@ pub struct Situation {
     pub tool: Option<ItemKind>,
     /// Where something lies close enough to pick up.
     pub item_in_reach: Option<(i32, i32)>,
+    /// Carrying a leaf to scoop water into.
+    pub has_leaf: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -135,8 +137,9 @@ pub enum Deed {
     Shake((i32, i32)),
     /// Hands closed on whatever lies within reach.
     PickUp,
-    /// A vine came away from the plant at the point.
-    PullVine((i32, i32)),
+    /// Tugged at the plant at the point: a vine coming away, or a handful
+    /// of leaves off a bush.
+    Pull((i32, i32)),
     /// Scooped up water to carry.
     DrawWater,
     /// Drank some water taken from the bag.
@@ -186,7 +189,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach } = situation;
+        let Situation { tool, item_in_reach, has_leaf } = situation;
         if let Action::WakeUp { t } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { WAKE_END } else { t + 1 };
@@ -221,7 +224,7 @@ impl Player {
         if let Action::Pull { t } = self.action {
             let t = t + 1;
             self.action = if t >= PULL_TOTAL { Action::Idle } else { Action::Pull { t } };
-            return (t == PULL_YANK).then(|| Deed::PullVine(self.reach_point()));
+            return (t == PULL_YANK).then(|| Deed::Pull(self.reach_point()));
         }
         if let Action::Eat { t, food } = self.action {
             let t = t + 1;
@@ -291,7 +294,7 @@ impl Player {
                 self.walk_timer = 0;
                 return None;
             }
-            if can_pull_vine(map, self.reach_point()) {
+            if can_pull_vine(map, self.reach_point()) || is_bush(map, self.reach_point()) {
                 self.action = Action::Pull { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
@@ -299,8 +302,8 @@ impl Player {
             }
             self.facing = before;
         }
-        if !self.wading && input.pressed(Buttons::A) {
-            // Crouch at the water-drawing spot and scoop some up.
+        if has_leaf && !self.wading && input.pressed(Buttons::A) {
+            // Crouch at the water-drawing spot and scoop some up in a leaf.
             let (rx, ry) = self.reach_point();
             if map.is_drinking_water(rx, ry) {
                 self.action = Action::Scoop { t: 0 };

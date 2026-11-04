@@ -126,6 +126,51 @@ pub fn icon_wood_spear() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// Two broad leaves laid one on another along the diagonal, 16x16, with
+/// pale midribs and a stalk; the bottom right stays clear for the count.
+pub fn icon_leaf() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    // (centre, half-length, half-width, angle): back leaf first.
+    for &(cx, cy, len, wid, ang) in &[(8.6f32, 6.4f32, 5.6f32, 2.4f32, -1.25f32), (7.2, 7.8, 6.6, 3.2, -0.72)] {
+        let (c, s) = (ang.cos(), ang.sin());
+        for y in 0..16 {
+            for x in 0..16 {
+                let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                let (u, v) = (dx * c + dy * s, -dx * s + dy * c);
+                // Pointed at both ends: width tapers along the length.
+                let half = wid * (1.0 - (u / len).powi(2)).max(0.0).sqrt();
+                if u.abs() > len || v.abs() > half {
+                    continue;
+                }
+                let col = if v.abs() < 0.5 { i('h') } else if v < 0.0 { i('G') } else { i('g') };
+                a.set(x, y, col);
+            }
+        }
+    }
+    for k in 0..3 {
+        a.set(2 + k, 14 - k, i('g'));
+    }
+    a.outlined(i('o'))
+}
+
+/// Digits for stack counts, 8x8 each (0-9): the HUD font in the effects
+/// palette's outline and pale metal greys, so they read over any icon.
+pub fn count_digits() -> [PixelArt; 10] {
+    let i = |c| ix(FX_LEGEND, c);
+    let glyphs = super::hud_art::glyphs();
+    std::array::from_fn(|d| {
+        let c = char::from_digit(d as u32, 10).unwrap_or('0');
+        let g = glyphs.iter().find(|(k, _)| *k == c).map(|(_, a)| a.clone()).unwrap_or_else(|| PixelArt::filled(8, 8, 0));
+        g.map(|v| match v {
+            1 => i('o'),
+            2 => i('M'),
+            3 => i('L'),
+            _ => 0,
+        })
+    })
+}
+
 /// A bow drill, `size` px square (16 in the bag and on the ground):
 /// a bent branch strung with vine, the string looped once round a
 /// pale spindle.

@@ -168,6 +168,9 @@ pub struct BagSprites {
     /// Upright, turned.
     pub wood_spear: [SpriteId; 2],
     pub crab: SpriteId,
+    pub leaf: SpriteId,
+    /// Stack-count digits 0-9 (effects palette).
+    pub digits: [SpriteId; 10],
     /// Upright, turned.
     pub branch: [SpriteId; 2],
     pub stone: SpriteId,
@@ -187,6 +190,7 @@ impl BagSprites {
             ItemKind::FireDrill => (self.fire_drill, palettes::OBJ_FX),
             ItemKind::WoodSpear => (self.wood_spear[turned as usize], palettes::OBJ_FX),
             ItemKind::Crab => (self.crab, palettes::OBJ_CRAB),
+            ItemKind::Leaf => (self.leaf, palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -232,6 +236,7 @@ pub struct SpriteIds {
     pub vine_coil: SpriteId,
     pub fire_drill: SpriteId,
     pub crab_caught: SpriteId,
+    pub leaves: SpriteId,
 }
 
 #[derive(Clone, Debug)]
@@ -355,6 +360,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             [bank.add(&s), bank.add(&s.rotated_cw())]
         },
         crab: bank.add(&c0),
+        leaf: bank.add(&item_art::icon_leaf()),
+        digits: item_art::count_digits().map(|a| bank.add(&a)),
         branch: {
             let b = item_art::icon_branch();
             [bank.add(&b), bank.add(&b.rotated_cw())]
@@ -393,6 +400,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         vine_coil: bank.add(&vine_coil()),
         fire_drill: bank.add(&item_art::fire_drill(16)),
         crab_caught: bank.add(&crab_caught()),
+        leaves: bank.add(&leaves()),
     }
 }
 

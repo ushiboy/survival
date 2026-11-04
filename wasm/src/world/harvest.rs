@@ -50,6 +50,8 @@ pub enum Shaken {
 pub struct Harvest {
     damage: HashMap<(i32, i32), u8>,
     shakes: HashMap<(i32, i32), u8>,
+    /// The day each bush was last picked; it grows new leaves overnight.
+    picked: HashMap<(i32, i32), u32>,
 }
 
 /// The palm whose trunk base is at the world pixel, as (anchor, part).
@@ -77,12 +79,35 @@ pub fn pull_vine(map: &mut WorldMap, point: (i32, i32)) -> Option<(i32, i32)> {
     Some(cell)
 }
 
+/// Leaves a bush gives each time it's picked.
+pub const BUSH_LEAVES: u32 = 5;
+
+/// Whether there's a bush at the world pixel to pick leaves from (it may
+/// have been stripped already today).
+pub fn is_bush(map: &WorldMap, (px, py): (i32, i32)) -> bool {
+    map.feature(px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE)) == Feature::Bush
+}
+
 /// Whether there's a trunk at the world pixel to take hold of and shake.
 pub fn can_shake(map: &WorldMap, point: (i32, i32)) -> bool {
     trunk_at(map, point).is_some()
 }
 
 impl Harvest {
+    /// Picks leaves from the bush at the world pixel on `day`: the cell
+    /// picked, or `None` if there's no bush or it was stripped today.
+    pub fn pick_leaves(&mut self, map: &WorldMap, point: (i32, i32), day: u32) -> Option<(i32, i32)> {
+        if !is_bush(map, point) {
+            return None;
+        }
+        let cell = (point.0.div_euclid(TILE_SIZE), point.1.div_euclid(TILE_SIZE));
+        if self.picked.get(&cell) == Some(&day) {
+            return None;
+        }
+        self.picked.insert(cell, day);
+        Some(cell)
+    }
+
     /// Resolves an axe strike at a world pixel.
     pub fn axe(&mut self, map: &mut WorldMap, (px, py): (i32, i32)) -> Strike {
         if let Some((anchor, p)) = trunk_at(map, (px, py)) {
