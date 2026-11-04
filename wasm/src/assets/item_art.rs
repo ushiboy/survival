@@ -58,6 +58,70 @@ pub fn icon_timber() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A strip of bark curling over at its ends, 16x16: rough outer bark on
+/// top, the pale inner face showing where it curls.
+pub fn icon_bark() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    let (x0, y0, x1, y1) = (3.0f32, 12.0f32, 13.0f32, 4.0f32);
+    let (dx, dy) = (x1 - x0, y1 - y0);
+    let len = (dx * dx + dy * dy).sqrt();
+    let (ux, uy) = (dx / len, dy / len);
+    for y in 0..16 {
+        for x in 0..16 {
+            let (px, py) = (x as f32 + 0.5 - x0, y as f32 + 0.5 - y0);
+            let along = px * ux + py * uy;
+            // Bowed: the middle sags, the ends curl up.
+            let across = -px * uy + py * ux - ((along / len - 0.5) * 2.0).powi(2) * 1.6;
+            if !(-1.0..=len + 1.0).contains(&along) || across.abs() > 2.6 {
+                continue;
+            }
+            let curl = along < 1.5 || along > len - 1.5;
+            let c = if curl && across > 0.0 {
+                i('h')
+            } else if across < -1.2 {
+                if (along * 1.7).sin() > 0.6 { i('d') } else { i('W') }
+            } else if (along * 1.7 + 1.0).sin() > 0.7 {
+                i('d')
+            } else {
+                i('w')
+            };
+            a.set(x as usize, y as usize, c);
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// A pot of bark bent into a ring and stitched with vine, 16x16, seen a
+/// little from above so its dark inside shows.
+pub fn icon_bark_container() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    for y in 4..15 {
+        for x in 2..14 {
+            let u = (x as f32 + 0.5 - 2.0) / 12.0;
+            // Slightly narrower at the foot.
+            let foot = (y as f32 - 4.0) / 10.0 * 0.06;
+            if !(foot..=1.0 - foot).contains(&u) {
+                continue;
+            }
+            let streak = (x * 5 + y / 3) % 7 == 0;
+            let c = if u < 0.3 { i('W') } else if u > 0.78 || streak { i('o') } else { i('w') };
+            a.set(x, y, c);
+        }
+    }
+    // Rim and the shadowed inside.
+    fill_ellipse(&mut a, 8.0, 4.5, 6.0, 2.2, |_, _, nx, ny| Some(if (nx * nx + ny * ny).sqrt() > 0.7 { i('c') } else { i('o') }));
+    // A band of vine round the middle, and the stitched seam.
+    for x in 2..14 {
+        a.set(x, 9, if x % 2 == 0 { i('G') } else { i('g') });
+    }
+    for y in [6, 11, 13] {
+        a.set(10, y, i('g'));
+    }
+    a.outlined(i('o'))
+}
+
 /// A cupped leaf holding water, 16x16.
 pub fn icon_raw_water() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);

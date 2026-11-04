@@ -26,6 +26,8 @@ pub struct WorldMap {
     pub water_spot: Option<(i32, i32)>,
     /// Fruit still hanging on each tree, keyed by the tree's top-left cell.
     fruit: HashMap<(i32, i32), u8>,
+    /// Strips of bark left on each broadleaf tree (by top-left cell).
+    bark: HashMap<(i32, i32), u8>,
     /// Player start position (pixels, sprite top-left).
     pub spawn: (i32, i32),
     /// Suggested crab start cells.
@@ -47,6 +49,7 @@ impl WorldMap {
             riverside: vec![false; n],
             water_spot: None,
             fruit: HashMap::new(),
+            bark: HashMap::new(),
             spawn: (0, 0),
             crab_spawns: Vec::new(),
             loot: Vec::new(),
@@ -163,6 +166,16 @@ impl WorldMap {
         } else {
             self.fruit.insert(anchor, n);
         }
+    }
+
+    /// Strips of bark left on the broadleaf tree whose top-left cell is
+    /// `anchor`.
+    pub fn bark(&self, anchor: (i32, i32)) -> u8 {
+        self.bark.get(&anchor).copied().unwrap_or(0)
+    }
+
+    pub fn set_bark(&mut self, anchor: (i32, i32), n: u8) {
+        self.bark.insert(anchor, n);
     }
 
     /// Out-of-bounds cells are solid so nothing can leave the map.

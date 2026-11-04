@@ -11,7 +11,7 @@ use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
 use crate::items::{ItemKind, Use};
-use crate::world::harvest::{can_pull_vine, can_shake, is_bush};
+use crate::world::harvest::{can_pull_vine, can_shake, is_broadleaf_trunk, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -317,7 +317,8 @@ impl Player {
                 self.walk_timer = 0;
                 return None;
             }
-            if can_pull_vine(map, self.reach_point()) || is_bush(map, self.reach_point()) {
+            let reach = self.reach_point();
+            if can_pull_vine(map, reach) || is_bush(map, reach) || is_broadleaf_trunk(map, reach) {
                 self.action = Action::Pull { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;

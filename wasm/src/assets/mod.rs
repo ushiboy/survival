@@ -170,6 +170,9 @@ pub struct BagSprites {
     pub crab: SpriteId,
     pub grilled_crab: SpriteId,
     pub leaf: SpriteId,
+    pub bark: SpriteId,
+    pub lauan_timber: SpriteId,
+    pub bark_container: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// Upright, turned.
@@ -193,6 +196,9 @@ impl BagSprites {
             ItemKind::Crab => (self.crab, palettes::OBJ_CRAB),
             ItemKind::GrilledCrab => (self.grilled_crab, palettes::OBJ_CRAB),
             ItemKind::Leaf => (self.leaf, palettes::OBJ_FX),
+            ItemKind::Bark => (self.bark, palettes::OBJ_CRAB),
+            ItemKind::LauanTimber => (self.lauan_timber, palettes::OBJ_GULL),
+            ItemKind::BarkContainer => (self.bark_container, palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -240,6 +246,9 @@ pub struct SpriteIds {
     pub crab_caught: SpriteId,
     pub crab_grilled: SpriteId,
     pub leaves: SpriteId,
+    pub bark: SpriteId,
+    pub lauan_timber: SpriteId,
+    pub bark_pot: SpriteId,
     pub fire: FireSprites,
 }
 
@@ -296,6 +305,14 @@ pub struct PropSet {
     pub stump: PropTile,
     /// Palm canopy tiles for each sway offset (`dx + PALM_SWAY_MAX`).
     pub palm_tiles: [PalmTiles; 2 * PALM_SWAY_MAX as usize + 1],
+    /// A broadleaf tree's crown and upper trunk (BG2), 3x3 cells in
+    /// row-major order.
+    pub broadleaf_upper: [MetatileId; 9],
+    /// Its crown's shadow and the trunk's foot (with its bark, and
+    /// stripped) on the grass, and the stump left once felled (BG1).
+    pub broadleaf_shade: [PropTile; 3],
+    pub broadleaf_base: [[PropTile; 3]; 2],
+    pub broadleaf_stump: PropTile,
 }
 
 /// Furthest a canopy shifts (px) when the tree sways.
@@ -339,7 +356,12 @@ fn load_props(vram: &mut Vram) -> PropSet {
             crowns: std::array::from_fn(|n| vram.metatiles.add_art(PAL_FOLIAGE, &palm.swayed(n, dx).sub(16, 16, 16, 16))),
         }
     });
+    let tree = props::broadleaf();
     PropSet {
+        broadleaf_upper: std::array::from_fn(|c| vram.metatiles.add_art(PAL_FOLIAGE, &tree.upper.sub(c % 3 * 16, c / 3 * 16, 16, 16))),
+        broadleaf_shade: tree.shade,
+        broadleaf_base: tree.base,
+        broadleaf_stump: tree.stump,
         boulder: props::boulder(),
         pebbles: props::pebbles(),
         driftwood: props::driftwood(),
@@ -375,6 +397,9 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         crab: bank.add(&c0),
         grilled_crab: bank.add(&grilled(&c0)),
         leaf: bank.add(&item_art::icon_leaf()),
+        bark: bank.add(&item_art::icon_bark()),
+        lauan_timber: bank.add(&as_lauan(&item_art::icon_timber())),
+        bark_container: bank.add(&item_art::icon_bark_container()),
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         branch: {
             let b = item_art::icon_branch();
@@ -416,6 +441,9 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         crab_caught: bank.add(&crab_caught()),
         crab_grilled: bank.add(&grilled(&crab_caught())),
         leaves: bank.add(&leaves()),
+        bark: bank.add(&bark()),
+        lauan_timber: bank.add(&as_lauan(&timber())),
+        bark_pot: bank.add(&bark_pot()),
         fire: FireSprites {
             ring: bank.add(&fire_ring()),
             flames: flames(12.0, 4.6).map(|a| bank.add(&a)),

@@ -24,6 +24,12 @@ pub enum ItemKind {
     Crab,
     /// A crab cooked over a campfire.
     GrilledCrab,
+    /// A strip of bark peeled off a broadleaf tree.
+    Bark,
+    /// A squared length of lauan, the reddish hardwood of broadleaf trees.
+    LauanTimber,
+    /// A pot of bark stitched together with vine.
+    BarkContainer,
     /// A broad leaf picked from a bush; folded into a cup it holds water.
     Leaf,
 }
@@ -48,10 +54,10 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
             ItemKind::WoodSpear => (1, 3),
-            ItemKind::Timber => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber => (2, 2),
         }
     }
 
@@ -69,6 +75,9 @@ impl ItemKind {
             ItemKind::Crab => "CRAB",
             ItemKind::GrilledCrab => "GRILLED CRAB",
             ItemKind::Leaf => "LEAF",
+            ItemKind::Bark => "BARK",
+            ItemKind::LauanTimber => "LAUAN TIMBER",
+            ItemKind::BarkContainer => "BARK CONTAINER",
         }
     }
 

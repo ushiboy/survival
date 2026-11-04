@@ -100,7 +100,9 @@ pub mod grass {
     pub const SOIL: u8 = 15;
 }
 
-/// Palm canopy & trunk, plus sand for the trunk's base tiles.
+/// Tree crowns & trunks, plus sand for palm trunks' base tiles. The leaf
+/// greens are the grass greens at the same indices, so grass tiles show
+/// through unchanged under broadleaf trunks.
 pub mod foliage {
     pub const LEAF: [u8; 7] = [1, 2, 3, 4, 5, 6, 7];
     /// Trunk bark, dark → light.
@@ -124,6 +126,12 @@ const SAND_DARK: Rgb555 = c(206, 174, 122);
 const SAND_MID: Rgb555 = c(230, 202, 148);
 const SAND_LIGHT: Rgb555 = c(246, 228, 184);
 const SAND_SHADOW: Rgb555 = c(170, 136, 100);
+/// Grass and foliage share their greens, so tree trunks (foliage palette)
+/// can stand on grass tiles without a seam.
+const GREENS: [Rgb555; 7] = [
+    c(20, 52, 36), c(32, 78, 40), c(48, 110, 44), c(72, 142, 52),
+    c(104, 172, 64), c(146, 202, 84), c(194, 228, 120),
+];
 const WATER_EDGE: [Rgb555; 2] = [c(36, 116, 178), c(52, 150, 198)];
 
 pub fn base_cgram() -> Cgram {
@@ -175,8 +183,7 @@ pub fn base_cgram() -> Cgram {
     cg.set_bg_palette(
         PAL_GRASS,
         &[
-            c(20, 52, 36), c(32, 78, 40), c(48, 110, 44), c(72, 142, 52),
-            c(104, 172, 64), c(146, 202, 84), c(194, 228, 120),
+            GREENS[0], GREENS[1], GREENS[2], GREENS[3], GREENS[4], GREENS[5], GREENS[6],
             SAND_DARK, SAND_MID, SAND_LIGHT,
             c(252, 216, 72), c(250, 250, 240), c(244, 132, 168), c(204, 52, 72),
             c(116, 84, 56),
@@ -185,8 +192,7 @@ pub fn base_cgram() -> Cgram {
     cg.set_bg_palette(
         PAL_FOLIAGE,
         &[
-            c(16, 40, 36), c(26, 64, 42), c(38, 92, 46), c(58, 124, 50),
-            c(88, 158, 58), c(130, 190, 72), c(182, 220, 106),
+            GREENS[0], GREENS[1], GREENS[2], GREENS[3], GREENS[4], GREENS[5], GREENS[6],
             c(64, 42, 30), c(104, 74, 46), c(148, 108, 62), c(194, 156, 98),
             c(110, 74, 36),
             SAND_SHADOW, SAND_MID, SAND_LIGHT,
@@ -222,6 +228,8 @@ pub fn base_cgram() -> Cgram {
         &[
             c(44, 44, 60), c(112, 120, 142), c(170, 178, 196), c(232, 238, 246),
             c(255, 255, 255), c(244, 176, 48), c(176, 96, 24), c(32, 32, 44),
+            // Lauan, the reddish hardwood (LAUAN_LEGEND, with the gull's outline).
+            c(84, 40, 30), c(138, 70, 50), c(178, 100, 70), c(214, 146, 110),
         ],
     );
     cg.set_obj_palette(
@@ -257,6 +265,9 @@ pub const FX_LEGEND: &[(char, u8)] = &[
     ('g', 8), ('G', 9), ('h', 10), ('y', 11), ('Y', 12),
     ('b', 13), ('l', 14), ('i', 15),
 ];
+/// Lauan timber shares the gull palette: the same letters as `ITEM_LEGEND`'s
+/// wood, so wood art can be recoloured by swapping legends.
+pub const LAUAN_LEGEND: &[(char, u8)] = &[('o', 1), ('d', 9), ('w', 10), ('W', 11), ('h', 12)];
 pub const GULL_LEGEND: &[(char, u8)] =
     &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
 

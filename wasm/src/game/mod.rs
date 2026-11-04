@@ -280,7 +280,7 @@ impl Game {
                 self.particles.leaves(canopy, ground, 2);
                 self.start_sway(anchor, TREE_SHAKE_FRAMES);
             }
-            Strike::TreeFelled { anchor, changed, wood, fruit } => {
+            Strike::TreeFelled { anchor, changed, timber, wood, fruit } => {
                 self.hitstop = HITSTOP_FELL;
                 self.camera_shake = CAMERA_SHAKE_FRAMES;
                 self.tree_shake = None;
@@ -292,7 +292,7 @@ impl Game {
                 let (ax, ay) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
                 let from = (ax as f32 + PALM_W as f32 / 2.0, (ay + 3 * TILE_SIZE) as f32);
                 for _ in 0..wood {
-                    self.drop_item(ItemKind::Timber, anchor, from);
+                    self.drop_item(timber, anchor, from);
                 }
                 // Whatever coconuts were left come down with the crown.
                 let flip = palm_flip(&self.map, anchor);
@@ -405,9 +405,18 @@ impl Game {
     }
 
     /// Tugs at the plant at `point`: takes the vine off a climbing plant,
-    /// or a handful of leaves off a bush (only rustling one already
-    /// stripped today).
+    /// peels a strip of bark off a broadleaf trunk, or takes a handful of
+    /// leaves off a bush (only rustling one already stripped today).
     fn pull(&mut self, point: (i32, i32)) {
+        if harvest::is_broadleaf_trunk(&self.map, point) {
+            if let Some((x, y)) = harvest::strip_bark(&mut self.map, point) {
+                self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
+                let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);
+                self.particles.chips((px + 8, py + 6), (0, 1), 3);
+                self.take(ItemKind::Bark, 1);
+            }
+            return;
+        }
         if let Some((x, y)) = harvest::pull_vine(&mut self.map, point) {
             self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
             let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);

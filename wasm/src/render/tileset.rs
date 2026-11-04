@@ -20,7 +20,8 @@ use crate::ppu::pattern::PixelArt;
 use crate::ppu::{BgCell, BgLayer};
 use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::noise::value_noise;
-use crate::world::terrain::PalmPart;
+use crate::world::harvest::BARK_STRIPS;
+use crate::world::terrain::{BroadleafPart, PalmPart};
 use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
@@ -476,6 +477,22 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
             }
         }
         Feature::Stump(p) => b.prop(16, &props.stump, p.flip, x, y),
+        Feature::Broadleaf(p) => {
+            // Crown and upper trunk on BG2 in front of sprites; the trunk's
+            // foot and the shadows on the grass (BG1).
+            let col = if p.flip { BroadleafPart::W as u8 - 1 - p.dx } else { p.dx } as usize;
+            match p.dy {
+                3 => {
+                    let stripped = map.bark(p.anchor(x, y)) < BARK_STRIPS;
+                    b.prop(22 + col as u8 + 3 * stripped as u8, &props.broadleaf_base[stripped as usize][col], p.flip, x, y)
+                }
+                dy => {
+                    overhead = BgCell { tile: props.broadleaf_upper[dy as usize * 3 + col], hflip: p.flip, high: true };
+                    if dy == 2 { b.prop(19 + col as u8, &props.broadleaf_shade[col], p.flip, x, y) } else { b.terrain(map, x, y) }
+                }
+            }
+        }
+        Feature::BroadleafStump(s) => b.prop(28, &props.broadleaf_stump, s.flip, x, y),
         Feature::Rock => b.prop(0, &props.boulder, false, x, y),
         Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
         Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),

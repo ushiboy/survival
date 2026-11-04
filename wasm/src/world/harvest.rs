@@ -3,13 +3,20 @@
 use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
-use super::terrain::{Feature, PalmPart, StumpPart};
+use super::terrain::{BroadleafPart, Feature, PalmPart, StumpPart};
+use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
 
 /// Axe hits needed to fell a palm.
 pub const PALM_HP: u8 = 3;
 /// Pieces of timber a felled palm breaks into.
 pub const PALM_WOOD: u32 = 3;
+/// Axe hits needed to fell a broadleaf tree (hardwood), and the lauan
+/// timber it breaks into.
+pub const BROADLEAF_HP: u8 = 5;
+pub const BROADLEAF_WOOD: u32 = 3;
+/// Strips of bark a broadleaf tree has to give (they don't grow back).
+pub const BARK_STRIPS: u8 = 3;
 /// Most coconuts a palm carries (they don't grow back yet).
 pub const PALM_COCONUTS: u8 = 3;
 /// Shakes it takes to work one coconut loose: this many, plus up to
@@ -30,7 +37,7 @@ pub enum Strike {
     TreeHit { anchor: (i32, i32), hp_left: u8 },
     /// Felled a palm; the listed cells changed and need redrawing. The
     /// coconuts it still carried (`fruit`) come down with it.
-    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, wood: u32, fruit: u8 },
+    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, timber: ItemKind, wood: u32, fruit: u8 },
 }
 
 /// What shaking a trunk did.
@@ -88,6 +95,35 @@ pub fn is_bush(map: &WorldMap, (px, py): (i32, i32)) -> bool {
     map.feature(px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE)) == Feature::Bush
 }
 
+/// The broadleaf tree whose trunk base is at the world pixel, as (anchor,
+/// part).
+fn broadleaf_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), BroadleafPart)> {
+    let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+    match map.feature(x, y) {
+        Feature::Broadleaf(p) if p.is_trunk_base() => Some((p.anchor(x, y), p)),
+        _ => None,
+    }
+}
+
+/// Whether there's a broadleaf trunk at the world pixel to strip bark from
+/// (it may have none left).
+pub fn is_broadleaf_trunk(map: &WorldMap, point: (i32, i32)) -> bool {
+    broadleaf_at(map, point).is_some()
+}
+
+/// Strips a piece of bark off the broadleaf trunk at the world pixel: the
+/// trunk-base cell, which needs redrawing, or `None` if there's no trunk
+/// or no bark left on it.
+pub fn strip_bark(map: &mut WorldMap, point: (i32, i32)) -> Option<(i32, i32)> {
+    let (anchor, _) = broadleaf_at(map, point)?;
+    let left = map.bark(anchor);
+    if left == 0 {
+        return None;
+    }
+    map.set_bark(anchor, left - 1);
+    Some((anchor.0 + BroadleafPart::W / 2, anchor.1 + BroadleafPart::H - 1))
+}
+
 /// Whether there's a trunk at the world pixel to take hold of and shake.
 pub fn can_shake(map: &WorldMap, point: (i32, i32)) -> bool {
     trunk_at(map, point).is_some()
@@ -114,10 +150,13 @@ impl Harvest {
             // Only the trunk base can be reached and cut.
             return self.chop_palm(map, anchor, p.flip);
         }
+        if let Some((anchor, p)) = broadleaf_at(map, (px, py)) {
+            return self.chop_broadleaf(map, anchor, p.flip);
+        }
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
             Feature::Bush | Feature::Vine => Strike::Brush,
-            f @ (Feature::Rock | Feature::Driftwood | Feature::Stump(_)) => Strike::Hard { kind: f },
+            f @ (Feature::Rock | Feature::Driftwood | Feature::Stump(_) | Feature::BroadleafStump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
         }
     }
@@ -142,7 +181,27 @@ impl Harvest {
                 changed.push((x, y));
             }
         }
-        Strike::TreeFelled { anchor, changed, wood: PALM_WOOD, fruit }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::Timber, wood: PALM_WOOD, fruit }
+    }
+
+    fn chop_broadleaf(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {
+        let hits = self.damage.entry(anchor).or_insert(0);
+        *hits += 1;
+        if *hits < BROADLEAF_HP {
+            return Strike::TreeHit { anchor, hp_left: BROADLEAF_HP - *hits };
+        }
+        self.damage.remove(&anchor);
+        let mut changed = Vec::new();
+        for dy in 0..BroadleafPart::H {
+            for dx in 0..BroadleafPart::W {
+                let (x, y) = (anchor.0 + dx, anchor.1 + dy);
+                let part = BroadleafPart { dx: dx as u8, dy: dy as u8, flip };
+                let f = if part.is_trunk_base() { Feature::BroadleafStump(StumpPart { flip }) } else { Feature::None };
+                map.set_feature(x, y, f);
+                changed.push((x, y));
+            }
+        }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::LauanTimber, wood: BROADLEAF_WOOD, fruit: 0 }
     }
 
     /// Resolves one shake of the trunk at a world pixel. Every few shakes a

@@ -49,6 +49,29 @@ impl PalmPart {
     }
 }
 
+/// Which cell of a 3x4 broadleaf tree (a lauan) a map cell holds: a round
+/// crown over a straight trunk. As with palms only the trunk base is solid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BroadleafPart {
+    pub dx: u8,
+    pub dy: u8,
+    pub flip: bool,
+}
+
+impl BroadleafPart {
+    pub const W: i32 = 3;
+    pub const H: i32 = 4;
+
+    pub fn is_trunk_base(&self) -> bool {
+        self.dx as i32 == Self::W / 2 && self.dy as i32 == Self::H - 1
+    }
+
+    /// Top-left cell of the tree this part at `(x, y)` belongs to.
+    pub fn anchor(&self, x: i32, y: i32) -> (i32, i32) {
+        (x - self.dx as i32, y - self.dy as i32)
+    }
+}
+
 /// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StumpPart {
@@ -61,6 +84,9 @@ pub enum Feature {
     None,
     Palm(PalmPart),
     Stump(StumpPart),
+    Broadleaf(BroadleafPart),
+    /// What's left of a felled broadleaf tree.
+    BroadleafStump(StumpPart),
     Rock,
     Pebbles,
     Bush,
@@ -87,7 +113,8 @@ impl TileProps {
 pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
         Feature::Palm(p) => p.is_trunk_base(),
-        Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood | Feature::Vine | Feature::VineStake => true,
+        Feature::Broadleaf(p) => p.is_trunk_base(),
+        Feature::BroadleafStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };
     TileProps {

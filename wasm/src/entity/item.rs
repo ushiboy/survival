@@ -4,7 +4,7 @@
 //! position + height) like particles.
 
 use crate::assets::SpriteIds;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_FX, OBJ_SHADOW};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_FX, OBJ_GULL, OBJ_SHADOW};
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
@@ -127,6 +127,9 @@ impl Item {
             ItemKind::Crab => (16, [sprites.crab_caught; 2], sprites.shadow_crab),
             ItemKind::GrilledCrab => (16, [sprites.crab_grilled; 2], sprites.shadow_crab),
             ItemKind::Leaf => (8, [sprites.leaves; 2], sprites.shadow_coconut),
+            ItemKind::Bark => (8, [sprites.bark; 2], sprites.shadow_coconut),
+            ItemKind::LauanTimber => (16, [sprites.lauan_timber; 2], sprites.shadow_player),
+            ItemKind::BarkContainer => (8, [sprites.bark_pot; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),
             ItemKind::Vine => (8, [sprites.vine_coil; 2], sprites.shadow_coconut),
@@ -141,7 +144,8 @@ impl Item {
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
         let palette = match self.kind {
-            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf => OBJ_FX,
+            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer => OBJ_FX,
+            ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,
         };

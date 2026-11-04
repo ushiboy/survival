@@ -27,28 +27,33 @@ pub struct PropTile {
 /// Composites a prop tile onto a ground slice taken from the terrain textures
 /// (sand slices use PAL_SAND indices, grass slices PAL_GRASS indices).
 pub fn composite(prop: &PropTile, ground_slice: &PixelArt) -> PixelArt {
-    let ground = ground_slice.map(|v| reindex_ground(prop.palette, v));
+    let ground = ground_slice.map(|v| reindex_ground(prop.palette, prop.ground, v));
     let mut out = ground.clone();
     for i in 0..out.px.len() {
         out.px[i] = match prop.overlay.px[i] {
             0 => ground.px[i],
-            SHADOW_MASK => shade_ground(prop.palette, ground.px[i]),
+            SHADOW_MASK => shade_ground(prop.palette, prop.ground, ground.px[i]),
             v => v,
         };
     }
     out
 }
 
-fn reindex_ground(palette: u8, v: u8) -> u8 {
+fn reindex_ground(palette: u8, ground: Ground, v: u8) -> u8 {
     use super::terrain::sand_to;
-    match palette {
-        PAL_ROCK => sand_to(v, rock::SAND[0], rock::SAND[1], rock::SAND[2]),
-        PAL_FOLIAGE => sand_to(v, foliage::SAND[0], foliage::SAND[0], foliage::SAND[1]),
+    match (palette, ground) {
+        (PAL_ROCK, _) => sand_to(v, rock::SAND[0], rock::SAND[1], rock::SAND[2]),
+        // Grass is drawn with the greens alone, which foliage shares.
+        (PAL_FOLIAGE, Ground::Grass) => v,
+        (PAL_FOLIAGE, _) => sand_to(v, foliage::SAND[0], foliage::SAND[0], foliage::SAND[1]),
         _ => v,
     }
 }
 
-fn shade_ground(palette: u8, v: u8) -> u8 {
+fn shade_ground(palette: u8, ground: Ground, v: u8) -> u8 {
+    if (palette, ground) == (PAL_FOLIAGE, Ground::Grass) {
+        return shade_ground(PAL_GRASS, ground, v);
+    }
     match palette {
         PAL_SAND => {
             if v == sand::RAMP[0] || v == sand::DEBRIS || v == sand::DEBRIS_DARK { sand::SHADOW[0] } else { sand::SHADOW[1] }
@@ -447,4 +452,117 @@ fn palm_with(coconuts: usize) -> (PixelArt, [PropTile; 3], [PropTile; 3]) {
         std::array::from_fn(|i| PropTile { palette, ground: Ground::Sand, overlay: art.sub(i * 16, 0, 16, 16) })
     };
     (full.sub(0, 0, PALM_W as usize, 48), split(&lower, PAL_FOLIAGE), split(&shade, PAL_SAND))
+}
+
+// ---------------------------------------------------------------- broadleaf tree (48x64)
+
+/// Broadleaf tree (a lauan) art, 3x4 cells. `upper` (48x48: the crown and
+/// the top of the trunk) goes on BG2 above sprites; `base` (3 cells on BG1)
+/// is the trunk's foot and its shadow on the grass, whole and with bark
+/// stripped; `shade` is the crown's shadow on the grass row above.
+pub struct BroadleafArt {
+    pub upper: PixelArt,
+    pub base: [[PropTile; 3]; 2],
+    pub shade: [PropTile; 3],
+    /// The stump left after felling.
+    pub stump: PropTile,
+}
+
+pub fn broadleaf() -> BroadleafArt {
+    let (cx, base_y, top_y) = (24.0f32, 61.0f32, 26.0f32);
+    let bark = foliage::BARK;
+    let trunk_px = |art: &mut PixelArt, stripped: bool| {
+        for y in top_y as i32..=base_y as i32 {
+            let mut hw = 3.4;
+            if y > 55 {
+                hw += (y - 55) as f32 * 0.8; // buttress roots
+            }
+            for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
+                let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
+                if !(0.0..=1.0).contains(&u) {
+                    continue;
+                }
+                // Rounded shading with long vertical cracks in the bark.
+                let mut i = if u < 0.28 { 3 } else if u < 0.6 { 2 } else { 1 };
+                if noise_px(x, y / 4, 0xBA4C) < 0.18 {
+                    i -= 1;
+                }
+                let mut c = bark[i];
+                // Where bark has been peeled off, pale wood shows.
+                if stripped && (49..58).contains(&y) && (u - 0.45).abs() < 0.3 {
+                    c = if (u - 0.45).abs() > 0.22 || y == 49 { bark[3] } else { foliage::SAND[1] };
+                }
+                art.put(x, y, c);
+            }
+        }
+        // Two boughs forking up into the crown.
+        line(art, cx - 1.0, 32.0, cx - 9.0, 20.0, bark[1]);
+        line(art, cx + 1.0, 31.0, cx + 8.0, 19.0, bark[2]);
+    };
+
+    // The crown: overlapping clumps of leaves, each lit on its own and the
+    // whole dome lit from above.
+    let mut crown = PixelArt::filled(48, 48, 0);
+    let clumps = [
+        (13.0, 22.0, 9.0), (35.0, 22.0, 9.0), (24.0, 25.0, 9.5), (9.0, 14.0, 7.5), (39.0, 14.0, 7.5),
+        (17.0, 11.0, 9.0), (31.0, 10.0, 9.0), (24.0, 6.0, 7.0), (24.0, 16.0, 9.0),
+    ];
+    let leaf = foliage::LEAF;
+    for &(x0, y0, r) in &clumps {
+        fill_ellipse(&mut crown, x0, y0, r, r * 0.82, |x, y, nx, ny| {
+            let dome = 1.0 - y as f32 / 34.0;
+            let t = sphere_light(nx, ny) * 0.6 + dome * 0.4 + (noise_px(x, y, 0x1EAF) - 0.5) * 0.18;
+            Some(ramp(&leaf[1..7], t, x, y, 0.7))
+        });
+    }
+    let crown = crown.outlined(leaf[0]);
+
+    let make = |stripped: bool| {
+        let mut full = PixelArt::filled(48, 64, 0);
+        trunk_px(&mut full, stripped);
+        let full = full.outlined(bark[0]);
+        let mut with_crown = full.clone();
+        with_crown.overlay(&crown, 0, 0);
+        with_crown
+    };
+    let (whole, stripped) = (make(false), make(true));
+    let split = |art: &PixelArt, palette: u8| -> [PropTile; 3] {
+        std::array::from_fn(|i| PropTile { palette, ground: Ground::Grass, overlay: art.sub(i * 16, 0, 16, 16) })
+    };
+    // The trunk's foot over its contact shadow.
+    let base = |art: &PixelArt| {
+        let mut row = PixelArt::filled(48, 16, 0);
+        shadow_ellipse(&mut row, 26.0, 13.5, 10.0, 2.6);
+        row.overlay(&art.sub(0, 48, 48, 16), 0, 0);
+        split(&row, PAL_FOLIAGE)
+    };
+    // The crown's shadow, cast down-right over the row above the foot.
+    let mut shade = PixelArt::filled(48, 16, 0);
+    shadow_ellipse(&mut shade, 27.0, 8.0, 21.0, 7.0);
+
+    // Stump: a broad cut face with rings on a short buttressed trunk.
+    let mut stump = PixelArt::filled(16, 16, 0);
+    for y in 7..=14 {
+        let hw = 4.4 + if y > 11 { (y - 11) as f32 * 0.8 } else { 0.0 };
+        for x in (8.0 - hw).floor() as i32..=(8.0 + hw).ceil() as i32 {
+            let u = (x as f32 + 0.5 - (8.0 - hw)) / (2.0 * hw);
+            if (0.0..=1.0).contains(&u) {
+                stump.put(x, y, bark[if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 }]);
+            }
+        }
+    }
+    fill_ellipse(&mut stump, 8.0, 7.0, 4.6, 2.1, |_, _, nx, ny| {
+        let r = (nx * nx + ny * ny).sqrt();
+        Some(if r > 0.78 { bark[2] } else if (0.35..0.55).contains(&r) { bark[3] } else { foliage::SAND[1] })
+    });
+    let mut stump_tile = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut stump_tile, 9.5, 13.5, 7.5, 2.4);
+    stump_tile.overlay(&stump.outlined(bark[0]), 0, 0);
+
+    BroadleafArt {
+        upper: whole.sub(0, 0, 48, 48),
+        base: [base(&whole), base(&stripped)],
+        shade: split(&shade, PAL_GRASS),
+        stump: PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: stump_tile },
+    }
 }

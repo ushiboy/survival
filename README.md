@@ -25,7 +25,7 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 ```bash
 cd wasm && cargo run --release --example charsheet -- chars.ppm 4
 ```
-水汲み場のセルと、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数・茂みのセル:
+水汲み場のセルと、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数・茂みと広葉樹のセル:
 泉のセルと、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数:
 
 ```bash

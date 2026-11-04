@@ -4,12 +4,12 @@
 //! the surf line, shallows and then open sea. A cove cuts into the beach and a
 //! small sandbar sits offshore.
 
-use super::harvest::PALM_COCONUTS;
+use super::harvest::{BARK_STRIPS, PALM_COCONUTS};
 use crate::items::ItemKind;
 use super::map::{TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{Feature, PalmPart, Terrain};
+use super::terrain::{BroadleafPart, Feature, PalmPart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 use std::f32::consts::TAU;
 
@@ -153,6 +153,7 @@ pub fn generate(seed: u32) -> WorldMap {
     let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3;
 
     place_palms(&mut map, &heights, seed, &near_spawn);
+    place_broadleafs(&mut map, &heights, seed, &near_spawn);
     place_scatter(&mut map, &heights, seed, &near_spawn);
     map.set_elevation(heights);
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
@@ -231,6 +232,47 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
                 for dy in 0..ph {
                     for dx in 0..pw {
                         map.set_feature(x + dx, y + dy, Feature::Palm(PalmPart { dx: dx as u8, dy: dy as u8, flip }));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Broadleaf trees stand on the grass between the beach and the jungle,
+/// thickening toward the jungle's edge.
+fn place_broadleafs(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
+    let (tw, th) = (BroadleafPart::W, BroadleafPart::H);
+    for y in 0..MAP_H - th + 1 {
+        for x in 0..MAP_W - tw + 1 {
+            let h = heights[((y + th - 1) * MAP_W + x + 1) as usize];
+            if h < SAND_BELOW + PROP_MARGIN + 1.0 || h > JUNGLE_ABOVE + 2.0 {
+                continue;
+            }
+            let chance = if h > JUNGLE_ABOVE - VINE_BELT { 0.16 } else { 0.07 };
+            if hash_unit(x, y, seed ^ 0xB40A) > chance {
+                continue;
+            }
+            // All on clear grass, the crown included.
+            let fits = (0..th).all(|dy| {
+                (0..tw).all(|dx| {
+                    let (cx, cy) = (x + dx, y + dy);
+                    let h = heights[(cy * MAP_W + cx) as usize];
+                    map.terrain(cx, cy) == Terrain::Grass
+                        && h > SAND_BELOW + PROP_MARGIN
+                        && map.feature(cx, cy) == Feature::None
+                        && !near_spawn(cx, cy)
+                        && !map.is_riverside(cx, cy)
+                })
+            });
+            let crowded =
+                (-1..=th).any(|dy| (-1..=tw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_) | Feature::Broadleaf(_))));
+            if fits && !crowded {
+                let flip = hash_unit(x, y, seed ^ 0xB41F) < 0.5;
+                map.set_bark((x, y), BARK_STRIPS);
+                for dy in 0..th {
+                    for dx in 0..tw {
+                        map.set_feature(x + dx, y + dy, Feature::Broadleaf(BroadleafPart { dx: dx as u8, dy: dy as u8, flip }));
                     }
                 }
             }

@@ -39,6 +39,9 @@ fn main() {
                 "crab" => ItemKind::Crab,
                 "grilled" => ItemKind::GrilledCrab,
                 "leaf" => ItemKind::Leaf,
+                "bark" => ItemKind::Bark,
+                "lauan" => ItemKind::LauanTimber,
+                "pot" => ItemKind::BarkContainer,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

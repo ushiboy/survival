@@ -2,7 +2,7 @@
 //! (see `palettes::*_LEGEND`); `.` is transparent.
 
 use super::paint::{bayer, fill_ellipse};
-use super::palettes::{ITEM_LEGEND, CRAB_LEGEND, FX_LEGEND, GULL_LEGEND};
+use super::palettes::{ITEM_LEGEND, CRAB_LEGEND, FX_LEGEND, GULL_LEGEND, LAUAN_LEGEND};
 use crate::ppu::pattern::PixelArt;
 
 // Crab, 16x16. o outline · r/R/q/l shell dark→light · w eye · e pupil.
@@ -416,6 +416,26 @@ pub fn timber() -> PixelArt {
         "................",
     ];
     PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// Wood art in the item colours redone in lauan's (gull palette).
+pub fn as_lauan(art: &PixelArt) -> PixelArt {
+    art.map(|v| {
+        let key = ITEM_LEGEND.iter().find(|(_, i)| *i == v).map(|(k, _)| *k);
+        key.and_then(|k| LAUAN_LEGEND.iter().find(|(c, _)| *c == k)).map(|(_, i)| *i).unwrap_or(v)
+    })
+}
+
+/// A strip of bark lying on the ground, curling at one end, 8x8.
+pub fn bark() -> PixelArt {
+    let rows = ["........", "......o.", ".oooooho", "owwdwwho", "odwwdwo.", ".ooooo..", "........", "........"];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// A bark pot on the ground, 8x8 (effects palette: bark, vine band).
+pub fn bark_pot() -> PixelArt {
+    let rows = ["........", ".oooooo.", "oWoooowo", "oWWwwwwo", "oGgGgGgo", "oWwwwwwo", ".oooooo.", "........"];
+    PixelArt::parse(&rows, FX_LEGEND)
 }
 
 /// A coconut held up to eat, after `bites` (1..=3) bites from the top: the

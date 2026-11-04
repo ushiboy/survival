@@ -1,5 +1,5 @@
 //! Dev tool: lists the water-drawing spot, and the palms (with their
-//! coconuts) and bushes nearest the spawn point.
+//! coconuts), bushes and broadleaf trees nearest the spawn point.
 //! Usage: cargo run --release --example palms -- [seed]
 use survival_core::world::terrain::PalmPart;
 use survival_core::world::{Feature, TILE_SIZE, island};
@@ -34,5 +34,15 @@ fn main() {
     bushes.sort();
     for (d, cell) in bushes.iter().take(4) {
         println!("bush {cell:?} dist {d}");
+    }
+    let mut trees: Vec<_> = (0..map.height())
+        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| matches!(map.feature(x, y), Feature::Broadleaf(p) if p.is_trunk_base()))
+        .map(|(x, y)| ((x - spawn.0).abs() + (y - spawn.1).abs(), (x, y)))
+        .collect();
+    trees.sort();
+    println!("{} broadleaf trees", trees.len());
+    for (d, cell) in trees.iter().take(4) {
+        println!("broadleaf trunk base {cell:?} dist {d}");
     }
 }
