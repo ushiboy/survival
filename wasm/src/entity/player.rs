@@ -620,6 +620,7 @@ impl Player {
         let tug = EAT_BITES.iter().any(|&b| (b..b + 4).contains(&t)) as i32;
         let (gfx, half_w) = match food {
             ItemKind::Crab => (sprites.crab_caught, 8),
+            ItemKind::GrilledCrab => (sprites.crab_grilled, 8),
             _ if bites == 0 => (sprites.coconut[0], 4),
             _ => (sprites.coconut_bitten[bites - 1], 4),
         };

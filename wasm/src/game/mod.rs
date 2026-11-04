@@ -523,6 +523,7 @@ impl Game {
         let (fill, quench) = food.nourishment();
         self.vitals.eat(fill);
         self.vitals.drink(quench);
+        self.vitals.heal(food.heals());
         let (fx, fy) = self.player.body.feet();
         self.particles.chips((fx, fy - 2), (0, 1), 2);
     }
@@ -646,6 +647,11 @@ impl Game {
     pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
         self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
         self.camera.follow(self.player.center(), self.map.pixel_size());
+    }
+
+    /// Dev tools: sets the castaway's health in hearts.
+    pub fn debug_set_hp(&mut self, hearts: u8) {
+        self.vitals.hp = hearts.min(self.vitals.max_hp);
     }
 
     /// Dev tools: sets a crab down `dx` px to the right of the castaway's

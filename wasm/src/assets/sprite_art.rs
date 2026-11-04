@@ -258,6 +258,27 @@ pub fn flames(height: f32, width: f32) -> [PixelArt; 3] {
     })
 }
 
+/// A crab sprite (crab palette) cooked: the shell turns a brighter orange
+/// with dark grill marks across it.
+pub fn grilled(crab: &PixelArt) -> PixelArt {
+    let (r, big_r, q, l) = (crab_ix('r'), crab_ix('R'), crab_ix('q'), crab_ix('l'));
+    let mut a = crab.map(|v| match v {
+        v if v == r => big_r,
+        v if v == big_r => q,
+        v if v == q => l,
+        v => v,
+    });
+    for y in 0..a.h {
+        for x in 0..a.w {
+            let v = a.at(x as i32, y as i32);
+            if (v == q || v == l) && (x + 2 * y) % 6 == 0 {
+                a.set(x, y, r);
+            }
+        }
+    }
+    a
+}
+
 /// A few leaves lying on the ground, 8x8 (effects palette greens).
 pub fn leaves() -> PixelArt {
     let rows = ["........", "....oo..", "..ooGho.", ".oGhGgo.", "ohGgGo..", "oGggoo..", ".ooo....", "........"];

@@ -125,6 +125,7 @@ impl Item {
             ItemKind::FireDrill => (16, [sprites.fire_drill; 2], sprites.shadow_player),
             ItemKind::WoodSpear => (32, [sprites.spear_side; 2], sprites.shadow_lying),
             ItemKind::Crab => (16, [sprites.crab_caught; 2], sprites.shadow_crab),
+            ItemKind::GrilledCrab => (16, [sprites.crab_grilled; 2], sprites.shadow_crab),
             ItemKind::Leaf => (8, [sprites.leaves; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),

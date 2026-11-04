@@ -6,7 +6,8 @@
 //! 90 frames, then down for 40). Default: `0:30`. Set `SNAP_AT=x,y` to
 //! start awake in that cell instead of washed up at the spawn, and
 //! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag, and
-//! `SNAP_CRAB=dx` to set a crab down that far right of the castaway.
+//! `SNAP_CRAB=dx` to set a crab down that far right of the castaway, and
+//! `SNAP_HP=n` to start with `n` hearts.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
@@ -36,11 +37,16 @@ fn main() {
                 "drill" => ItemKind::FireDrill,
                 "spear" => ItemKind::WoodSpear,
                 "crab" => ItemKind::Crab,
+                "grilled" => ItemKind::GrilledCrab,
                 "leaf" => ItemKind::Leaf,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
         }
+    }
+    // SNAP_HP=n starts with that many hearts.
+    if let Ok(hp) = std::env::var("SNAP_HP") {
+        game.debug_set_hp(hp.parse().expect("SNAP_HP must be hearts"));
     }
     // SNAP_CRAB=dx sets a crab down that far to the right of the feet.
     if let Ok(dx) = std::env::var("SNAP_CRAB") {

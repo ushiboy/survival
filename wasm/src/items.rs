@@ -22,6 +22,8 @@ pub enum ItemKind {
     WoodSpear,
     /// A crab caught with the spear.
     Crab,
+    /// A crab cooked over a campfire.
+    GrilledCrab,
     /// A broad leaf picked from a bush; folded into a cup it holds water.
     Leaf,
 }
@@ -46,7 +48,7 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::Leaf => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
             ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber => (2, 2),
@@ -65,13 +67,14 @@ impl ItemKind {
             ItemKind::Vine => "VINE",
             ItemKind::WoodSpear => "WOOD SPEAR",
             ItemKind::Crab => "CRAB",
+            ItemKind::GrilledCrab => "GRILLED CRAB",
             ItemKind::Leaf => "LEAF",
         }
     }
 
     pub fn usage(self) -> Option<Use> {
         match self {
-            ItemKind::Coconut | ItemKind::Crab => Some(Use::Eat),
+            ItemKind::Coconut | ItemKind::Crab | ItemKind::GrilledCrab => Some(Use::Eat),
             ItemKind::RawWater => Some(Use::Drink),
             ItemKind::FireDrill => Some(Use::Light),
             _ => None,
@@ -80,11 +83,12 @@ impl ItemKind {
 
     /// How much eating it fills the food and water gauges: a coconut's
     /// flesh about a third and its milk a little thirst; a crab more food
-    /// but hardly any water.
+    /// but hardly any water, and grilled it does much more.
     pub fn nourishment(self) -> (u32, u32) {
         match self {
             ItemKind::Coconut => (22, 6),
             ItemKind::Crab => (30, 2),
+            ItemKind::GrilledCrab => (48, 4),
             _ => (0, 0),
         }
     }
@@ -94,6 +98,14 @@ impl ItemKind {
         match self {
             ItemKind::Leaf => 20,
             _ => 1,
+        }
+    }
+
+    /// Hearts of health eating it restores (cooked food is what heals).
+    pub fn heals(self) -> u8 {
+        match self {
+            ItemKind::GrilledCrab => 1,
+            _ => 0,
         }
     }
 

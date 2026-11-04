@@ -92,6 +92,11 @@ impl Vitals {
     pub fn drink(&mut self, amount: u32) {
         self.water = (self.water + amount).min(Self::MAX);
     }
+
+    /// Restores `hearts` of health, up to the most there can be.
+    pub fn heal(&mut self, hearts: u8) {
+        self.hp = self.hp.saturating_add(hearts).min(self.max_hp);
+    }
 }
 
 impl Default for Vitals {
