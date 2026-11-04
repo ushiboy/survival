@@ -29,8 +29,6 @@ use menu::{BagMenu, Outcome};
 use state::{GameClock, Inventory, Vitals};
 
 const START_HOUR: u32 = 7;
-/// Water gauge restored by drinking one draw of water (a quarter).
-const DRINK_WATER: u32 = 16;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
 /// Frames the action freezes when a blow lands (hit-stop).
@@ -230,9 +228,13 @@ impl Game {
             Some(Deed::PickUp) => self.pick_up(),
             Some(Deed::Pull(point)) => self.pull(point),
             Some(Deed::DrawWater) => self.draw_water(),
-            Some(Deed::Drink) => self.drink_water(),
+            Some(Deed::Drink(water)) => self.consumed(water),
             Some(Deed::Thrust(from, to)) => self.resolve_thrust(from, to),
-            Some(Deed::Eat(food)) => self.eat(food),
+            Some(Deed::Eat(food)) => {
+                self.consumed(food);
+                let (fx, fy) = self.player.body.feet();
+                self.particles.chips((fx, fy - 2), (0, 1), 2);
+            }
             Some(Deed::Smoulder(spot)) => self.particles.ember(spot),
             Some(Deed::LightFire(spot)) => self.light_fire(spot),
             None => {}
@@ -521,20 +523,16 @@ impl Game {
         self.items.push(Item::falling(kind, (x as f32, y as f32 - 10.0), (x as f32, y as f32), (0.0, 0.0)).with_count(count));
     }
 
-    /// Drinks water taken from the bag.
-    fn drink_water(&mut self) {
-        self.vitals.drink(DRINK_WATER);
-    }
-
-    /// Finishes some food taken from the bag, with a few bits of husk or
-    /// shell falling from the castaway's mouth.
-    fn eat(&mut self, food: ItemKind) {
-        let (fill, quench) = food.nourishment();
+    /// Something taken from the bag has been eaten or drunk: it fills the
+    /// gauges (and may heal), and whatever held it goes back in the bag.
+    fn consumed(&mut self, kind: ItemKind) {
+        let (fill, quench) = kind.nourishment();
         self.vitals.eat(fill);
         self.vitals.drink(quench);
-        self.vitals.heal(food.heals());
-        let (fx, fy) = self.player.body.feet();
-        self.particles.chips((fx, fy - 2), (0, 1), 2);
+        self.vitals.heal(kind.heals());
+        if let Some(left) = kind.leaves_behind() {
+            self.take(left, 1);
+        }
     }
 
     /// Sways the palm at `anchor` for `frames`, settling any other tree

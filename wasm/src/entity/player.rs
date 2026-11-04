@@ -115,7 +115,7 @@ pub enum Action {
     /// Scooping up water to carry (raw water).
     Scoop { t: u32 },
     /// Drinking water from the bag.
-    Drink { t: u32 },
+    Drink { t: u32, water: ItemKind },
     /// Eating something from the bag.
     Eat { t: u32, food: ItemKind },
     /// Kneeling to drill a fire.
@@ -153,7 +153,7 @@ pub enum Deed {
     /// Scooped up water to carry.
     DrawWater,
     /// Drank some water taken from the bag.
-    Drink,
+    Drink(ItemKind),
     /// Finished eating something taken from the bag.
     Eat(ItemKind),
     /// The drill is smoking at the point (ground px).
@@ -259,10 +259,10 @@ impl Player {
             self.action = if t >= SCOOP_TOTAL { Action::Idle } else { Action::Scoop { t } };
             return (t == SCOOP_GRAB).then_some(Deed::DrawWater);
         }
-        if let Action::Drink { t } = self.action {
+        if let Action::Drink { t, water } = self.action {
             let t = t + 1;
-            self.action = if t >= DRINK_TOTAL { Action::Idle } else { Action::Drink { t } };
-            return (t == DRINK_SIP).then_some(Deed::Drink);
+            self.action = if t >= DRINK_TOTAL { Action::Idle } else { Action::Drink { t, water } };
+            return (t == DRINK_SIP).then_some(Deed::Drink(water));
         }
         if let Action::Shake { t } = self.action {
             let t = t + 1;
@@ -394,7 +394,7 @@ impl Player {
     pub fn consume(&mut self, kind: ItemKind) {
         self.action = match kind.usage() {
             Some(Use::Eat) => Action::Eat { t: 0, food: kind },
-            Some(Use::Drink) => Action::Drink { t: 0 },
+            Some(Use::Drink) => Action::Drink { t: 0, water: kind },
             Some(Use::Light) => Action::Drill { t: 0 },
             None => return,
         };
@@ -486,7 +486,7 @@ impl Player {
             return;
         }
 
-        if let Action::Drink { t } = self.action {
+        if let Action::Drink { t, .. } = self.action {
             self.draw_drinking(list, (cx, cy), depth, sprites, t, prio);
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));

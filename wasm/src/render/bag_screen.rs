@@ -141,7 +141,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         _ => {}
     }
     if menu.page() == Page::Craft && menu.near_fire {
-        text(bg3, tiles, INFO_COL, GRID_ROW + BAG_H as usize * 2, "BY THE FIRE");
+        text(bg3, tiles, INFO_COL + 3, TAB_ROW, "BY THE FIRE");
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, GRID_ROW + BAG_H as usize * 2 + 2, n);

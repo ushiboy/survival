@@ -173,6 +173,7 @@ pub struct BagSprites {
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
     pub bark_container: SpriteId,
+    pub boiled_water: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// Upright, turned.
@@ -199,6 +200,7 @@ impl BagSprites {
             ItemKind::Bark => (self.bark, palettes::OBJ_CRAB),
             ItemKind::LauanTimber => (self.lauan_timber, palettes::OBJ_GULL),
             ItemKind::BarkContainer => (self.bark_container, palettes::OBJ_FX),
+            ItemKind::BoiledWater => (self.boiled_water, palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -400,6 +402,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark: bank.add(&item_art::icon_bark()),
         lauan_timber: bank.add(&as_lauan(&item_art::icon_timber())),
         bark_container: bank.add(&item_art::icon_bark_container()),
+        boiled_water: bank.add(&item_art::icon_boiled_water()),
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         branch: {
             let b = item_art::icon_branch();

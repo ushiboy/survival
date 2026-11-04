@@ -122,6 +122,17 @@ pub fn icon_bark_container() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// The bark pot full of boiled water, a wisp of steam rising off it.
+pub fn icon_boiled_water() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = icon_bark_container();
+    fill_ellipse(&mut a, 8.0, 4.6, 4.3, 1.4, |x, _, nx, _| Some(if nx < -0.3 || x % 4 == 1 { i('l') } else { i('b') }));
+    for (x, y) in [(6, 2), (7, 1), (9, 2), (10, 1), (8, 0)] {
+        a.set(x, y, i('i'));
+    }
+    a
+}
+
 /// A cupped leaf holding water, 16x16.
 pub fn icon_raw_water() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);
