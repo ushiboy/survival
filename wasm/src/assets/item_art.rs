@@ -122,6 +122,40 @@ pub fn icon_bark_container() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// The pack frame standing upright, 16x32: two branch rails with cross
+/// bars, a bark board between them, lashed with vine at every joint.
+pub fn icon_pack_frame() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    // Bark board between the rails, streaked.
+    for y in 8..21 {
+        for x in 5..11 {
+            a.set(x, y, if (x + y / 2) % 4 == 0 { i('w') } else { i('c') });
+        }
+    }
+    // Rails, splaying a little toward the feet; lit on the left.
+    for y in 1..31 {
+        let splay = if y > 24 { (y - 24) / 3 } else { 0 };
+        a.set(3 - splay, y, i('W'));
+        a.set(4 - splay, y, i('w'));
+        a.set(11 + splay, y, i('W'));
+        a.set(12 + splay, y, i('w'));
+    }
+    // Cross bars, with vine lashings where they meet the rails.
+    for y in [5, 22] {
+        for x in 3..13 {
+            a.set(x, y, i('W'));
+            a.set(x, y + 1, i('w'));
+        }
+    }
+    for y in [5, 8, 20, 22] {
+        for x in [3, 4, 11, 12] {
+            a.set(x, y, if (x + y) % 2 == 0 { i('G') } else { i('g') });
+        }
+    }
+    a.outlined(i('o'))
+}
+
 /// The bark pot full of boiled water, a wisp of steam rising off it.
 pub fn icon_boiled_water() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);

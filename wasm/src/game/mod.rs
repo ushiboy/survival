@@ -201,9 +201,13 @@ impl Game {
         let near_fire = self.near_fire();
         if let Some(menu) = &mut self.menu {
             menu.near_fire = near_fire;
-            let outcome = menu.update(&self.input, &mut self.inventory.bag, self.inventory.tool);
+            let outcome = menu.update(&self.input, &mut self.inventory);
+            // A tool lifted out to be moved is still in hand.
+            let moving = menu.held_placement().map(|p| p.kind);
             self.resolve_menu(outcome);
-            self.inventory.settle_tool();
+            if moving.is_none() || moving != self.inventory.gear.hand {
+                self.inventory.settle_hand();
+            }
             return;
         }
         if self.input.pressed(Buttons::X) && self.player.is_idle() {
@@ -226,7 +230,7 @@ impl Game {
             return;
         }
         let situation = Situation {
-            tool: self.inventory.tool,
+            tool: self.inventory.gear.hand,
             has_leaf: self.inventory.bag.has(ItemKind::Leaf),
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
         };
@@ -460,7 +464,7 @@ impl Game {
         if left > 0 {
             self.menu = Some(BagMenu::holding(kind, left));
         }
-        self.inventory.settle_tool();
+        self.inventory.took(kind);
     }
 
     /// Acts on what happened in the bag screen.
@@ -482,7 +486,6 @@ impl Game {
                 self.player.consume(kind);
             }
             Outcome::Drop(kind, count) => self.put_down(kind, count),
-            Outcome::Wield(kind) => self.inventory.tool = Some(kind),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
         }
     }
@@ -725,7 +728,7 @@ impl Game {
     /// the bag, if it fits.
     pub fn debug_give(&mut self, kind: ItemKind) {
         self.inventory.bag.stow(kind, kind.max_stack());
-        self.inventory.settle_tool();
+        self.inventory.took(kind);
     }
 
     pub fn rgba(&self) -> &[u8] {

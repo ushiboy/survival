@@ -2,13 +2,14 @@
 //! rectangle the size of its footprint. Items may be turned a quarter (their
 //! footprint swaps width and height) to fit; nothing may overlap or stick out.
 //! Some things (leaves) stack: one placement holds up to `max_stack` of them.
+//! The bag is always `BAG_W` wide; a pack frame on the back adds rows.
 
 use crate::crafting::Recipe;
 use crate::items::ItemKind;
 
-/// Bag size in cells.
+/// Bag width in cells, and its rows with nothing on the back.
 pub const BAG_W: i32 = 6;
-pub const BAG_H: i32 = 4;
+pub const BASE_ROWS: i32 = 4;
 
 /// An item (or a stack of them) lying in the bag with its top-left cell at
 /// (`x`, `y`).
@@ -37,9 +38,10 @@ impl Placed {
         self.x < o.x + ow && o.x < self.x + w && self.y < o.y + oh && o.y < self.y + h
     }
 
-    pub fn in_bounds(&self) -> bool {
+    /// Whether it lies within a bag `rows` deep.
+    pub fn in_bounds(&self, rows: i32) -> bool {
         let (w, h) = self.size();
-        self.x >= 0 && self.y >= 0 && self.x + w <= BAG_W && self.y + h <= BAG_H
+        self.x >= 0 && self.y >= 0 && self.x + w <= BAG_W && self.y + h <= rows
     }
 
     /// How many more the stack has room for.
@@ -54,12 +56,36 @@ pub fn footprint(kind: ItemKind, turned: bool) -> (i32, i32) {
     if turned { (h, w) } else { (w, h) }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bag {
     items: Vec<Placed>,
+    rows: i32,
+}
+
+impl Default for Bag {
+    fn default() -> Self {
+        Self { items: Vec::new(), rows: BASE_ROWS }
+    }
 }
 
 impl Bag {
+    /// How many rows of cells the bag has now.
+    pub fn rows(&self) -> i32 {
+        self.rows
+    }
+
+    /// Whether everything in it would still fit if it had `rows` rows.
+    pub fn fits_rows(&self, rows: i32) -> bool {
+        self.items.iter().all(|p| p.in_bounds(rows))
+    }
+
+    /// Grows or shrinks the bag to `rows`; the caller has checked
+    /// `fits_rows`.
+    pub fn set_rows(&mut self, rows: i32) {
+        debug_assert!(self.fits_rows(rows));
+        self.rows = rows;
+    }
+
     pub fn items(&self) -> &[Placed] {
         &self.items
     }
@@ -75,7 +101,7 @@ impl Bag {
     }
 
     pub fn fits(&self, p: &Placed) -> bool {
-        p.in_bounds() && self.overlapping(p).is_empty()
+        p.in_bounds(self.rows) && self.overlapping(p).is_empty()
     }
 
     /// Puts an item in; the caller has checked it `fits`.
@@ -142,7 +168,7 @@ impl Bag {
             if turned && kind.size().0 == kind.size().1 {
                 continue;
             }
-            for y in 0..BAG_H {
+            for y in 0..self.rows {
                 for x in 0..BAG_W {
                     let p = Placed { kind, x, y, turned, count: 1 };
                     if self.fits(&p) {

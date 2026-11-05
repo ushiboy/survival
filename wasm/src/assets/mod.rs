@@ -179,6 +179,8 @@ pub struct BagSprites {
     pub lauan_timber: SpriteId,
     pub bark_container: SpriteId,
     pub boiled_water: SpriteId,
+    /// Upright, turned.
+    pub pack_frame: [SpriteId; 2],
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -208,6 +210,7 @@ impl BagSprites {
             ItemKind::LauanTimber => (self.lauan_timber, palettes::OBJ_GULL),
             ItemKind::BarkContainer => (self.bark_container, palettes::OBJ_FX),
             ItemKind::BoiledWater => (self.boiled_water, palettes::OBJ_FX),
+            ItemKind::PackFrame => (self.pack_frame[turned as usize], palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -258,6 +261,7 @@ pub struct SpriteIds {
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
     pub bark_pot: SpriteId,
+    pub pack_frame: SpriteId,
     pub fire: FireSprites,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
@@ -414,6 +418,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         lauan_timber: bank.add(&as_lauan(&item_art::icon_timber())),
         bark_container: bank.add(&item_art::icon_bark_container()),
         boiled_water: bank.add(&item_art::icon_boiled_water()),
+        pack_frame: {
+            let f = item_art::icon_pack_frame();
+            [bank.add(&f), bank.add(&f.rotated_cw())]
+        },
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         equipped: bank.add(&item_art::equipped_mark()),
         branch: {
@@ -459,6 +467,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark: bank.add(&bark()),
         lauan_timber: bank.add(&as_lauan(&timber())),
         bark_pot: bank.add(&bark_pot()),
+        pack_frame: bank.add(&pack_frame()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

@@ -1,7 +1,7 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
-use super::bag::Bag;
-use crate::items::ItemKind;
+use super::bag::{BASE_ROWS, Bag};
+use crate::items::{ItemKind, Slot};
 use crate::assets::character::Outfit;
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
@@ -126,26 +126,91 @@ pub struct Inventory {
     pub lantern: bool,
     /// What the castaway is wearing.
     pub outfit: Outfit,
-    /// The tool held in hand (one carried in the bag), used with B.
-    pub tool: Option<ItemKind>,
+    pub gear: Gear,
+}
+
+/// What's held and worn. The tool in hand is one carried in the bag (it
+/// still takes room there); a pack on the back is out of the bag and adds
+/// rows to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Gear {
+    pub hand: Option<ItemKind>,
+    pub back: Option<ItemKind>,
+}
+
+impl Gear {
+    pub fn worn(&self, slot: Slot) -> Option<ItemKind> {
+        match slot {
+            Slot::Hand => self.hand,
+            Slot::Back => self.back,
+        }
+    }
 }
 
 impl Inventory {
-    /// Keeps the tool in hand one that's still carried: lets go of one
-    /// that left the bag, and takes up the first tool carried if the hands
+    /// Lets go of a tool in hand that's no longer carried.
+    pub fn settle_hand(&mut self) {
+        if self.gear.hand.is_some_and(|t| !self.bag.has(t)) {
+            self.gear.hand = None;
+        }
+    }
+
+    /// Something was just obtained: a tool is taken in hand if the hands
     /// are empty.
-    pub fn settle_tool(&mut self) {
-        if self.tool.is_some_and(|t| !self.bag.has(t)) {
-            self.tool = None;
+    pub fn took(&mut self, kind: ItemKind) {
+        if self.gear.hand.is_none() && kind.slot() == Some(Slot::Hand) && self.bag.has(kind) {
+            self.gear.hand = Some(kind);
         }
-        if self.tool.is_none() {
-            self.tool = self.bag.items().iter().map(|p| p.kind).find(|k| k.is_tool());
+    }
+
+    /// Puts on the pack at bag index `i`, the bag growing (or shrinking) to
+    /// suit it; any pack worn before goes into the bag. Nothing changes if
+    /// things would no longer fit.
+    pub fn wear(&mut self, i: usize) -> Result<(), &'static str> {
+        let pack = self.bag.remove(i);
+        let rows = BASE_ROWS + pack.kind.extra_rows();
+        if !self.bag.fits_rows(rows) {
+            self.bag.put(pack);
+            return Err("EMPTY THE EXTRA SPACE FIRST");
         }
+        let before = self.bag.rows();
+        self.bag.set_rows(rows);
+        if let Some(old) = self.gear.back
+            && !self.bag.stow_one(old)
+        {
+            self.bag.set_rows(before);
+            self.bag.put(pack);
+            return Err("NO ROOM FOR THE OLD ONE");
+        }
+        self.gear.back = Some(pack.kind);
+        Ok(())
+    }
+
+    /// Takes off what's worn in `slot`: a tool is just let go of; a pack
+    /// goes into the bag, which shrinks back, if everything still fits.
+    pub fn take_off(&mut self, slot: Slot) -> Result<(), &'static str> {
+        match slot {
+            Slot::Hand => self.gear.hand = None,
+            Slot::Back => {
+                let Some(pack) = self.gear.back else { return Ok(()) };
+                if !self.bag.fits_rows(BASE_ROWS) {
+                    return Err("EMPTY THE EXTRA SPACE FIRST");
+                }
+                let before = self.bag.rows();
+                self.bag.set_rows(BASE_ROWS);
+                if !self.bag.stow_one(pack) {
+                    self.bag.set_rows(before);
+                    return Err("NO ROOM IN THE BAG FOR IT");
+                }
+                self.gear.back = None;
+            }
+        }
+        Ok(())
     }
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY, tool: None }
+        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY, gear: Gear::default() }
     }
 }

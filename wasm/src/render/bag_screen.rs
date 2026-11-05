@@ -6,9 +6,10 @@
 use crate::assets::palettes::{HUD_DIM, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::game::state::Inventory;
-use crate::game::bag::{BAG_H, BAG_W, Bag, Placed, footprint};
+use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::crafting::RECIPES;
-use crate::game::menu::{BagMenu, Mode, Page, commands_for};
+use crate::game::menu::{BagMenu, Mode, Page, commands_for, gear_choices};
+use crate::items::Slot;
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
 use crate::render::hud::{HUD_COLS, HUD_ROWS};
@@ -57,10 +58,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
     }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
-    let room = format!("{used:02}/{}", BAG_W * BAG_H);
-    text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), GRID_ROW + BAG_H as usize * 2, &room);
+    let room = format!("{used:02}/{}", BAG_W * bag.rows());
+    text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), GRID_ROW + bag.rows() as usize * 2, &room);
 
-    for y in 0..BAG_H as usize {
+    for y in 0..bag.rows() as usize {
         for x in 0..BAG_W as usize {
             for q in 0..4 {
                 bg3.put(GRID_COL + x * 2 + q % 2, GRID_ROW + y * 2 + q / 2, tiles.bag_cell[q], HUD_MENU);
@@ -73,7 +74,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     let held = menu.held_placement();
     // Counts and the in-hand mark go in first so they're drawn over the
     // icons.
-    let in_hand = |p: &Placed| inventory.tool == Some(p.kind);
+    let in_hand = |p: &Placed| inventory.gear.hand == Some(p.kind);
     if let Some(h) = held {
         let (px, py) = cell_px(h.x, h.y);
         draw_count(list, sprites, &h, (px - 2, py - 3));
@@ -126,7 +127,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         let (w, h) = footprint(kind, false);
         text(bg3, tiles, INFO_COL, GRID_ROW, kind.name());
         text(bg3, tiles, INFO_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
-        if inventory.tool == Some(kind) {
+        if inventory.gear.hand == Some(kind) {
             text(bg3, tiles, INFO_COL, GRID_ROW + 2, "IN HAND");
         }
         let count = held.map(|h| h.count).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].count));
@@ -136,7 +137,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     }
     if let Mode::Commands { item, choice } = menu.mode {
         let kind = bag.items()[item].kind;
-        for (i, c) in commands_for(kind, inventory.tool == Some(kind)).iter().enumerate() {
+        for (i, c) in commands_for(kind, &inventory.gear).iter().enumerate() {
             let row = GRID_ROW + 4 + i;
             if i == choice {
                 text(bg3, tiles, INFO_COL, row, ">");
@@ -149,11 +150,14 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         Mode::Tabs(Page::Craft) => draw_crafting(bg3, tiles, list, sprites, bag, 0, false),
         _ => {}
     }
+    if menu.page() == Page::Gear {
+        draw_gear(bg3, tiles, inventory, menu);
+    }
     if menu.page() == Page::Craft && menu.near_fire {
-        text(bg3, tiles, INFO_COL + 3, TAB_ROW, "BY THE FIRE");
+        text(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "BY THE FIRE");
     }
     if let Some(n) = menu.notice {
-        text(bg3, tiles, GRID_COL, GRID_ROW + BAG_H as usize * 2 + 2, n);
+        text(bg3, tiles, GRID_COL, GRID_ROW + bag.rows() as usize * 2 + 2, n);
     }
     let help = match menu.mode {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
@@ -161,6 +165,8 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         Mode::Crafting { .. } => "A MAKE   B BACK",
         Mode::Commands { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
+        Mode::Gear { .. } => "A CHANGE   B BACK",
+        Mode::GearPick { .. } => "A OK   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
 }
@@ -208,4 +214,35 @@ fn draw_crafting(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spri
     let (gfx, pal) = sprites.bag.icon(recipe.makes, false);
     let y = (top + 2 + recipe.needs.len() + recipe.at_fire as usize) * 8;
     list.sky(ObjEntry::new(31 * 8 - w * CELL, y as i32, gfx, pal, 3));
+}
+
+/// The gear page beside the grid: each slot with what's in it (and the
+/// room a pack adds), and the choices for the slot being changed.
+fn draw_gear(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
+    let (focus, picking) = match menu.mode {
+        Mode::Gear { slot } => (Some(slot), None),
+        Mode::GearPick { slot, choice } => (Some(slot), Some(choice)),
+        _ => (None, None),
+    };
+    for (i, slot) in Slot::ALL.into_iter().enumerate() {
+        let row = GRID_ROW + i * 4;
+        if focus == Some(i) {
+            text(bg3, tiles, INFO_COL, row, ">");
+        }
+        text(bg3, tiles, INFO_COL + 1, row, slot.label());
+        let worn = inventory.gear.worn(slot);
+        text(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
+        if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
+            text(bg3, tiles, INFO_COL + 2, row + 2, &format!("+{} ROOM", k.extra_rows() * BAG_W));
+        }
+    }
+    if let (Some(slot), Some(choice)) = (focus, picking) {
+        let top = GRID_ROW + Slot::ALL.len() * 4;
+        for (i, c) in gear_choices(&inventory.bag, &inventory.gear, Slot::ALL[slot]).iter().enumerate() {
+            if i == choice {
+                text(bg3, tiles, INFO_COL, top + i, ">");
+            }
+            text(bg3, tiles, INFO_COL + 1, top + i, c.label());
+        }
+    }
 }

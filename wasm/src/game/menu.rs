@@ -14,12 +14,14 @@
 //! there's no room for it) and B returns to the tabs. Holding an item, A
 //! puts it down (swapping with the one item it covers, if any) and B
 //! returns it where it came from (or, if it came off the ground or there's
-//! no room left, leaves it on the ground).
+//! no room left, leaves it on the ground). On the gear page, A on a slot
+//! (hand, back) lists what can go there and TAKE OFF; B returns to the tabs.
 
-use super::bag::{BAG_H, BAG_W, Bag, Placed, footprint};
+use super::bag::{BAG_W, Bag, Placed, footprint};
+use super::state::{Gear, Inventory};
 use crate::common::input::{Buttons, InputState};
 use crate::crafting::RECIPES;
-use crate::items::{ItemKind, Use};
+use crate::items::{ItemKind, Slot, Use};
 
 /// Frames a direction is held before the cursor repeats, and between
 /// repeats.
@@ -43,6 +45,8 @@ pub enum Command {
     Move,
     /// Take a tool in hand.
     Wield,
+    /// Put a pack on the back.
+    Wear,
     /// Put it down on the ground (or pour it away).
     Drop,
 }
@@ -55,6 +59,7 @@ impl Command {
             Command::Use(Use::Light) => "LIGHT FIRE",
             Command::Move => "MOVE",
             Command::Wield => "TAKE IN HAND",
+            Command::Wear => "WEAR",
             Command::Drop if kind.can_put_down() => "PUT DOWN",
             Command::Drop => "POUR OUT",
         }
@@ -66,17 +71,53 @@ impl Command {
 pub enum Page {
     Items,
     Craft,
+    Gear,
 }
 
 impl Page {
-    pub const ALL: [Page; 2] = [Page::Items, Page::Craft];
+    pub const ALL: [Page; 3] = [Page::Items, Page::Craft, Page::Gear];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::Items => "ITEMS",
             Page::Craft => "CRAFT",
+            Page::Gear => "GEAR",
         }
     }
+}
+
+/// A choice for a gear slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GearChoice {
+    /// Hold or wear this, carried in the bag.
+    Use(ItemKind),
+    TakeOff,
+}
+
+impl GearChoice {
+    pub fn label(self) -> &'static str {
+        match self {
+            GearChoice::Use(kind) => kind.name(),
+            GearChoice::TakeOff => "TAKE OFF",
+        }
+    }
+}
+
+/// What can go in a gear slot: each kind of gear for it carried in the bag
+/// (but the one already there), then taking off what's there.
+pub fn gear_choices(bag: &Bag, gear: &Gear, slot: Slot) -> Vec<GearChoice> {
+    let worn = gear.worn(slot);
+    let mut out: Vec<GearChoice> = Vec::new();
+    for p in bag.items() {
+        let choice = GearChoice::Use(p.kind);
+        if p.kind.slot() == Some(slot) && Some(p.kind) != worn && !out.contains(&choice) {
+            out.push(choice);
+        }
+    }
+    if worn.is_some() {
+        out.push(GearChoice::TakeOff);
+    }
+    out
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +130,10 @@ pub enum Mode {
     Holding(HeldItem),
     /// Choosing something to make from `RECIPES`.
     Crafting { choice: usize },
+    /// On a gear slot (index into `Slot::ALL`).
+    Gear { slot: usize },
+    /// Choosing from `gear_choices` for a slot.
+    GearPick { slot: usize, choice: usize },
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -101,8 +146,6 @@ pub enum Outcome {
     Use(ItemKind),
     /// Items (`count` of a kind) were taken out to leave on the ground.
     Drop(ItemKind, u32),
-    /// A tool was chosen to hold in hand.
-    Wield(ItemKind),
     /// The recipe (index into `RECIPES`) is to be cooked over the fire;
     /// its materials are still in the bag.
     Cook(usize),
@@ -120,11 +163,15 @@ pub struct BagMenu {
     held_frames: u32,
 }
 
-/// Commands offered for an item, in menu order. `in_hand` is whether it's
-/// the tool already held.
-pub fn commands_for(kind: ItemKind, in_hand: bool) -> Vec<Command> {
-    let wield = (kind.is_tool() && !in_hand).then_some(Command::Wield);
-    kind.usage().map(Command::Use).into_iter().chain(wield).chain([Command::Move, Command::Drop]).collect()
+/// Commands offered for an item, in menu order: taking a tool in hand
+/// (unless it's already held) or wearing a pack come after using it.
+pub fn commands_for(kind: ItemKind, gear: &Gear) -> Vec<Command> {
+    let gear_command = match kind.slot() {
+        Some(Slot::Hand) if gear.hand != Some(kind) => Some(Command::Wield),
+        Some(Slot::Back) => Some(Command::Wear),
+        _ => None,
+    };
+    kind.usage().map(Command::Use).into_iter().chain(gear_command).chain([Command::Move, Command::Drop]).collect()
 }
 
 impl BagMenu {
@@ -160,6 +207,7 @@ impl BagMenu {
         match self.mode {
             Mode::Tabs(page) => page,
             Mode::Crafting { .. } => Page::Craft,
+            Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             _ => Page::Items,
         }
     }
@@ -169,11 +217,11 @@ impl BagMenu {
         self.mode = match page {
             Page::Items => Mode::Browse,
             Page::Craft => Mode::Crafting { choice: 0 },
+            Page::Gear => Mode::Gear { slot: 0 },
         };
     }
 
-    /// `tool` is the tool in hand.
-    pub fn update(&mut self, input: &InputState, bag: &mut Bag, tool: Option<ItemKind>) -> Outcome {
+    pub fn update(&mut self, input: &InputState, inv: &mut Inventory) -> Outcome {
         let step = self.direction(input);
         if input.pressed(Buttons::X) && !matches!(self.mode, Mode::Holding(_)) {
             return Outcome::Close;
@@ -205,13 +253,13 @@ impl BagMenu {
                         self.mode = Mode::Tabs(Page::Items);
                         return Outcome::Stay;
                     }
-                    self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - 1), (self.cursor.1 + dy).clamp(0, BAG_H - 1));
+                    self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - 1), (self.cursor.1 + dy).clamp(0, inv.bag.rows() - 1));
                 }
                 if input.pressed(Buttons::B) {
                     return Outcome::Close;
                 }
                 if input.pressed(Buttons::A)
-                    && let Some(item) = bag.at(self.cursor.0, self.cursor.1)
+                    && let Some(item) = inv.bag.at(self.cursor.0, self.cursor.1)
                 {
                     self.mode = Mode::Commands { item, choice: 0 };
                     self.notice = None;
@@ -219,8 +267,9 @@ impl BagMenu {
                 Outcome::Stay
             }
             Mode::Commands { item, choice } => {
+                let bag = &mut inv.bag;
                 let kind = bag.items()[item].kind;
-                let commands = commands_for(kind, tool == Some(kind));
+                let commands = commands_for(kind, &inv.gear);
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
                     self.mode = Mode::Commands { item, choice: (choice as i32 + dy).rem_euclid(commands.len() as i32) as usize };
                 }
@@ -240,8 +289,17 @@ impl BagMenu {
                         Outcome::Use(kind)
                     }
                     Command::Wield => {
+                        inv.gear.hand = Some(kind);
                         self.notice = Some("TOOK IT IN HAND");
-                        Outcome::Wield(kind)
+                        Outcome::Stay
+                    }
+                    Command::Wear => {
+                        self.notice = Some(match inv.wear(item) {
+                            Ok(()) => "PUT IT ON",
+                            Err(why) => why,
+                        });
+                        self.cursor = (self.cursor.0, self.cursor.1.min(inv.bag.rows() - 1));
+                        Outcome::Stay
                     }
                     Command::Move => {
                         let p = bag.remove(item);
@@ -256,12 +314,66 @@ impl BagMenu {
                     }
                 }
             }
-            Mode::Holding(held) => self.update_holding(input, bag, held, step),
-            Mode::Crafting { choice } => self.update_crafting(input, bag, choice, step),
+            Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
+            Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
+            Mode::Gear { slot } => {
+                if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+                    if dy < 0 && slot == 0 {
+                        self.mode = Mode::Tabs(Page::Gear);
+                        return Outcome::Stay;
+                    }
+                    self.mode = Mode::Gear { slot: (slot as i32 + dy).clamp(0, Slot::ALL.len() as i32 - 1) as usize };
+                    self.notice = None;
+                }
+                if input.pressed(Buttons::B) {
+                    self.mode = Mode::Tabs(Page::Gear);
+                    self.notice = None;
+                } else if input.pressed(Buttons::A) {
+                    if gear_choices(&inv.bag, &inv.gear, Slot::ALL[slot]).is_empty() {
+                        self.notice = Some("NOTHING TO PUT HERE");
+                    } else {
+                        self.mode = Mode::GearPick { slot, choice: 0 };
+                        self.notice = None;
+                    }
+                }
+                Outcome::Stay
+            }
+            Mode::GearPick { slot, choice } => {
+                let s = Slot::ALL[slot];
+                let choices = gear_choices(&inv.bag, &inv.gear, s);
+                if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+                    self.mode = Mode::GearPick { slot, choice: (choice as i32 + dy).rem_euclid(choices.len() as i32) as usize };
+                }
+                if input.pressed(Buttons::B) {
+                    self.mode = Mode::Gear { slot };
+                } else if input.pressed(Buttons::A) {
+                    self.mode = Mode::Gear { slot };
+                    let result = match choices[choice] {
+                        GearChoice::Use(kind) if s == Slot::Hand => {
+                            inv.gear.hand = Some(kind);
+                            Ok(())
+                        }
+                        GearChoice::Use(kind) => match inv.bag.items().iter().position(|p| p.kind == kind) {
+                            Some(i) => inv.wear(i),
+                            None => Ok(()),
+                        },
+                        GearChoice::TakeOff => inv.take_off(s),
+                    };
+                    let done = match (choices[choice], s) {
+                        (GearChoice::TakeOff, _) => "TOOK IT OFF",
+                        (_, Slot::Hand) => "TOOK IT IN HAND",
+                        (_, Slot::Back) => "PUT IT ON",
+                    };
+                    self.notice = Some(result.err().unwrap_or(done));
+                    self.cursor = (self.cursor.0, self.cursor.1.min(inv.bag.rows() - 1));
+                }
+                Outcome::Stay
+            }
         }
     }
 
-    fn update_crafting(&mut self, input: &InputState, bag: &mut Bag, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+    fn update_crafting(&mut self, input: &InputState, inv: &mut Inventory, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        let bag = &mut inv.bag;
         if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
             if dy < 0 && choice == 0 {
                 self.mode = Mode::Tabs(Page::Craft);
@@ -293,6 +405,7 @@ impl BagMenu {
         }
         bag.use_up(recipe);
         if bag.stow_one(recipe.makes) {
+            inv.took(recipe.makes);
             self.notice = Some("MADE IT!");
         } else {
             *self = Self { near_fire: self.near_fire, ..Self::holding(recipe.makes, 1) };
@@ -307,7 +420,7 @@ impl BagMenu {
         }
         let (w, h) = footprint(held.kind, held.turned);
         let (dx, dy) = step.unwrap_or((0, 0));
-        self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - w), (self.cursor.1 + dy).clamp(0, BAG_H - h));
+        self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - w), (self.cursor.1 + dy).clamp(0, bag.rows() - h));
 
         if input.pressed(Buttons::A) {
             let spot = Placed { kind: held.kind, x: self.cursor.0, y: self.cursor.1, turned: held.turned, count: held.count };
@@ -334,7 +447,7 @@ impl BagMenu {
                     bag.put(spot);
                     let next = HeldItem { kind: lifted.kind, turned: lifted.turned, count: lifted.count, origin: Some(lifted) };
                     let (w, h) = footprint(next.kind, next.turned);
-                    self.cursor = (self.cursor.0.min(BAG_W - w), self.cursor.1.min(BAG_H - h));
+                    self.cursor = (self.cursor.0.min(BAG_W - w), self.cursor.1.min(bag.rows() - h));
                     self.mode = Mode::Holding(next);
                     self.notice = None;
                 }

@@ -43,6 +43,7 @@ fn main() {
                 "lauan" => ItemKind::LauanTimber,
                 "pot" => ItemKind::BarkContainer,
                 "boiled" => ItemKind::BoiledWater,
+                "frame" => ItemKind::PackFrame,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

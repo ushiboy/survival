@@ -32,8 +32,31 @@ pub enum ItemKind {
     BarkContainer,
     /// River water boiled over a fire in a bark pot: safe to drink.
     BoiledWater,
+    /// A carrying frame of branches lashed with vine, with a bark back
+    /// board: worn on the back, it makes room for more in the bag.
+    PackFrame,
     /// A broad leaf picked from a bush; folded into a cup it holds water.
     Leaf,
+}
+
+/// Where a piece of gear goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// Held in hand and used with B (a tool).
+    Hand,
+    /// Worn on the back (a pack frame).
+    Back,
+}
+
+impl Slot {
+    pub const ALL: [Slot; 2] = [Slot::Hand, Slot::Back];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Slot::Hand => "HAND",
+            Slot::Back => "BACK",
+        }
+    }
 }
 
 /// What using an item does.
@@ -57,7 +80,7 @@ impl ItemKind {
     pub fn size(self) -> (i32, i32) {
         match self {
             ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater => (1, 1),
-            ItemKind::Branch | ItemKind::StoneAxe => (1, 2),
+            ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame => (1, 2),
             ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber | ItemKind::LauanTimber => (2, 2),
         }
@@ -81,6 +104,7 @@ impl ItemKind {
             ItemKind::LauanTimber => "LAUAN TIMBER",
             ItemKind::BarkContainer => "BARK POT",
             ItemKind::BoiledWater => "BOILED WATER",
+            ItemKind::PackFrame => "PACK FRAME",
         }
     }
 
@@ -134,9 +158,21 @@ impl ItemKind {
         }
     }
 
-    /// Tools are held in hand and used with B.
-    pub fn is_tool(self) -> bool {
-        matches!(self, ItemKind::StoneAxe | ItemKind::WoodSpear)
+    /// Where it's held or worn, if it's gear.
+    pub fn slot(self) -> Option<Slot> {
+        match self {
+            ItemKind::StoneAxe | ItemKind::WoodSpear => Some(Slot::Hand),
+            ItemKind::PackFrame => Some(Slot::Back),
+            _ => None,
+        }
+    }
+
+    /// Rows a pack worn on the back adds to the bag.
+    pub fn extra_rows(self) -> i32 {
+        match self {
+            ItemKind::PackFrame => 2,
+            _ => 0,
+        }
     }
 
     /// Whether it can lie on the ground (water can only be poured away).

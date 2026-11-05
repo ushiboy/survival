@@ -288,6 +288,21 @@ pub fn dust_frames() -> [PixelArt; 2] {
     ]
 }
 
+/// A pack frame lying on its side on the ground, 16x8.
+pub fn pack_frame() -> PixelArt {
+    let rows = [
+        "................",
+        ".oooooooooooooo.",
+        "oWWgWWWWWWWgWWWo",
+        "ow.occcccco.w.wo",
+        "oW.ocwcccwo.W.Wo",
+        "owwgwwwwwwwgwwwo",
+        ".oooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
 /// A small Z drifting up from a sleeper, 8x8 (effects palette).
 pub fn snore() -> PixelArt {
     let rows = ["........", ".ooooo..", ".oLLLo..", "..ooLo..", "..oLo...", ".oLooo..", ".oLLLo..", ".ooooo.."];
