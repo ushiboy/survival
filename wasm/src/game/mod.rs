@@ -37,6 +37,11 @@ const HITSTOP_TREE: u32 = 4;
 const HITSTOP_FELL: u32 = 7;
 const HITSTOP_HARD: u32 = 3;
 const HITSTOP_CRAB: u32 = 5;
+/// In-game minutes that pass each frame while asleep (an hour in half a
+/// second), and the minutes of sleep that restore a heart.
+const SLEEP_MINUTES_PER_FRAME: u32 = 2;
+const SLEEP_HEAL_MINUTES: u32 = 60;
+
 /// Standing within this distance of a campfire counts as being by it (px).
 const NEAR_FIRE: i32 = 40;
 /// No two fires closer than this (px).
@@ -101,6 +106,8 @@ pub struct Game {
     player: Player,
     crabs: Vec<Crab>,
     fires: Vec<Campfire>,
+    /// In-game minutes the castaway has been asleep.
+    slept: u32,
     gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
@@ -152,6 +159,7 @@ impl Game {
             player,
             crabs,
             fires: Vec::new(),
+            slept: 0,
             gulls,
             camera: Camera::new(0),
             clock: GameClock::new(1, START_HOUR),
@@ -208,8 +216,13 @@ impl Game {
             self.menu = Some(BagMenu::browse());
             return;
         }
-        if self.clock.tick() {
-            self.vitals.on_minute(&self.clock);
+        if self.player.is_asleep() {
+            self.sleep_on();
+        } else {
+            self.slept = 0;
+            if self.clock.tick() {
+                self.vitals.on_minute(false);
+            }
         }
         self.tree_shake = self.tree_shake.filter(|s| s.frames > 0).map(|s| TreeShake { frames: s.frames - 1, ..s });
         self.camera_shake = self.camera_shake.saturating_sub(1);
@@ -476,6 +489,20 @@ impl Game {
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Wield(kind) => self.inventory.tool = Some(kind),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
+        }
+    }
+
+    /// One frame of sleep: time hurries on (hunger and thirst with it, if
+    /// more slowly) and every hour slept restores a heart. The castaway sleeps on until
+    /// woken with a button.
+    fn sleep_on(&mut self) {
+        for _ in 0..SLEEP_MINUTES_PER_FRAME {
+            self.clock.advance_minutes(1);
+            self.vitals.on_minute(true);
+            self.slept += 1;
+            if self.slept % SLEEP_HEAL_MINUTES == 0 {
+                self.vitals.heal(1);
+            }
         }
     }
 

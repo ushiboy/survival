@@ -60,25 +60,38 @@ pub struct Vitals {
     /// 0..=MAX
     pub food: u32,
     pub water: u32,
+    /// Effort spent since each gauge last went down a notch (in
+    /// `AWAKE_EFFORT`s per minute awake).
+    food_spent: u32,
+    water_spent: u32,
 }
 
 impl Vitals {
     pub const MAX: u32 = 64;
+    /// Minutes awake for each gauge to go down a notch.
     const FOOD_DECAY_MINUTES: u32 = 15;
     const WATER_DECAY_MINUTES: u32 = 10;
+    /// Effort of a minute awake and a minute asleep: sleep burns a sixth
+    /// as fast.
+    const AWAKE_EFFORT: u32 = 6;
+    const ASLEEP_EFFORT: u32 = 1;
 
     pub fn new() -> Self {
-        Self { hp: 5, max_hp: 5, food: Self::MAX, water: Self::MAX }
+        Self { hp: 5, max_hp: 5, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0 }
     }
 
-    /// Called once per in-game minute. Placeholder decay until eating and
-    /// drinking exist.
-    pub fn on_minute(&mut self, clock: &GameClock) {
-        let total = clock.day * MINUTES_PER_DAY + clock.minute;
-        if total % Self::FOOD_DECAY_MINUTES == 0 {
+    /// Called once per in-game minute: hunger and thirst grow, slower while
+    /// `asleep`.
+    pub fn on_minute(&mut self, asleep: bool) {
+        let effort = if asleep { Self::ASLEEP_EFFORT } else { Self::AWAKE_EFFORT };
+        self.food_spent += effort;
+        if self.food_spent >= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT {
+            self.food_spent -= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.food = self.food.saturating_sub(1);
         }
-        if total % Self::WATER_DECAY_MINUTES == 0 {
+        self.water_spent += effort;
+        if self.water_spent >= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT {
+            self.water_spent -= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.water = self.water.saturating_sub(1);
         }
     }

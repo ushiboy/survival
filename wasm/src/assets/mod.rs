@@ -55,6 +55,8 @@ pub struct PlayerSprites {
     /// Waking up on the beach: lying (eyes closed, open; 32x24, head left),
     /// sitting up, kneeling (24x32, facing right).
     pub lying: [SpriteId; 2],
+    /// Curled up asleep (32x24, head left).
+    pub sleeping: SpriteId,
     pub sitting: SpriteId,
     pub kneeling: SpriteId,
 }
@@ -87,6 +89,7 @@ impl PlayerSprites {
         let thrust_frames = thrust.map(|v| v.map(|p| add(&p)));
         let [lying, sitting, kneeling] = Self::wake_art(outfit);
         let lying = lying.map(|a| bank.add(&a));
+        let sleeping = bank.add(&character::render_sleeping(outfit));
         Self {
             walk: walk_frames,
             chop: chop_frames,
@@ -97,6 +100,7 @@ impl PlayerSprites {
             crouch: Self::crouch_art(outfit).map(|a| bank.add(&a)),
             drink: Self::drink_art(outfit).map(|a| bank.add(&a)),
             lying,
+            sleeping,
             sitting: bank.add(&sitting[0]),
             kneeling: bank.add(&kneeling[0]),
         }
@@ -153,6 +157,7 @@ impl PlayerSprites {
         bank.replace(self.lying[1], &lying[1]);
         bank.replace(self.sitting, &sitting[0]);
         bank.replace(self.kneeling, &kneeling[0]);
+        bank.replace(self.sleeping, &character::render_sleeping(outfit));
     }
 }
 
@@ -252,6 +257,8 @@ pub struct SpriteIds {
     pub lauan_timber: SpriteId,
     pub bark_pot: SpriteId,
     pub fire: FireSprites,
+    /// A Z drifting up from a sleeper.
+    pub snore: SpriteId,
 }
 
 /// A campfire: the stone ring (16x8) and flame frames (16x16), lively and
@@ -447,6 +454,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark: bank.add(&bark()),
         lauan_timber: bank.add(&as_lauan(&timber())),
         bark_pot: bank.add(&bark_pot()),
+        snore: bank.add(&snore()),
         fire: FireSprites {
             ring: bank.add(&fire_ring()),
             flames: flames(12.0, 4.6).map(|a| bank.add(&a)),

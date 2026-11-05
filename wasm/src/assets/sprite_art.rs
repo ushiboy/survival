@@ -279,6 +279,12 @@ pub fn grilled(crab: &PixelArt) -> PixelArt {
     a
 }
 
+/// A small Z drifting up from a sleeper, 8x8 (effects palette).
+pub fn snore() -> PixelArt {
+    let rows = ["........", ".ooooo..", ".oLLLo..", "..ooLo..", "..oLo...", ".oLooo..", ".oLLLo..", ".ooooo.."];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
 /// A few leaves lying on the ground, 8x8 (effects palette greens).
 pub fn leaves() -> PixelArt {
     let rows = ["........", "....oo..", "..ooGho.", ".oGhGgo.", "ohGgGo..", "oGggoo..", ".ooo....", "........"];

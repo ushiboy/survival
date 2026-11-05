@@ -102,8 +102,15 @@ const WAKE_SIT: u32 = 160;
 const WAKE_KNEEL: u32 = 205;
 const WAKE_STAND: u32 = 232;
 const WAKE_END: u32 = 330;
+/// Getting up after sleep ends this soon after standing.
+const WAKE_FROM_SLEEP_END: u32 = WAKE_STAND + 10;
 /// Earliest frame a button press can skip the wake-up.
 const WAKE_SKIPPABLE: u32 = 20;
+/// Frames after lying down before a button press wakes the castaway (so
+/// the press that lay them down doesn't).
+const SLEEP_SETTLE: u32 = 30;
+/// Frames between the Zs drifting up from a sleeper.
+const SNORE_EVERY: u32 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -112,8 +119,12 @@ pub enum Action {
     Chop { t: u32 },
     /// Jabbing with the spear.
     Thrust { t: u32 },
-    /// Coming to on the beach; `t` counts frames since the game started.
-    WakeUp { t: u32 },
+    /// Coming to on the beach; `t` counts frames since the game started,
+    /// and it's over at `end`. Waking from sleep picks this up from sitting
+    /// up and ends once standing, without looking around.
+    WakeUp { t: u32, end: u32 },
+    /// Lying asleep; `t` counts frames since lying down.
+    Sleep { t: u32 },
     /// Gripping a trunk and rocking it; `t` counts frames in this round.
     Shake { t: u32 },
     /// Crouching to pick something up.
@@ -193,7 +204,7 @@ impl Player {
     /// wake up.
     pub fn washed_up(px: i32, py: i32) -> Self {
         let mut p = Self::at_feet(px, py);
-        p.action = Action::WakeUp { t: 0 };
+        p.action = Action::WakeUp { t: 0, end: WAKE_END };
         p.facing = Dir::Right;
         p
     }
@@ -215,16 +226,25 @@ impl Player {
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
         let Situation { tool, item_in_reach, has_leaf } = situation;
-        if let Action::WakeUp { t } = self.action {
+        if let Action::WakeUp { t, end } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
-            let t = if skip { WAKE_END } else { t + 1 };
-            if t >= WAKE_END {
+            let t = if skip { end } else { t + 1 };
+            if t >= end {
                 self.action = Action::Idle;
                 self.facing = Dir::Down;
             } else {
-                self.action = Action::WakeUp { t };
+                self.action = Action::WakeUp { t, end };
                 // Look around once standing.
                 self.facing = if (WAKE_STAND + 30..WAKE_STAND + 60).contains(&t) { Dir::Left } else { Dir::Right };
+            }
+            return None;
+        }
+        if let Action::Sleep { t } = self.action {
+            let roused = [Buttons::A, Buttons::B, Buttons::Y].into_iter().any(|b| input.pressed(b));
+            if t >= SLEEP_SETTLE && roused {
+                self.wake();
+            } else {
+                self.action = Action::Sleep { t: t + 1 };
             }
             return None;
         }
@@ -293,6 +313,14 @@ impl Player {
             // Keep rocking while A is held.
             let again = input.held(Buttons::A) && can_shake(map, self.reach_point());
             self.action = if again { Action::Shake { t: 0 } } else { Action::Idle };
+            return None;
+        }
+        if !self.wading && input.pressed(Buttons::Y) {
+            // Lie down where you stand and sleep.
+            self.action = Action::Sleep { t: 0 };
+            self.facing = Dir::Right;
+            self.moving = false;
+            self.walk_timer = 0;
             return None;
         }
         if let Some(tool) = tool.filter(|_| !self.wading && input.pressed(Buttons::B)) {
@@ -405,6 +433,17 @@ impl Player {
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
     }
 
+    pub fn is_asleep(&self) -> bool {
+        matches!(self.action, Action::Sleep { .. })
+    }
+
+    /// Wakes from sleep: sitting up, getting up and looking round.
+    pub fn wake(&mut self) {
+        if self.is_asleep() {
+            self.action = Action::WakeUp { t: WAKE_SIT, end: WAKE_FROM_SLEEP_END };
+        }
+    }
+
     /// Standing ready: not mid-action (so the bag can be opened).
     pub fn is_idle(&self) -> bool {
         self.action == Action::Idle
@@ -485,11 +524,31 @@ impl Player {
         // The 24x32 character canvas is offset from the 16x24 logical frame.
         let (cx, cy) = (sx - CHAR_ORIGIN.0, sy - CHAR_ORIGIN.1);
 
-        if let Action::WakeUp { t } = self.action {
+        if let Action::WakeUp { t, .. } = self.action {
             if t < WAKE_KNEEL {
                 self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
                 return;
             }
+        }
+
+        if let Action::Sleep { t } = self.action {
+            // Curled up asleep, Zs drifting up from the head.
+            let (lx, ly) = (sx - 15, sy + 6);
+            list.actor(depth, ObjEntry::new(lx, ly, sprites.player.sleeping, OBJ_PLAYER, prio));
+            if shadows {
+                list.shadow(ObjEntry::new(lx, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            let (hx, hy) = (sx - 10, sy + 4);
+            for k in 0..2u32 {
+                let age = (t + k * SNORE_EVERY / 2) % SNORE_EVERY;
+                if t < SLEEP_SETTLE + k * SNORE_EVERY / 2 {
+                    continue;
+                }
+                let rise = (age / 3) as i32;
+                let sway = if (age / 8) % 2 == 0 { 0 } else { 1 };
+                list.actor(depth + 1, ObjEntry::new(hx + rise / 2 + sway, hy - rise, sprites.snore, OBJ_FX, prio));
+            }
+            return;
         }
 
         if let Action::Chop { t } = self.action {
@@ -590,7 +649,7 @@ impl Player {
             return;
         }
 
-        if matches!(self.action, Action::WakeUp { t } if t < WAKE_STAND) {
+        if matches!(self.action, Action::WakeUp { t, .. } if t < WAKE_STAND) {
             list.actor(depth, ObjEntry::new(cx, cy, sprites.player.kneeling, OBJ_PLAYER, prio));
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));

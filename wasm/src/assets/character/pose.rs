@@ -588,6 +588,29 @@ pub fn lying(eyes_open: bool) -> Pose {
     }
 }
 
+/// Asleep on one side, facing right, curled up with the knees drawn in and
+/// both hands tucked under the cheek (drawn turned to lie head-left).
+pub fn sleeping() -> Pose {
+    Pose {
+        view: View::Side,
+        head: (11.2, 8.2),
+        neck: (10.6, 13.8),
+        pelvis: (10.0, 21.0),
+        shoulder_w: 3.5,
+        hip_w: 3.2,
+        arms: [
+            limb((10.8, 15.0), (13.8, 16.6), (14.2, 11.6), false),
+            limb((10.2, 15.2), (13.4, 18.2), (15.0, 12.4), true),
+        ],
+        legs: [
+            limb((10.4, 21.6), (15.8, 22.0), (13.2, 27.6), false),
+            limb((9.6, 21.8), (15.2, 24.2), (11.6, 28.8), false),
+        ],
+        tool: None,
+        closed_eyes: true,
+    }
+}
+
 /// Sitting up, facing right: legs out in front, propped on one hand.
 pub fn sitting() -> Pose {
     Pose {

@@ -34,6 +34,12 @@ pub fn render_lying(outfit: &Outfit, eyes_open: bool) -> crate::ppu::pattern::Pi
     render::render(&pose::lying(eyes_open), outfit).body.transposed().flipped_v()
 }
 
+/// The sleeping pose turned a quarter so the sleeper lies head-left, front
+/// toward the camera: 32x24.
+pub fn render_sleeping(outfit: &Outfit) -> crate::ppu::pattern::PixelArt {
+    render::render(&pose::sleeping(), outfit).body.transposed()
+}
+
 /// A colour ramp: dark, base, light.
 pub type Ramp = [Rgb555; 3];
 
