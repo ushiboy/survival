@@ -181,6 +181,8 @@ pub struct BagSprites {
     pub boiled_water: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
+    /// "E" on the tool held in hand.
+    pub equipped: SpriteId,
     /// Upright, turned.
     pub branch: [SpriteId; 2],
     pub stone: SpriteId,
@@ -413,6 +415,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark_container: bank.add(&item_art::icon_bark_container()),
         boiled_water: bank.add(&item_art::icon_boiled_water()),
         digits: item_art::count_digits().map(|a| bank.add(&a)),
+        equipped: bank.add(&item_art::equipped_mark()),
         branch: {
             let b = item_art::icon_branch();
             [bank.add(&b), bank.add(&b.rotated_cw())]

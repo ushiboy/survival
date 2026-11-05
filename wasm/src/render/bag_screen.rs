@@ -71,15 +71,24 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     let icons = &sprites.bag;
     // The held item floats over the grid, lifted a little.
     let held = menu.held_placement();
-    // Counts go in first so they're drawn over the icons.
+    // Counts and the in-hand mark go in first so they're drawn over the
+    // icons.
+    let in_hand = |p: &Placed| inventory.tool == Some(p.kind);
     if let Some(h) = held {
         let (px, py) = cell_px(h.x, h.y);
         draw_count(list, sprites, &h, (px - 2, py - 3));
+        if in_hand(&h) {
+            list.sky(ObjEntry::new(px - 2, py - 3, icons.equipped, OBJ_FX, 3));
+        }
         let (gfx, pal) = icons.icon(h.kind, h.turned);
         list.sky(ObjEntry::new(px - 2, py - 3, gfx, pal, 3));
     }
     for p in bag.items() {
         draw_count(list, sprites, p, cell_px(p.x, p.y));
+        if in_hand(p) {
+            let (px, py) = cell_px(p.x, p.y);
+            list.sky(ObjEntry::new(px, py, icons.equipped, OBJ_FX, 3));
+        }
     }
     for p in bag.items() {
         let (px, py) = cell_px(p.x, p.y);

@@ -229,21 +229,29 @@ pub fn icon_leaf() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A HUD font glyph as an 8x8 sprite: outlined, filled with `fill` (dark,
+/// light) from the effects palette.
+fn glyph_sprite(c: char, fill: (char, char)) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let glyphs = super::hud_art::glyphs();
+    let g = glyphs.iter().find(|(k, _)| *k == c).map(|(_, a)| a.clone()).unwrap_or_else(|| PixelArt::filled(8, 8, 0));
+    g.map(|v| match v {
+        1 => i('o'),
+        2 => i(fill.0),
+        3 => i(fill.1),
+        _ => 0,
+    })
+}
+
 /// Digits for stack counts, 8x8 each (0-9): the HUD font in the effects
 /// palette's outline and pale metal greys, so they read over any icon.
 pub fn count_digits() -> [PixelArt; 10] {
-    let i = |c| ix(FX_LEGEND, c);
-    let glyphs = super::hud_art::glyphs();
-    std::array::from_fn(|d| {
-        let c = char::from_digit(d as u32, 10).unwrap_or('0');
-        let g = glyphs.iter().find(|(k, _)| *k == c).map(|(_, a)| a.clone()).unwrap_or_else(|| PixelArt::filled(8, 8, 0));
-        g.map(|v| match v {
-            1 => i('o'),
-            2 => i('M'),
-            3 => i('L'),
-            _ => 0,
-        })
-    })
+    std::array::from_fn(|d| glyph_sprite(char::from_digit(d as u32, 10).unwrap_or('0'), ('M', 'L')))
+}
+
+/// The "E" marking the tool held in hand, 8x8, in spark yellow.
+pub fn equipped_mark() -> PixelArt {
+    glyph_sprite('E', ('y', 'Y'))
 }
 
 /// A bow drill, `size` px square (16 in the bag and on the ground):
