@@ -259,6 +259,8 @@ pub struct SpriteIds {
     pub fire: FireSprites,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
+    /// A puff of dust: whole, breaking up.
+    pub dust: [SpriteId; 2],
 }
 
 /// A campfire: the stone ring (16x8) and flame frames (16x16), lively and
@@ -455,6 +457,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         lauan_timber: bank.add(&as_lauan(&timber())),
         bark_pot: bank.add(&bark_pot()),
         snore: bank.add(&snore()),
+        dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {
             ring: bank.add(&fire_ring()),
             flames: flames(12.0, 4.6).map(|a| bank.add(&a)),

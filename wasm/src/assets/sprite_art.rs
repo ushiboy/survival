@@ -279,6 +279,15 @@ pub fn grilled(crab: &PixelArt) -> PixelArt {
     a
 }
 
+/// A puff of dust (effects palette: pale with a sandy rim, so it shows
+/// on sand too): round, then breaking up.
+pub fn dust_frames() -> [PixelArt; 2] {
+    [
+        PixelArt::parse(&["........", "...cc...", "..cYYc..", ".cYYYYc.", ".cYYYcc.", "..cccc..", "........", "........"], FX_LEGEND),
+        PixelArt::parse(&["..Y..c..", "........", "c.....Y.", "........", ".Y....c.", "........", "...c.Y..", "........"], FX_LEGEND),
+    ]
+}
+
 /// A small Z drifting up from a sleeper, 8x8 (effects palette).
 pub fn snore() -> PixelArt {
     let rows = ["........", ".ooooo..", ".oLLLo..", "..ooLo..", "..oLo...", ".oLooo..", ".oLLLo..", ".ooooo.."];

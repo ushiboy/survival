@@ -196,12 +196,6 @@ impl Game {
             // Debug: give / take the lantern until items exist.
             self.inventory.lantern = !self.inventory.lantern;
         }
-        if self.input.pressed(Buttons::R) {
-            // Debug: cycle outfit presets until equipment exists.
-            let presets = Outfit::PRESETS;
-            let i = presets.iter().position(|o| *o == self.inventory.outfit).unwrap_or(0);
-            self.equip(presets[(i + 1) % presets.len()]);
-        }
 
         self.frame_count = self.frame_count.wrapping_add(1);
         let near_fire = self.near_fire();
@@ -250,6 +244,7 @@ impl Game {
                 self.particles.chips((fx, fy - 2), (0, 1), 2);
             }
             Some(Deed::Smoulder(spot)) => self.particles.ember(spot),
+            Some(Deed::KickDust(feet)) => self.particles.dust(feet),
             Some(Deed::Cooked(dish)) => self.take(dish, 1),
             Some(Deed::LightFire(spot)) => self.light_fire(spot),
             None => {}
@@ -703,6 +698,13 @@ impl Game {
     pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
         self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
         self.camera.follow(self.player.center(), self.map.pixel_size());
+    }
+
+    /// Debug: cycles outfit presets until equipment exists.
+    pub fn debug_cycle_outfit(&mut self) {
+        let presets = Outfit::PRESETS;
+        let i = presets.iter().position(|o| *o == self.inventory.outfit).unwrap_or(0);
+        self.equip(presets[(i + 1) % presets.len()]);
     }
 
     /// Dev tools: sets the castaway's health in hearts.

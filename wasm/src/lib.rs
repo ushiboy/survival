@@ -54,6 +54,11 @@ impl GameHandle {
         self.game.set_sprite_limit(on);
     }
 
+    /// Debug: puts the castaway in the next outfit preset.
+    pub fn debug_cycle_outfit(&mut self) {
+        self.game.debug_cycle_outfit();
+    }
+
     /// Compact status for the debug panel:
     /// `[tileX, tileY, day, minuteOfDay, paused, vramBytes]`.
     pub fn status(&self) -> Vec<i32> {

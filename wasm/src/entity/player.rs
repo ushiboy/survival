@@ -21,12 +21,18 @@ const HITBOX: Rect = Rect::new(3, 18, 10, 6);
 /// Speeds in 8.8 fixed point per frame.
 const SPEED_WALK: i32 = 336; // ~1.3 px
 const SPEED_WALK_DIAG: i32 = 238;
+/// Running (R held), not possible while wading.
+const SPEED_RUN: i32 = 560; // ~2.2 px
+const SPEED_RUN_DIAG: i32 = 396;
 const SPEED_WADE: i32 = 184;
 const SPEED_WADE_DIAG: i32 = 130;
 const CORNER_ASSIST_PX: i32 = 6;
 /// Frames per walk-animation step.
 const STEP_FRAMES_WALK: u32 = 8;
 const STEP_FRAMES_WADE: u32 = 12;
+const STEP_FRAMES_RUN: u32 = 5;
+/// Frames between puffs of dust kicked up by a runner's feet.
+const DUST_EVERY: u32 = 8;
 /// Sprite priority for actors: above BG1/BG2 low tiles, below BG2 high (canopies).
 pub const ACTOR_PRIORITY: u8 = 2;
 /// Above BG2 high tiles: used while standing in front of a canopy.
@@ -178,6 +184,8 @@ pub enum Deed {
     Eat(ItemKind),
     /// The drill is smoking at the point (ground px).
     Smoulder((i32, i32)),
+    /// Running feet kicked up dust at the point (ground px).
+    KickDust((i32, i32)),
     /// A fire caught at the point (ground px).
     LightFire((i32, i32)),
     /// Finished cooking this.
@@ -189,6 +197,8 @@ pub struct Player {
     pub body: Body,
     pub facing: Dir,
     pub moving: bool,
+    /// Moving at a run (R held, on dry ground).
+    pub running: bool,
     pub wading: bool,
     pub action: Action,
     walk_timer: u32,
@@ -214,6 +224,7 @@ impl Player {
             body: Body::new(px, py, HITBOX),
             facing: Dir::Down,
             moving: false,
+            running: false,
             wading: false,
             action: Action::Idle,
             walk_timer: 0,
@@ -385,7 +396,19 @@ impl Player {
             }
         }
         self.walk(input, map);
-        None
+        (self.running && self.walk_timer % DUST_EVERY == 1).then(|| {
+            // Just behind the heels, or beside them (one foot, then the
+            // other) when running toward the camera, so the body doesn't
+            // hide it.
+            let (fx, fy) = self.body.feet();
+            let side = if (self.walk_timer / DUST_EVERY) % 2 == 0 { -5 } else { 5 };
+            Deed::KickDust(match self.facing {
+                Dir::Right => (fx - 7, fy),
+                Dir::Left => (fx + 7, fy),
+                Dir::Up => (fx + side, fy + 4),
+                Dir::Down => (fx + side, fy + 1),
+            })
+        })
     }
 
     /// The spot just in front of the feet that hands and tools reach: where
@@ -420,12 +443,20 @@ impl Player {
         let (fx, fy) = self.body.feet();
         self.wading = map.props_at_px(fx, fy).wading;
 
+        // Water drags at the legs too much to run.
+        let was_running = self.running;
+        self.running = self.moving && !self.wading && input.held(Buttons::R);
+        if self.running != was_running {
+            self.walk_timer = 0;
+        }
         let diagonal = ax != 0 && ay != 0;
-        let speed = match (self.wading, diagonal) {
-            (false, false) => SPEED_WALK,
-            (false, true) => SPEED_WALK_DIAG,
-            (true, false) => SPEED_WADE,
-            (true, true) => SPEED_WADE_DIAG,
+        let speed = match (self.wading, self.running, diagonal) {
+            (true, _, false) => SPEED_WADE,
+            (true, _, true) => SPEED_WADE_DIAG,
+            (false, true, false) => SPEED_RUN,
+            (false, true, true) => SPEED_RUN_DIAG,
+            (false, false, false) => SPEED_WALK,
+            (false, false, true) => SPEED_WALK_DIAG,
         };
         self.body.move_by(ax * speed, ay * speed, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
 
@@ -517,7 +548,13 @@ impl Player {
         let (wx, wy) = self.body.px();
         let (sx, sy) = camera.to_screen(wx, wy);
         let depth = self.depth();
-        let step_frames = if self.wading { STEP_FRAMES_WADE } else { STEP_FRAMES_WALK };
+        let step_frames = if self.wading {
+            STEP_FRAMES_WADE
+        } else if self.running {
+            STEP_FRAMES_RUN
+        } else {
+            STEP_FRAMES_WALK
+        };
         // Start on a step frame so movement reads instantly.
         let phase = if self.moving { (self.walk_timer / step_frames + 1) % 4 } else { 0 };
         let (view, flip) = view_for(self.facing);

@@ -15,6 +15,8 @@ enum Kind {
     Spark,
     /// A glowing speck rising from a fire.
     Ember,
+    /// A puff of dust kicked up by running feet.
+    Dust,
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +94,12 @@ impl Particles {
         self.spawn(Kind::Ember, x as f32 + dx, y as f32, 10.0, (vx, 0.0, 0.45), life);
     }
 
+    /// A puff of dust behind running feet at `(x, y)` (ground px).
+    pub fn dust(&mut self, (x, y): (i32, i32)) {
+        let (dx, vx) = (self.rand(-2.0, 2.0), self.rand(-0.2, 0.2));
+        self.spawn(Kind::Dust, x as f32 + dx, y as f32, 1.0, (vx, 0.0, 0.15), 14);
+    }
+
     pub fn update(&mut self) {
         for p in &mut self.list {
             p.life -= 1;
@@ -124,6 +132,10 @@ impl Particles {
                     }
                 }
                 Kind::Spark => {}
+                Kind::Dust => {
+                    p.x += p.vx;
+                    p.z += p.vz;
+                }
                 Kind::Ember => {
                     p.x += p.vx + p.phase.sin() * 0.2;
                     p.z += p.vz;
@@ -149,6 +161,8 @@ impl Particles {
                 Kind::Leaf => (sprites.leaf[(p.phase.sin() > 0.0) as usize], if p.z > 12.0 { 3 } else { 2 }),
                 Kind::Spark => (sprites.spark[(p.life < 5) as usize], 3),
                 Kind::Ember => (sprites.spark[1], 3),
+                // Grows, then thins out.
+                Kind::Dust => (sprites.dust[(p.life < 8) as usize], 2),
             };
             let flip = p.kind == Kind::Leaf && p.phase.cos() < 0.0;
             list.actor(p.y as i32, ObjEntry::new(sx, sy, gfx, OBJ_FX, priority).flipped(flip));

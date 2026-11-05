@@ -20,6 +20,8 @@ export interface GameCore {
   frame(): ImageData;
   status(): CoreStatus;
   setSpriteLimit(on: boolean): void;
+  /** Debug: switch to the next outfit preset. */
+  cycleOutfit(): void;
   dispose(): void;
 }
 
@@ -51,6 +53,7 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
       return { tileX, tileY, day, minuteOfDay, paused: paused === 1, vramBytes };
     },
     setSpriteLimit: (on) => handle.set_sprite_limit(on),
+    cycleOutfit: () => handle.debug_cycle_outfit(),
     dispose: () => handle.free(),
   };
 }

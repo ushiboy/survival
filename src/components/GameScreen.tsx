@@ -18,6 +18,8 @@ interface Props {
 }
 
 const STATUS_INTERVAL_FRAMES = 15;
+/** Debug key outside the joypad: cycle the castaway's outfit. */
+const OUTFIT_KEY = 'KeyO';
 /** SNES output resolution (matches the Rust core). */
 const SCREEN_W = 256;
 const SCREEN_H = 224;
@@ -42,7 +44,15 @@ export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
         if (!ctx) throw new Error('Canvas 2D context unavailable');
 
         const input = new InputController();
-        detachInput = input.attach(window);
+        const detachPad = input.attach(window);
+        const onDebugKey = (e: KeyboardEvent) => {
+          if (e.code === OUTFIT_KEY && !e.repeat) core.cycleOutfit();
+        };
+        window.addEventListener('keydown', onDebugKey);
+        detachInput = () => {
+          detachPad();
+          window.removeEventListener('keydown', onDebugKey);
+        };
         let frames = 0;
         stopLoop = startFixedLoop({
           step: () => core.step(input.read()),
