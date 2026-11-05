@@ -150,10 +150,10 @@ pub fn stone_axe_side() -> PixelArt {
             "...........oMLo.",
             "..........oMMLo.",
             "..........oMmMLo",
-            "ooooooooogGMmMLo",
-            "oWWWWWWWWGgmMmLo",
-            "owwwwwwwwgGmmmLo",
-            "ooooooooogGmmMLo",
+            "ooooooooocWMmMLo",
+            "oWWWWWWWWcWmMmLo",
+            "owwwwwwwwWcmmmLo",
+            "ooooooooocWmmMLo",
             "..........ommLo.",
             "...........omLo.",
             "............oo..",
@@ -542,4 +542,16 @@ pub fn stone() -> PixelArt {
 pub fn vine_coil() -> PixelArt {
     let rows = ["........", "..oooo..", ".oGhGGo.", "oGoooGgo", "oGo.oGgo", "ogGGGgo.", ".ooooo..", "........"];
     PixelArt::parse(&rows, FX_LEGEND)
+}
+
+/// A coconut husk lying on the ground, 8x8 (item colours).
+pub fn husk() -> PixelArt {
+    let rows = ["........", "........", ".oooooo.", "ohhdddho", "oWhhhhWo", "owWdwWwo", ".odwwdo.", "..oooo.."];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// A coil of rope lying on the ground, 8x8 (item colours).
+pub fn rope_coil() -> PixelArt {
+    let rows = ["........", "..oooo..", ".ohwhWo.", "ohWoowho", "oWho.oWo", "owhWhwo.", ".ooooowo", "......oo"];
+    PixelArt::parse(&rows, ITEM_LEGEND)
 }

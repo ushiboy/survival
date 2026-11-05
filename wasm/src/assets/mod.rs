@@ -181,6 +181,8 @@ pub struct BagSprites {
     pub boiled_water: SpriteId,
     /// Upright, turned.
     pub pack_frame: [SpriteId; 2],
+    pub husk: SpriteId,
+    pub rope: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -214,6 +216,8 @@ impl BagSprites {
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
+            ItemKind::Husk => (self.husk, palettes::OBJ_CRAB),
+            ItemKind::Rope => (self.rope, palettes::OBJ_CRAB),
         }
     }
 }
@@ -262,6 +266,8 @@ pub struct SpriteIds {
     pub lauan_timber: SpriteId,
     pub bark_pot: SpriteId,
     pub pack_frame: SpriteId,
+    pub husk: SpriteId,
+    pub rope: SpriteId,
     pub fire: FireSprites,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
@@ -422,6 +428,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let f = item_art::icon_pack_frame();
             [bank.add(&f), bank.add(&f.rotated_cw())]
         },
+        husk: bank.add(&item_art::icon_husk()),
+        rope: bank.add(&item_art::icon_rope()),
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         equipped: bank.add(&item_art::equipped_mark()),
         branch: {
@@ -468,6 +476,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         lauan_timber: bank.add(&as_lauan(&timber())),
         bark_pot: bank.add(&bark_pot()),
         pack_frame: bank.add(&pack_frame()),
+        husk: bank.add(&husk()),
+        rope: bank.add(&rope_coil()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

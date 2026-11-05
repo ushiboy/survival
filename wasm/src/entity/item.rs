@@ -134,6 +134,8 @@ impl Item {
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),
             ItemKind::Vine => (8, [sprites.vine_coil; 2], sprites.shadow_coconut),
+            ItemKind::Husk => (8, [sprites.husk; 2], sprites.shadow_coconut),
+            ItemKind::Rope => (8, [sprites.rope; 2], sprites.shadow_coconut),
             // Water never lies on the ground.
             ItemKind::RawWater => return,
         };

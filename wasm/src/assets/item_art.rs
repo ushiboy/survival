@@ -207,11 +207,11 @@ pub fn icon_stone_axe() -> PixelArt {
         a.set(6, y, if y % 9 == 5 { i('w') } else { i('W') });
         a.set(7, y, i('w'));
     }
-    // Turns of vine binding the stone to the handle, lit on top.
+    // Turns of rope binding the stone to the handle, lit on top.
     for y in [4, 7, 10] {
         for x in 5..10 {
-            a.set(x, y, i('G'));
-            a.set(x, y + 1, i('g'));
+            a.set(x, y, i('c'));
+            a.set(x, y + 1, i('W'));
         }
     }
     a.outlined(i('o'))
@@ -437,4 +437,62 @@ pub fn icon_vine() -> PixelArt {
 /// One corner of the cursor bracket, 8x8 (top-left; flip for the others).
 pub fn cursor_corner() -> PixelArt {
     PixelArt::parse(&["ooooo...", "oYYYo...", "oYooo...", "oYo.....", "ooo.....", "........", "........", "........"], FX_LEGEND)
+}
+
+/// Half a coconut husk, 16x16: a cup of shaggy brown fibre, the dark shell
+/// showing inside, loose strands sticking out of the torn rim.
+pub fn icon_husk() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    // The husk, rounder at the bottom, streaked with fibre.
+    fill_ellipse(&mut a, 8.0, 9.0, 6.2, 5.0, |x, y, nx, ny| {
+        if ny < -0.25 {
+            return None;
+        }
+        let streak = (x * 3 + y) % 4 == 0;
+        Some(if streak { i('d') } else { ramp(&[i('d'), i('w')], sphere_light(nx, ny), x, y, 0.5) })
+    });
+    // The open top: the fibre's pale cut edge round the dark shell inside.
+    fill_ellipse(&mut a, 8.0, 7.6, 6.2, 2.4, |_, _, nx, ny| Some(if (nx * nx + ny * ny).sqrt() > 0.6 { i('h') } else { i('d') }));
+    // Strands sticking out of the rim.
+    for (x, y) in [(2, 5), (4, 4), (12, 4), (14, 5), (13, 3)] {
+        a.set(x, y, i('W'));
+    }
+    a.outlined(i('o'))
+}
+
+/// A coil of coir rope, 16x16: loops of tan cord with the twist showing as
+/// dark diagonal marks, and a loose end hanging off.
+pub fn icon_rope() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    let (cx, cy) = (8.0f32, 7.5f32);
+    for y in 0..16 {
+        for x in 0..16 {
+            let (dx, dy) = ((x as f32 + 0.5 - cx) / 6.4, (y as f32 + 0.5 - cy) / 5.4);
+            let r = (dx * dx + dy * dy).sqrt();
+            // Two loops of cord with a dark gap between them, round a hole.
+            if !(0.42..=1.0).contains(&r) {
+                continue;
+            }
+            let loop_at = (r - 0.42) / 0.58 * 2.0;
+            let inside = loop_at.fract();
+            let twist = (x + y + if loop_at < 1.0 { 0 } else { 2 }) % 4 == 0;
+            let c = if loop_at >= 0.95 && loop_at < 1.12 {
+                i('d')
+            } else if twist {
+                i('w')
+            } else if dy < 0.0 && inside < 0.6 {
+                i('h')
+            } else {
+                i('W')
+            };
+            a.set(x, y, c);
+        }
+    }
+    // The loose end trailing down to the right.
+    for (x, y) in [(13, 11), (14, 12), (14, 13), (15, 14)] {
+        a.set(x, y, if (x + y) % 3 == 0 { i('w') } else { i('W') });
+    }
+    a.outlined(i('o'))
 }

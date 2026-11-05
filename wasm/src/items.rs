@@ -9,7 +9,7 @@ pub enum ItemKind {
     /// River water, not yet boiled. Carried in cupped leaves; it can't be
     /// put down, only poured away.
     RawWater,
-    /// A sharp stone lashed to a branch with vine.
+    /// A sharp stone lashed to a branch with rope.
     StoneAxe,
     /// A bow strung with vine and a spindle for drilling a fire.
     FireDrill,
@@ -37,6 +37,10 @@ pub enum ItemKind {
     PackFrame,
     /// A broad leaf picked from a bush; folded into a cup it holds water.
     Leaf,
+    /// The fibrous husk left over once a coconut's been eaten.
+    Husk,
+    /// Cord twisted from coconut husk fibre (coir): stronger than vine.
+    Rope,
 }
 
 /// Where a piece of gear goes.
@@ -79,7 +83,7 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame => (1, 2),
             ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber | ItemKind::LauanTimber => (2, 2),
@@ -105,6 +109,8 @@ impl ItemKind {
             ItemKind::BarkContainer => "BARK POT",
             ItemKind::BoiledWater => "BOILED WATER",
             ItemKind::PackFrame => "PACK FRAME",
+            ItemKind::Husk => "HUSK",
+            ItemKind::Rope => "ROPE",
         }
     }
 
@@ -136,6 +142,7 @@ impl ItemKind {
     pub fn max_stack(self) -> u32 {
         match self {
             ItemKind::Leaf => 20,
+            ItemKind::Husk | ItemKind::Rope => 5,
             _ => 1,
         }
     }
@@ -150,9 +157,10 @@ impl ItemKind {
     }
 
     /// What's left in hand once it's been eaten or drunk (the pot boiled
-    /// water was carried in).
+    /// water was carried in, a coconut's husk).
     pub fn leaves_behind(self) -> Option<ItemKind> {
         match self {
+            ItemKind::Coconut => Some(ItemKind::Husk),
             ItemKind::BoiledWater => Some(ItemKind::BarkContainer),
             _ => None,
         }

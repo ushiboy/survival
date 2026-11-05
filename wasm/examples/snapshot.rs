@@ -44,6 +44,8 @@ fn main() {
                 "pot" => ItemKind::BarkContainer,
                 "boiled" => ItemKind::BoiledWater,
                 "frame" => ItemKind::PackFrame,
+                "husk" => ItemKind::Husk,
+                "rope" => ItemKind::Rope,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
