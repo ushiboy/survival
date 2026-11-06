@@ -120,6 +120,9 @@ pub fn gear_choices(bag: &Bag, gear: &Gear, slot: Slot) -> Vec<GearChoice> {
     out
 }
 
+/// Recipes listed on one page of the crafting list.
+pub const RECIPES_PER_PAGE: usize = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// On the tab row, about to pick a page.
@@ -128,8 +131,11 @@ pub enum Mode {
     /// Choosing what to do with the item at `item`.
     Commands { item: usize, choice: usize },
     Holding(HeldItem),
-    /// Choosing something to make from `RECIPES`.
+    /// Choosing something to make from the list of `RECIPES`.
     Crafting { choice: usize },
+    /// Looking over one recipe (index into `RECIPES`), with MAKE (0) or
+    /// BACK (1) chosen.
+    Recipe { recipe: usize, choice: usize },
     /// On a gear slot (index into `Slot::ALL`).
     Gear { slot: usize },
     /// Choosing from `gear_choices` for a slot.
@@ -206,7 +212,7 @@ impl BagMenu {
     pub fn page(&self) -> Page {
         match self.mode {
             Mode::Tabs(page) => page,
-            Mode::Crafting { .. } => Page::Craft,
+            Mode::Crafting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             _ => Page::Items,
         }
@@ -315,7 +321,8 @@ impl BagMenu {
                 }
             }
             Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
-            Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
+            Mode::Crafting { choice } => self.update_crafting(input, choice, step),
+            Mode::Recipe { recipe, choice } => self.update_recipe(input, inv, recipe, choice, step),
             Mode::Gear { slot } => {
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
                     if dy < 0 && slot == 0 {
@@ -372,36 +379,65 @@ impl BagMenu {
         }
     }
 
-    fn update_crafting(&mut self, input: &InputState, inv: &mut Inventory, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
-        let bag = &mut inv.bag;
-        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
-            if dy < 0 && choice == 0 {
+    /// The recipe list: up and down through it, left and right a page at a
+    /// time; A opens the recipe.
+    fn update_crafting(&mut self, input: &InputState, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        let last = RECIPES.len() as i32 - 1;
+        match step {
+            Some((0, dy)) if dy < 0 && choice == 0 => {
                 self.mode = Mode::Tabs(Page::Craft);
                 return Outcome::Stay;
             }
-            choice = (choice as i32 + dy).clamp(0, RECIPES.len() as i32 - 1) as usize;
-            self.mode = Mode::Crafting { choice };
+            Some((0, dy)) => choice = (choice as i32 + dy).clamp(0, last) as usize,
+            Some((dx, _)) => {
+                let page = (choice / RECIPES_PER_PAGE) as i32 + dx;
+                if (0..=last / RECIPES_PER_PAGE as i32).contains(&page) {
+                    choice = (page * RECIPES_PER_PAGE as i32 + (choice % RECIPES_PER_PAGE) as i32).min(last) as usize;
+                }
+            }
+            None => {}
         }
+        self.mode = Mode::Crafting { choice };
         if input.pressed(Buttons::B) {
             self.mode = Mode::Tabs(Page::Craft);
+            self.notice = None;
+        } else if input.pressed(Buttons::A) {
+            self.mode = Mode::Recipe { recipe: choice, choice: 0 };
+            self.notice = None;
+        }
+        Outcome::Stay
+    }
+
+    /// One recipe: MAKE or BACK. Making keeps the recipe open so more can
+    /// be made, unless it's cooked at the fire (the bag closes) or there's
+    /// no room for it (it's held to be placed).
+    fn update_recipe(&mut self, input: &InputState, inv: &mut Inventory, index: usize, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+            choice = (choice as i32 + dy).rem_euclid(2) as usize;
+            self.mode = Mode::Recipe { recipe: index, choice };
+        }
+        let back = input.pressed(Buttons::B) || (input.pressed(Buttons::A) && choice == 1);
+        if back {
+            self.mode = Mode::Crafting { choice: index };
             self.notice = None;
             return Outcome::Stay;
         }
         if !input.pressed(Buttons::A) {
             return Outcome::Stay;
         }
-        let recipe = &RECIPES[choice];
-        if recipe.at_fire && !self.near_fire {
-            self.notice = Some("NEEDS A FIRE");
-            return Outcome::Stay;
-        }
+        let bag = &mut inv.bag;
+        let recipe = &RECIPES[index];
         if !bag.can_make(recipe) {
             self.notice = Some("NOT ENOUGH MATERIALS");
             return Outcome::Stay;
         }
+        if recipe.at_fire && !self.near_fire {
+            self.notice = Some("NEEDS A FIRE");
+            return Outcome::Stay;
+        }
         if recipe.at_fire {
             // Cooked over the fire, outside the bag.
-            return Outcome::Cook(choice);
+            return Outcome::Cook(index);
         }
         bag.use_up(recipe);
         if bag.stow_one(recipe.makes) {

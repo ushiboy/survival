@@ -3,12 +3,12 @@
 //! item icons and cursor (BG3's priority bit is cleared so they show in
 //! front of it).
 
-use crate::assets::palettes::{HUD_DIM, HUD_MENU, HUD_TEXT, OBJ_FX};
+use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::game::state::Inventory;
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::crafting::RECIPES;
-use crate::game::menu::{BagMenu, Mode, Page, commands_for, gear_choices};
+use crate::game::menu::{BagMenu, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices};
 use crate::items::Slot;
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
@@ -25,6 +25,16 @@ const INFO_COL: usize = 17;
 /// The page tabs, and the columns between them.
 const TAB_ROW: usize = 5;
 const TAB_STRIDE: usize = 8;
+/// The crafting page: the picture of the chosen recipe's result in the
+/// list; in a recipe, its picture's right edge (tiles), the description's
+/// width, the material count columns, and the MAKE / BACK rows.
+const PREVIEW_COL: usize = 22;
+const ICON_RIGHT: i32 = 30;
+const DESC_WIDTH: usize = 24;
+const NEED_COL: usize = 20;
+const HAVE_COL: usize = 26;
+const CHOICE_ROW: usize = 21;
+const NOTICE_ROW: usize = 24;
 
 fn text(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
     text_in(bg3, tiles, col, row, s, HUD_TEXT);
@@ -56,6 +66,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             text(bg3, tiles, col, TAB_ROW, ">");
         }
         text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
+    }
+    if menu.page() == Page::Craft {
+        draw_craft_page(bg3, tiles, list, sprites, bag, menu);
+        return;
     }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
     let room = format!("{used:02}/{}", BAG_W * bag.rows());
@@ -145,28 +159,23 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             text(bg3, tiles, INFO_COL + 1, row, c.label(kind));
         }
     }
-    match menu.mode {
-        Mode::Crafting { choice } => draw_crafting(bg3, tiles, list, sprites, bag, choice, true),
-        Mode::Tabs(Page::Craft) => draw_crafting(bg3, tiles, list, sprites, bag, 0, false),
-        _ => {}
-    }
     if menu.page() == Page::Gear {
         draw_gear(bg3, tiles, inventory, menu);
-    }
-    if menu.page() == Page::Craft && menu.near_fire {
-        text(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "BY THE FIRE");
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, GRID_ROW + bag.rows() as usize * 2 + 2, n);
     }
+    draw_help(bg3, tiles, menu);
+}
+
+fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
     let help = match menu.mode {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
         Mode::Browse => "A CHOOSE   B CLOSE",
-        Mode::Crafting { .. } => "A MAKE   B BACK",
-        Mode::Commands { .. } => "A OK   B BACK",
+        Mode::Crafting { .. } => "A CHOOSE   B BACK",
+        Mode::Recipe { .. } | Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
-        Mode::GearPick { .. } => "A OK   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
 }
@@ -188,32 +197,116 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
     }
 }
 
-/// The crafting list beside the grid: recipes with the chosen one's
-/// materials (have/need) and a picture of what it makes. `active` is false
-/// while only previewing it from the tab row.
-fn draw_crafting(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, choice: usize, active: bool) {
-    for (i, r) in RECIPES.iter().enumerate() {
-        let row = GRID_ROW + i;
-        if active && i == choice {
-            text(bg3, tiles, INFO_COL, row, ">");
-        }
-        text(bg3, tiles, INFO_COL + 1, row, r.makes.name());
+/// The crafting page: the recipe list, or one recipe opened from it.
+fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, menu: &BagMenu) {
+    if menu.near_fire {
+        text_in(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "^", HUD_FOOD);
+        text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
-    let recipe = &RECIPES[choice];
-    let top = GRID_ROW + 1 + RECIPES.len();
-    text(bg3, tiles, INFO_COL, top, "NEEDS");
+    match menu.mode {
+        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, menu.near_fire, recipe, choice),
+        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, menu.near_fire, Some(choice)),
+        _ => draw_recipe_list(bg3, tiles, list, sprites, bag, menu.near_fire, None),
+    }
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// A page of recipe names: those that can be made now lit, the rest
+/// greyed, a flame by those made at a fire; and a picture of the chosen
+/// one's result. `choice` is None while only previewing from the tab row.
+fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, near_fire: bool, choice: Option<usize>) {
+    let at = choice.unwrap_or(0);
+    let page = at / RECIPES_PER_PAGE;
+    let pages = RECIPES.len().div_ceil(RECIPES_PER_PAGE);
+    let first = page * RECIPES_PER_PAGE;
+    for (i, r) in RECIPES.iter().enumerate().skip(first).take(RECIPES_PER_PAGE) {
+        let row = GRID_ROW + (i - first) * 2;
+        if choice == Some(i) {
+            text(bg3, tiles, GRID_COL, row, ">");
+        }
+        let ready = bag.can_make(r) && (!r.at_fire || near_fire);
+        text_in(bg3, tiles, GRID_COL + 1, row, r.makes.name(), if ready { HUD_TEXT } else { HUD_DIM });
+        if r.at_fire {
+            text_in(bg3, tiles, GRID_COL + 2 + r.makes.name().len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+        }
+    }
+    if pages > 1 {
+        let row = GRID_ROW + RECIPES_PER_PAGE * 2;
+        let label = format!("{}/{}", page + 1, pages);
+        text_in(bg3, tiles, GRID_COL + 1, row, "<", if page > 0 { HUD_TEXT } else { HUD_DIM });
+        text(bg3, tiles, GRID_COL + 3, row, &label);
+        text_in(bg3, tiles, GRID_COL + 4 + label.len(), row, ">", if page + 1 < pages { HUD_TEXT } else { HUD_DIM });
+    }
+    if choice.is_some() {
+        let makes = RECIPES[at].makes;
+        let (w, h) = footprint(makes, false);
+        let (gfx, pal) = sprites.bag.icon(makes, false);
+        list.sky(ObjEntry::new(PREVIEW_COL as i32 * 8, GRID_ROW as i32 * 8, gfx, pal, 3));
+        text(bg3, tiles, PREVIEW_COL, GRID_ROW + h as usize * 2 + 1, &format!("SIZE {w}X{h}"));
+    }
+}
+
+/// One recipe opened: what it makes and what that's for, the materials
+/// with how many are needed and carried (short ones greyed), whether it
+/// needs a fire, and MAKE / BACK.
+#[allow(clippy::too_many_arguments)]
+fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, near_fire: bool, index: usize, choice: usize) {
+    let recipe = &RECIPES[index];
+    let makes = recipe.makes;
+    let (w, h) = footprint(makes, false);
+    text(bg3, tiles, GRID_COL, GRID_ROW, makes.name());
+    text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+    let (gfx, pal) = sprites.bag.icon(makes, false);
+    list.sky(ObjEntry::new(ICON_RIGHT * 8 - w * CELL, GRID_ROW as i32 * 8, gfx, pal, 3));
+    for (i, line) in wrap(makes.description(), DESC_WIDTH).iter().enumerate() {
+        text(bg3, tiles, GRID_COL, GRID_ROW + 3 + i, line);
+    }
+
+    let top = GRID_ROW + 7;
+    text(bg3, tiles, GRID_COL, top, "NEEDS");
+    text_in(bg3, tiles, NEED_COL - 2, top, "NEED", HUD_DIM);
+    text_in(bg3, tiles, HAVE_COL - 2, top, "HAVE", HUD_DIM);
     for (i, &(kind, n)) in recipe.needs.iter().enumerate() {
-        let have = bag.count(kind).min(9);
-        text(bg3, tiles, INFO_COL, top + 1 + i, &format!("{} {have}/{n}", kind.name()));
+        let row = top + 1 + i;
+        let have = bag.count(kind);
+        let palette = if have >= n { HUD_TEXT } else { HUD_DIM };
+        text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
+        text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
+        text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
     }
     if recipe.at_fire {
-        text(bg3, tiles, INFO_COL, top + 1 + recipe.needs.len(), "AT A FIRE");
+        let row = top + 1 + recipe.needs.len();
+        let palette = if near_fire { HUD_TEXT } else { HUD_DIM };
+        text_in(bg3, tiles, GRID_COL + 1, row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+        text_in(bg3, tiles, GRID_COL + 3, row, "A FIRE", palette);
+        text_in(bg3, tiles, HAVE_COL - 1, row, if near_fire { "YES" } else { " NO" }, palette);
     }
-    // The finished thing, at the right below the materials.
-    let (w, _) = footprint(recipe.makes, false);
-    let (gfx, pal) = sprites.bag.icon(recipe.makes, false);
-    let y = (top + 2 + recipe.needs.len() + recipe.at_fire as usize) * 8;
-    list.sky(ObjEntry::new(31 * 8 - w * CELL, y as i32, gfx, pal, 3));
+
+    for (i, label) in ["MAKE", "BACK"].into_iter().enumerate() {
+        let row = CHOICE_ROW + i;
+        if i == choice {
+            text(bg3, tiles, GRID_COL, row, ">");
+        }
+        text(bg3, tiles, GRID_COL + 1, row, label);
+    }
+}
+
+/// Breaks text into lines of at most `width` characters at spaces.
+fn wrap(s: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in s.split(' ') {
+        match lines.last_mut() {
+            Some(line) if line.len() + 1 + word.len() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
 }
 
 /// The gear page beside the grid: each slot with what's in it (and the

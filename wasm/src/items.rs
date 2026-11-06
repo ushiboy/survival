@@ -114,6 +114,32 @@ impl ItemKind {
         }
     }
 
+    /// A line or two about what it is and what it's good for, for the
+    /// crafting screen.
+    pub fn description(self) -> &'static str {
+        match self {
+            ItemKind::Coconut => "FLESH TO EAT AND MILK TO DRINK.",
+            ItemKind::Timber => "A SQUARED LENGTH OF PALM WOOD.",
+            ItemKind::RawWater => "RIVER WATER IN A LEAF. EASES THIRST.",
+            ItemKind::StoneAxe => "A SHARP STONE LASHED TO A BRANCH. FELLS TREES.",
+            ItemKind::FireDrill => "A BOW AND SPINDLE. BURNS A BRANCH TO LIGHT A FIRE.",
+            ItemKind::Branch => "A DEAD BRANCH, GOOD FOR TOOLS AND FIRES.",
+            ItemKind::Stone => "A STONE WITH A SHARP EDGE.",
+            ItemKind::Vine => "A LENGTH OF VINE FOR LIGHT LASHING.",
+            ItemKind::WoodSpear => "A SHARPENED BRANCH. THRUST IT TO CATCH CRABS.",
+            ItemKind::Crab => "A RAW CRAB. FILLING, BUT BETTER COOKED.",
+            ItemKind::GrilledCrab => "COOKED OVER A FIRE. VERY FILLING, AND HEALS.",
+            ItemKind::Leaf => "A BROAD LEAF. FOLDED, IT HOLDS WATER.",
+            ItemKind::Bark => "A STRIP OF BARK FROM A BROADLEAF TREE.",
+            ItemKind::LauanTimber => "A SQUARED LENGTH OF LAUAN, A STRONG HARDWOOD.",
+            ItemKind::BarkContainer => "A POT OF BARK. WATER CAN BE BOILED IN IT.",
+            ItemKind::BoiledWater => "SAFE TO DRINK. EASES THIRST, AND HEALS.",
+            ItemKind::PackFrame => "WORN ON THE BACK, IT GIVES THE BAG 12 MORE ROOM.",
+            ItemKind::Husk => "LEFT FROM A COCONUT. ITS FIBRE MAKES ROPE.",
+            ItemKind::Rope => "TWISTED COCONUT FIBRE. STRONGER THAN VINE.",
+        }
+    }
+
     pub fn usage(self) -> Option<Use> {
         match self {
             ItemKind::Coconut | ItemKind::Crab | ItemKind::GrilledCrab => Some(Use::Eat),
