@@ -32,7 +32,7 @@ pub enum ItemKind {
     BarkContainer,
     /// River water boiled over a fire in a bark pot: safe to drink.
     BoiledWater,
-    /// A carrying frame of branches lashed with vine, with a bark back
+    /// A carrying frame of branches lashed with rope, with a bark back
     /// board: worn on the back, it makes room for more in the bag.
     PackFrame,
     /// A broad leaf picked from a bush; folded into a cup it holds water.

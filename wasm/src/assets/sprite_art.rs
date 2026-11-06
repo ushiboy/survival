@@ -137,7 +137,7 @@ pub fn iron_axe_side() -> PixelArt {
     )
 }
 
-/// Stone axe lying horizontally: a knapped stone head lashed with vine to
+/// Stone axe lying horizontally: a knapped stone head lashed with rope to
 /// the end of a branch, edge facing right. The handle lies where the iron
 /// axe's does, so both share the grip offsets.
 pub fn stone_axe_side() -> PixelArt {
@@ -293,10 +293,10 @@ pub fn pack_frame() -> PixelArt {
     let rows = [
         "................",
         ".oooooooooooooo.",
-        "oWWgWWWWWWWgWWWo",
+        "oWWcWWWWWWWcWWWo",
         "ow.occcccco.w.wo",
         "oW.ocwcccwo.W.Wo",
-        "owwgwwwwwwwgwwwo",
+        "owwcwwwwwwwcwwwo",
         ".oooooooooooooo.",
         "................",
     ];

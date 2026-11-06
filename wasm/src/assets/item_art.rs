@@ -123,7 +123,7 @@ pub fn icon_bark_container() -> PixelArt {
 }
 
 /// The pack frame standing upright, 16x32: two branch rails with cross
-/// bars, a bark board between them, lashed with vine at every joint.
+/// bars, a bark board between them, lashed with rope at every joint.
 pub fn icon_pack_frame() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);
     let mut a = PixelArt::filled(16, 32, 0);
@@ -141,7 +141,7 @@ pub fn icon_pack_frame() -> PixelArt {
         a.set(11 + splay, y, i('W'));
         a.set(12 + splay, y, i('w'));
     }
-    // Cross bars, with vine lashings where they meet the rails.
+    // Cross bars, with rope lashings where they meet the rails.
     for y in [5, 22] {
         for x in 3..13 {
             a.set(x, y, i('W'));
@@ -150,7 +150,7 @@ pub fn icon_pack_frame() -> PixelArt {
     }
     for y in [5, 8, 20, 22] {
         for x in [3, 4, 11, 12] {
-            a.set(x, y, if (x + y) % 2 == 0 { i('G') } else { i('g') });
+            a.set(x, y, if (x + y) % 2 == 0 { i('c') } else { i('W') });
         }
     }
     a.outlined(i('o'))
