@@ -555,3 +555,87 @@ pub fn rope_coil() -> PixelArt {
     let rows = ["........", "..oooo..", ".ohwhWo.", "ohWoowho", "oWho.oWo", "owhWhwo.", ".ooooowo", "......oo"];
     PixelArt::parse(&rows, ITEM_LEGEND)
 }
+
+/// A palm frond lying on the ground, 16x8 (effects palette).
+pub fn palm_frond() -> PixelArt {
+    let rows = [
+        "................",
+        "..oooooooooo....",
+        ".ohGhGhGhGhGoo..",
+        "ohGhGhGhGhGhGWo.",
+        "oWWWWWWWWWWWWWwo",
+        ".ogGgGgGgGgGgoo.",
+        "..oooooooooooo..",
+        "................",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
+/// A thatch panel lying on the ground, 16x8 (effects palette).
+pub fn thatch() -> PixelArt {
+    let rows = [
+        "................",
+        ".oooooooooooooo.",
+        "ohGhgGhGhGgGhGho",
+        "oGgGgGgGgGgGgGgo",
+        "ohGhgGhGhGgGhGho",
+        "ogggggggggggggo.",
+        ".oooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
+/// The rolled-up shelter lying on the ground, 16x8 (effects palette).
+pub fn shelter_roll() -> PixelArt {
+    let rows = [
+        "................",
+        ".oooooooooooooo.",
+        "ohhhchhhhhchhhho",
+        "oGGGcGGGGGcGGGGo",
+        "WgggcggggWcggggW",
+        "ogggWggggggWgggo",
+        ".oooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
+/// The shelter pitched for the night, 40x24 (effects palette), seen from
+/// the side: a thatched roof down to the ground, lit toward the ridge, its
+/// poles crossing over the ridge at each end, a dark doorway at the right.
+pub fn lean_to() -> PixelArt {
+    let i = |c: char| FX_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    let mut a = PixelArt::filled(40, 24, 0);
+    // The roof: wider at the eaves, in courses of thatch with ragged tips.
+    for y in 5..22 {
+        let spread = (y - 5) / 4;
+        for x in 5 - spread..35 + spread {
+            let (course, k) = ((y - 5) / 3, (y - 5) % 3);
+            let tip = k == 2 && (x + course) % 2 == 0;
+            let shade = [['h', 'h', 'G'], ['h', 'G', 'g'], ['G', 'G', 'g'], ['G', 'g', 'g'], ['G', 'g', 'g'], ['g', 'g', 'g']][course.min(5)];
+            a.set(x, y, i(if tip { shade[0] } else { shade[k] }));
+        }
+    }
+    // The doorway in the gable end.
+    for y in 12..22 {
+        let half = (y - 12) / 2;
+        for x in 35 - half..=35 {
+            a.set(x + 1, y, i('o'));
+        }
+    }
+    // Ridge pole, its crossed poles poking up at both ends, roped.
+    for x in 3..37 {
+        a.set(x, 4, i('W'));
+        a.set(x, 5, i('w'));
+    }
+    for (x0, dir) in [(2, 1), (37, -1)] {
+        for k in 0..6 {
+            a.set((x0 + dir * k) as usize, (k) as usize, i('W'));
+            a.set((x0 + dir * (5 - k)) as usize, (k) as usize, i('w'));
+        }
+        a.set((x0 + dir * 2) as usize, 4, i('c'));
+        a.set((x0 + dir * 3) as usize, 4, i('c'));
+    }
+    a.outlined(i('o'))
+}

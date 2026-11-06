@@ -201,6 +201,9 @@ pub struct Player {
     pub running: bool,
     pub wading: bool,
     pub action: Action,
+    /// Sleeping under a pitched shelter (one is carried): only the
+    /// shelter is drawn.
+    pub sheltered: bool,
     walk_timer: u32,
 }
 
@@ -223,6 +226,7 @@ impl Player {
         Self {
             body: Body::new(px, py, HITBOX),
             facing: Dir::Down,
+            sheltered: false,
             moving: false,
             running: false,
             wading: false,
@@ -569,13 +573,19 @@ impl Player {
         }
 
         if let Action::Sleep { t } = self.action {
-            // Curled up asleep, Zs drifting up from the head.
+            // Curled up asleep, Zs drifting up from the head; under a
+            // shelter only the shelter shows, the Zs rising from its ridge.
             let (lx, ly) = (sx - 15, sy + 6);
-            list.actor(depth, ObjEntry::new(lx, ly, sprites.player.sleeping, OBJ_PLAYER, prio));
+            let (hx, hy) = if self.sheltered {
+                list.actor(depth, ObjEntry::new(sx - 12, sy, sprites.lean_to, OBJ_FX, prio));
+                (sx + 6, sy - 2)
+            } else {
+                list.actor(depth, ObjEntry::new(lx, ly, sprites.player.sleeping, OBJ_PLAYER, prio));
+                (sx - 10, sy + 4)
+            };
             if shadows {
                 list.shadow(ObjEntry::new(lx, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
             }
-            let (hx, hy) = (sx - 10, sy + 4);
             for k in 0..2u32 {
                 let age = (t + k * SNORE_EVERY / 2) % SNORE_EVERY;
                 if t < SLEEP_SETTLE + k * SNORE_EVERY / 2 {

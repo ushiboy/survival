@@ -496,3 +496,83 @@ pub fn icon_rope() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A palm frond standing upright, 16x32: a pale midrib curving a little,
+/// leaflets sweeping down from it on both sides, shorter toward the tip.
+pub fn icon_palm_frond() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    let rib = |y: i32| 8 + (if y < 10 { (10 - y) / 4 } else { 0 });
+    // Leaflets: every other row a pair, slanting down and out.
+    for y0 in (2..27).step_by(2) {
+        let len = 2 + (y0 - 2) * 5 / 24;
+        for side in [-1i32, 1] {
+            for k in 1..=len {
+                let (x, y) = (rib(y0) + side * k, y0 + k / 2);
+                if (0..16).contains(&x) && y < 30 {
+                    a.set(x as usize, y as usize, if side < 0 { i('h') } else { i('G') });
+                    a.set(x as usize, (y + 1) as usize, i('g'));
+                }
+            }
+        }
+    }
+    for y in 1..31 {
+        a.set(rib(y) as usize, y as usize, if y > 26 { i('w') } else { i('W') });
+    }
+    a.outlined(i('o'))
+}
+
+/// A thatch panel, 32x16: rows of frond leaflets laid overlapping, held by
+/// two cords of vine.
+pub fn icon_thatch() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 16, 0);
+    for y in 2..14 {
+        for x in 1..31 {
+            let row = (y - 2) / 4;
+            let stroke = (x + (y - 2) % 4 + row * 2) % 4;
+            let c = if (y - 2) % 4 == 3 { i('g') } else if stroke == 0 { i('h') } else { i('G') };
+            a.set(x, y, c);
+        }
+    }
+    for x in [8, 23] {
+        for y in 1..15 {
+            a.set(x, y, if y % 2 == 0 { i('g') } else { i('G') });
+            a.set(x + 1, y, i('g'));
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The shelter rolled up to carry, 32x32: a bundle of thatch tied with
+/// rope round two poles that stick out past its ends.
+pub fn icon_shelter() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    // Poles behind the roll.
+    for x in 1..31 {
+        for (y, c) in [(12, 'W'), (13, 'w'), (19, 'W'), (20, 'w')] {
+            a.set(x, y, i(c));
+        }
+    }
+    // The roll of thatch, lit on top.
+    for y in 8..25 {
+        for x in 5..27 {
+            let ny = (y as f32 - 16.0) / 8.5;
+            let c = if (x + y) % 5 == 0 { i('g') } else if ny < -0.4 { i('h') } else if ny < 0.4 { i('G') } else { i('g') };
+            a.set(x, y, c);
+        }
+    }
+    // Its ends: the coil of fronds.
+    for cx in [5.0f32, 26.0] {
+        fill_ellipse(&mut a, cx, 16.5, 2.4, 8.4, |_, _, nx, ny| Some(if ((nx * nx + ny * ny).sqrt() * 3.0) as i32 % 2 == 0 { i('h') } else { i('g') }));
+    }
+    // Rope ties.
+    for x in [11, 20] {
+        for y in 7..26 {
+            a.set(x, y, if y % 2 == 0 { i('c') } else { i('W') });
+            a.set(x + 1, y, i('W'));
+        }
+    }
+    a.outlined(i('o'))
+}

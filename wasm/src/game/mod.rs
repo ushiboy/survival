@@ -27,7 +27,7 @@ use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::{TILE_SIZE, WorldMap, island};
 use menu::{BagMenu, Outcome};
-use state::{GameClock, Inventory, Vitals};
+use state::{GameClock, Inventory, Rest, Vitals};
 
 const START_HOUR: u32 = 7;
 /// Above this darkness the sun casts no shadows and night darkness begins.
@@ -41,6 +41,11 @@ const HITSTOP_CRAB: u32 = 5;
 /// second), and the minutes of sleep that restore a heart.
 const SLEEP_MINUTES_PER_FRAME: u32 = 2;
 const SLEEP_HEAL_MINUTES: u32 = 60;
+/// Minutes of sleep per heart restored under a shelter.
+const SHELTER_HEAL_MINUTES: u32 = 30;
+/// Chance a shake brings a frond down, and fronds a felled palm sheds.
+const FROND_CHANCE: f32 = 0.15;
+const FELLED_FRONDS: u32 = 3;
 
 /// Standing within this distance of a campfire counts as being by it (px).
 const NEAR_FIRE: i32 = 40;
@@ -215,11 +220,12 @@ impl Game {
             return;
         }
         if self.player.is_asleep() {
+            self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
             self.sleep_on();
         } else {
             self.slept = 0;
             if self.clock.tick() {
-                self.vitals.on_minute(false);
+                self.vitals.on_minute(Rest::Awake);
             }
         }
         self.tree_shake = self.tree_shake.filter(|s| s.frames > 0).map(|s| TreeShake { frames: s.frames - 1, ..s });
@@ -315,6 +321,10 @@ impl Game {
                 for slot in 0..fruit {
                     self.drop_coconut(anchor, slot, flip);
                 }
+                // And a few fronds off the crown.
+                for _ in 0..FELLED_FRONDS {
+                    self.drop_frond(anchor);
+                }
             }
             Strike::Brush => {
                 self.particles.leaves((point.0 - 6, point.1 - 10, 12, 8), point.1 + 2, 3);
@@ -357,6 +367,10 @@ impl Game {
         if self.rng.chance(0.35) {
             self.particles.leaves(canopy, ground, 1);
         }
+        // Now and then a dead frond comes away too.
+        if self.rng.chance(FROND_CHANCE) {
+            self.drop_frond(anchor);
+        }
         self.start_sway(anchor, sway);
     }
 
@@ -366,6 +380,14 @@ impl Game {
         let hx = if flip { PALM_W as f32 - hx } else { hx };
         let from = ((anchor.0 * TILE_SIZE) as f32 + hx, (anchor.1 * TILE_SIZE) as f32 + hy);
         self.drop_item(ItemKind::Coconut, anchor, from);
+    }
+
+    /// Sends a frond down from somewhere in the crown of the palm at
+    /// `anchor`.
+    fn drop_frond(&mut self, anchor: (i32, i32)) {
+        let ((x, y, w, h), _) = palm_canopy(anchor);
+        let from = ((x + self.rng.between(8, w - 8)) as f32, (y + self.rng.between(4, h / 2)) as f32);
+        self.drop_item(ItemKind::PalmFrond, anchor, from);
     }
 
     /// Sends an item from `from` (world px, as seen on screen) to a free spot
@@ -491,14 +513,17 @@ impl Game {
     }
 
     /// One frame of sleep: time hurries on (hunger and thirst with it, if
-    /// more slowly) and every hour slept restores a heart. The castaway sleeps on until
+    /// more slowly) and every hour slept restores a heart (every half hour,
+    /// and hunger and thirst slower still, under a shelter). The castaway sleeps on until
     /// woken with a button.
     fn sleep_on(&mut self) {
+        let sheltered = self.player.sheltered;
+        let (rest, heal_every) = if sheltered { (Rest::Sheltered, SHELTER_HEAL_MINUTES) } else { (Rest::Asleep, SLEEP_HEAL_MINUTES) };
         for _ in 0..SLEEP_MINUTES_PER_FRAME {
             self.clock.advance_minutes(1);
-            self.vitals.on_minute(true);
+            self.vitals.on_minute(rest);
             self.slept += 1;
-            if self.slept % SLEEP_HEAL_MINUTES == 0 {
+            if self.slept % heal_every == 0 {
                 self.vitals.heal(1);
             }
         }

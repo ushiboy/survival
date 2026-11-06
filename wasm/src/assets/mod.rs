@@ -183,6 +183,11 @@ pub struct BagSprites {
     pub pack_frame: [SpriteId; 2],
     pub husk: SpriteId,
     pub rope: SpriteId,
+    /// Upright, turned.
+    pub palm_frond: [SpriteId; 2],
+    /// Flat, turned.
+    pub thatch: [SpriteId; 2],
+    pub shelter: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -218,6 +223,9 @@ impl BagSprites {
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
             ItemKind::Husk => (self.husk, palettes::OBJ_CRAB),
             ItemKind::Rope => (self.rope, palettes::OBJ_CRAB),
+            ItemKind::PalmFrond => (self.palm_frond[turned as usize], palettes::OBJ_FX),
+            ItemKind::Thatch => (self.thatch[turned as usize], palettes::OBJ_FX),
+            ItemKind::Shelter => (self.shelter, palettes::OBJ_FX),
         }
     }
 }
@@ -268,6 +276,11 @@ pub struct SpriteIds {
     pub pack_frame: SpriteId,
     pub husk: SpriteId,
     pub rope: SpriteId,
+    pub palm_frond: SpriteId,
+    pub thatch: SpriteId,
+    pub shelter_roll: SpriteId,
+    /// The shelter pitched over a sleeper (who is hidden in it).
+    pub lean_to: SpriteId,
     pub fire: FireSprites,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
@@ -430,6 +443,15 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         },
         husk: bank.add(&item_art::icon_husk()),
         rope: bank.add(&item_art::icon_rope()),
+        palm_frond: {
+            let f = item_art::icon_palm_frond();
+            [bank.add(&f), bank.add(&f.rotated_cw())]
+        },
+        thatch: {
+            let t = item_art::icon_thatch();
+            [bank.add(&t), bank.add(&t.rotated_cw())]
+        },
+        shelter: bank.add(&item_art::icon_shelter()),
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         equipped: bank.add(&item_art::equipped_mark()),
         branch: {
@@ -478,6 +500,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         pack_frame: bank.add(&pack_frame()),
         husk: bank.add(&husk()),
         rope: bank.add(&rope_coil()),
+        palm_frond: bank.add(&palm_frond()),
+        thatch: bank.add(&thatch()),
+        shelter_roll: bank.add(&shelter_roll()),
+        lean_to: bank.add(&lean_to()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

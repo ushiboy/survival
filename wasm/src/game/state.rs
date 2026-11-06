@@ -53,6 +53,16 @@ impl GameClock {
     }
 }
 
+/// How the castaway is passing a minute (how hungry and thirsty it makes
+/// them).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rest {
+    Awake,
+    Asleep,
+    /// Asleep under a shelter.
+    Sheltered,
+}
+
 #[derive(Clone, Debug)]
 pub struct Vitals {
     pub hp: u8,
@@ -71,19 +81,22 @@ impl Vitals {
     /// Minutes awake for each gauge to go down a notch.
     const FOOD_DECAY_MINUTES: u32 = 15;
     const WATER_DECAY_MINUTES: u32 = 10;
-    /// Effort of a minute awake and a minute asleep: sleep burns a sixth
-    /// as fast.
-    const AWAKE_EFFORT: u32 = 6;
-    const ASLEEP_EFFORT: u32 = 1;
+    /// Effort of a minute awake: a minute asleep burns a sixth as much,
+    /// and under a shelter a twelfth.
+    const AWAKE_EFFORT: u32 = 12;
 
     pub fn new() -> Self {
         Self { hp: 5, max_hp: 5, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0 }
     }
 
     /// Called once per in-game minute: hunger and thirst grow, slower while
-    /// `asleep`.
-    pub fn on_minute(&mut self, asleep: bool) {
-        let effort = if asleep { Self::ASLEEP_EFFORT } else { Self::AWAKE_EFFORT };
+    /// resting.
+    pub fn on_minute(&mut self, rest: Rest) {
+        let effort = match rest {
+            Rest::Awake => Self::AWAKE_EFFORT,
+            Rest::Asleep => 2,
+            Rest::Sheltered => 1,
+        };
         self.food_spent += effort;
         if self.food_spent >= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT {
             self.food_spent -= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT;

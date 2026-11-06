@@ -41,6 +41,13 @@ pub enum ItemKind {
     Husk,
     /// Cord twisted from coconut husk fibre (coir): stronger than vine.
     Rope,
+    /// A long palm leaf, shaken loose or brought down with a felled palm.
+    PalmFrond,
+    /// A panel of palm fronds woven together with vine: a piece of roof.
+    Thatch,
+    /// A lean-to of branch poles and thatch, rolled up to carry; pitched
+    /// over the castaway when they lie down to sleep.
+    Shelter,
 }
 
 /// Where a piece of gear goes.
@@ -84,9 +91,10 @@ impl ItemKind {
     pub fn size(self) -> (i32, i32) {
         match self {
             ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
-            ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame => (1, 2),
+            ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond => (1, 2),
+            ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear => (1, 3),
-            ItemKind::Timber | ItemKind::LauanTimber => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::Shelter => (2, 2),
         }
     }
 
@@ -111,6 +119,9 @@ impl ItemKind {
             ItemKind::PackFrame => "PACK FRAME",
             ItemKind::Husk => "HUSK",
             ItemKind::Rope => "ROPE",
+            ItemKind::PalmFrond => "PALM FROND",
+            ItemKind::Thatch => "THATCH",
+            ItemKind::Shelter => "SHELTER",
         }
     }
 
@@ -137,6 +148,9 @@ impl ItemKind {
             ItemKind::PackFrame => "WORN ON THE BACK, IT GIVES THE BAG 12 MORE ROOM.",
             ItemKind::Husk => "LEFT FROM A COCONUT. ITS FIBRE MAKES ROPE.",
             ItemKind::Rope => "TWISTED COCONUT FIBRE. STRONGER THAN VINE.",
+            ItemKind::PalmFrond => "A LONG PALM LEAF. WOVEN TOGETHER, FRONDS KEEP OFF RAIN.",
+            ItemKind::Thatch => "PALM FRONDS WOVEN WITH VINE INTO A PIECE OF ROOF.",
+            ItemKind::Shelter => "A LEAN-TO, ROLLED UP. SLEEP UNDER IT TO HEAL FASTER AND TIRE LESS.",
         }
     }
 
@@ -168,7 +182,7 @@ impl ItemKind {
     pub fn max_stack(self) -> u32 {
         match self {
             ItemKind::Leaf => 20,
-            ItemKind::Husk | ItemKind::Rope => 5,
+            ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond => 5,
             _ => 1,
         }
     }

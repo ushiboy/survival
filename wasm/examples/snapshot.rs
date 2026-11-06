@@ -46,6 +46,9 @@ fn main() {
                 "frame" => ItemKind::PackFrame,
                 "husk" => ItemKind::Husk,
                 "rope" => ItemKind::Rope,
+                "frond" => ItemKind::PalmFrond,
+                "thatch" => ItemKind::Thatch,
+                "shelter" => ItemKind::Shelter,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
