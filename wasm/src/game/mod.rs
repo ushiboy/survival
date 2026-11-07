@@ -5,6 +5,7 @@
 pub mod bag;
 pub mod fishing;
 pub mod menu;
+pub mod regions;
 pub mod state;
 
 use crate::assets::{Assets, SpriteIds};
@@ -13,6 +14,7 @@ use crate::assets::character::Outfit;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
+use crate::common::math::Rect;
 use crate::common::rng::Rng;
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
@@ -32,8 +34,9 @@ use crate::render::lighting::{self, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
-use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap, island};
+use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, island};
 use menu::{BagMenu, Outcome};
+use regions::Regions;
 use state::{GameClock, Inventory, Rest, Vitals};
 
 const START_HOUR: u32 = 7;
@@ -138,6 +141,8 @@ pub struct Game {
     shell_day: u32,
     shell_cap: usize,
     /// In-game minutes the castaway has been asleep.
+    /// Which chunks of the island are awake (creatures move only there).
+    regions: Regions,
     /// The island's seed (to start again from).
     seed: u32,
     /// Frames since the castaway collapsed, once they have.
@@ -163,8 +168,8 @@ impl Game {
         let mut assets = Assets::load();
         let map = island::generate(seed);
         let items = map.loot.iter().map(|&(kind, (x, y))| Item::lying(kind, (x as f32, y as f32))).collect();
-        let mut tileset = Tileset::default();
-        let visual = tileset.build(&map, &mut assets);
+        let (tileset, visual) = Tileset::new(&map, &mut assets);
+        let regions = Regions::new(&map, GameClock::new(1, START_HOUR).total_minutes());
         // The story opens with the castaway washed up on the beach.
         let player = Player::washed_up(map.spawn.0, map.spawn.1);
         let crabs = map
@@ -198,6 +203,7 @@ impl Game {
             fires: Vec::new(),
             shell_day: 0,
             shell_cap: 0,
+            regions,
             seed,
             collapsed: None,
             gulls,
@@ -215,6 +221,8 @@ impl Game {
             ppu: Ppu::new(),
         };
         game.camera.follow(game.player.center(), game.map.pixel_size());
+        game.stream_ground();
+        game.wake_regions();
         for _ in 0..FISH_COUNT {
             game.spawn_fish(false);
         }
@@ -337,18 +345,21 @@ impl Game {
             }
         }
         self.particles.update();
-        for item in &mut self.items {
+        // Things move only in the chunks around the screen.
+        self.wake_regions();
+        let regions = &self.regions;
+        for item in self.items.iter_mut().filter(|i| regions.is_awake(i.ground())) {
             item.update(&self.map);
         }
         let pc = self.player.center();
         let (feet, moving) = (self.player.body.feet(), self.player.moving);
-        for crab in &mut self.crabs {
+        for crab in self.crabs.iter_mut().filter(|c| regions.is_awake(c.center())) {
             crab.update(&self.map, feet, moving);
         }
         for gull in &mut self.gulls {
             gull.update();
         }
-        for fish in &mut self.fish {
+        for fish in self.fish.iter_mut().filter(|f| regions.is_awake(f.pos())) {
             fish.update(&self.map);
         }
         let now = self.clock.total_minutes();
@@ -776,7 +787,7 @@ impl Game {
         // Keep the PPU (its frame buffer stays where the page reads it, and
         // the sprite limit as set) and the buttons as they are held (so the
         // START that began again doesn't count as pressed once more).
-        let ppu = std::mem::replace(&mut self.ppu, Ppu::new());
+        let ppu = std::mem::take(&mut self.ppu);
         let input = std::mem::take(&mut self.input);
         *self = Game::new(self.seed);
         self.ppu = ppu;
@@ -870,8 +881,30 @@ impl Game {
         self.tree_shake = Some(TreeShake { anchor, frames });
     }
 
+    /// Wakes the chunks around the screen (and lets those left behind
+    /// sleep), catching each one woken up on the time it slept.
+    fn wake_regions(&mut self) {
+        let view = Rect::new(self.camera.x, self.camera.y, SCREEN_W as i32, SCREEN_H as i32);
+        for (chunk, slept) in self.regions.update(view, self.clock.total_minutes()) {
+            self.catch_up(chunk, slept);
+        }
+    }
+
+    /// Where a chunk waking up will make up for the `slept` game minutes it
+    /// was left alone (crabs breeding or dying off there, say). Nothing
+    /// changes while asleep yet: things simply carry on from where they
+    /// were.
+    fn catch_up(&mut self, _chunk: ChunkId, _slept: u32) {}
+
+    /// Keeps the ground around the screen built (see `Tileset::stream`).
+    fn stream_ground(&mut self) {
+        let view = Rect::new(self.camera.x, self.camera.y, SCREEN_W as i32, SCREEN_H as i32);
+        self.tileset.stream(&self.map, &mut self.assets, &mut self.visual, view);
+    }
+
     /// Sets up PPU state for this frame and renders it to the RGBA buffer.
     pub fn render(&mut self) {
+        self.stream_ground();
         if let Some(shake) = self.tree_shake {
             // Tile animation on the struck tree only (a BG2 line scroll would
             // also move every other tree on the same lines).
@@ -1089,6 +1122,11 @@ impl Game {
 
     /// VRAM needed for the current screen: the unique background tiles in
     /// view (as if streamed in while scrolling) plus all sprite and HUD tiles.
+    /// Dev tools: blocks held for the map's ground (built near the screen).
+    pub fn ground_blocks(&self) -> usize {
+        self.tileset.resident()
+    }
+
     pub fn vram_usage(&self) -> usize {
         let mut ids = std::collections::HashSet::new();
         let (x0, y0) = (self.camera.x.div_euclid(16), self.camera.y.div_euclid(16));

@@ -54,6 +54,11 @@ impl Rect {
         Self::new(self.x + dx, self.y + dy, self.w, self.h)
     }
 
+    /// Whether the two share any pixel.
+    pub const fn overlaps(&self, o: &Rect) -> bool {
+        self.x < o.right() && o.x < self.right() && self.y < o.bottom() && o.y < self.bottom()
+    }
+
     pub const fn center(&self) -> (i32, i32) {
         (self.x + self.w / 2, self.y + self.h / 2)
     }

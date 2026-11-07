@@ -21,16 +21,31 @@ pub struct Metatile {
     pub period: u32,
 }
 
+/// BG blocks. Slots freed when the ground they drew is put away are reused
+/// by the next blocks made, as streamed CHR overwrites VRAM.
 #[derive(Default, Debug)]
 pub struct MetatileBank {
-    tiles: Vec<Metatile>,
+    tiles: Vec<Option<Metatile>>,
+    free: Vec<MetatileId>,
 }
 
 impl MetatileBank {
     pub fn add(&mut self, palette: u8, frames: Vec<Tile16>, period: u32) -> MetatileId {
         assert!(!frames.is_empty());
-        self.tiles.push(Metatile { palette, frames, period: period.max(1) });
+        let tile = Some(Metatile { palette, frames, period: period.max(1) });
+        if let Some(id) = self.free.pop() {
+            self.tiles[id as usize] = tile;
+            return id;
+        }
+        self.tiles.push(tile);
         (self.tiles.len() - 1) as MetatileId
+    }
+
+    /// Frees a block's slot for reuse.
+    pub fn remove(&mut self, id: MetatileId) {
+        if self.tiles[id as usize].take().is_some() {
+            self.free.push(id);
+        }
     }
 
     pub fn add_art(&mut self, palette: u8, art: &PixelArt) -> MetatileId {
@@ -39,18 +54,25 @@ impl MetatileBank {
 
     #[inline]
     pub fn frame(&self, id: MetatileId, clock: u32) -> (&Tile16, u8) {
-        let t = &self.tiles[id as usize];
+        let t = self.tiles[id as usize].as_ref().expect("metatile drawn after it was freed");
         let f = (clock / t.period) as usize % t.frames.len();
         (&t.frames[f], t.palette)
     }
 
+    /// Blocks held now (not counting freed slots).
     pub fn len(&self) -> usize {
+        self.tiles.len() - self.free.len()
+    }
+
+    /// Slots ever used: the next block made gets an id at or past this,
+    /// unless a freed slot is reused.
+    pub fn slots(&self) -> usize {
         self.tiles.len()
     }
 
     /// VRAM bytes, counting one resident frame per animated tile.
     pub fn vram_bytes(&self) -> usize {
-        self.tiles.len() * 4 * tile_bytes(4)
+        self.len() * 4 * tile_bytes(4)
     }
 }
 

@@ -15,14 +15,17 @@ use crate::assets::paint::{bayer, noise_px};
 use crate::assets::props::{Ground, PropTile, composite};
 use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
 use crate::assets::{Assets, PALM_SWAY_MAX, PropSet, SURF_FRAMES, SURF_PERIOD};
+use crate::common::math::Rect;
 use crate::ppu::banks::{MetatileBank, MetatileId};
+use crate::ppu::pattern::Tile16;
+use crate::world::chunk::chunks_touching;
 use crate::ppu::pattern::PixelArt;
 use crate::ppu::{BgCell, BgLayer};
 use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::noise::value_noise;
 use crate::world::harvest::BARK_STRIPS;
 use crate::world::terrain::{BroadleafPart, PalmPart};
-use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap};
+use crate::world::{CHUNK_CELLS, CHUNK_PX, ChunkId, Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
 pub struct TileGrid {
@@ -39,6 +42,10 @@ impl TileGrid {
 
     fn set(&mut self, x: i32, y: i32, c: BgCell) {
         self.cells[(y * self.w + x) as usize] = c;
+    }
+
+    fn get(&self, x: i32, y: i32) -> BgCell {
+        self.cells[(y * self.w + x) as usize]
     }
 }
 
@@ -181,6 +188,8 @@ struct Builder<'a> {
     tex: &'a TerrainTextures,
     bank: &'a mut MetatileBank,
     cache: &'a mut HashMap<Key, MetatileId>,
+    /// Blocks made by this builder, with their cache key if shared.
+    made: Vec<(MetatileId, Option<Key>)>,
 }
 
 impl Builder<'_> {
@@ -190,7 +199,19 @@ impl Builder<'_> {
         }
         let id = make(self.tex, self.bank);
         self.cache.insert(key, id);
+        self.made.push((id, Some(key)));
         id
+    }
+
+    /// A block made for one cell only (not shared).
+    fn unique(&mut self, palette: u8, frames: Vec<Tile16>, period: u32) -> MetatileId {
+        let id = self.bank.add(palette, frames, period);
+        self.made.push((id, None));
+        id
+    }
+
+    fn unique_art(&mut self, palette: u8, art: &PixelArt) -> MetatileId {
+        self.unique(palette, vec![art.to_tile16()], 1)
     }
 
     fn interior(&mut self, t: Terrain, x: i32, y: i32) -> MetatileId {
@@ -246,14 +267,14 @@ impl Builder<'_> {
                 .to_tile16()
             })
             .collect();
-        self.bank.add(PAL_SHORE, frames, SURF_PERIOD)
+        self.unique(PAL_SHORE, frames, SURF_PERIOD)
     }
 
     /// Open shallows deepening toward the reef edge.
     fn shallows(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
         let water = slice(&self.tex.shallow, x, y);
         let art = compose(|px, py| shallow_depth(water.get(px, py), f.at(px, py), px as i32, py as i32));
-        self.bank.add_art(PAL_SHORE, &art)
+        self.unique_art(PAL_SHORE, &art)
     }
 
     /// Deep water rising toward the shallows.
@@ -272,14 +293,14 @@ impl Builder<'_> {
                 base.get(px, py)
             }
         });
-        self.bank.add_art(PAL_DEEP, &art)
+        self.unique_art(PAL_DEEP, &art)
     }
 
     /// Grass giving way to sand with a ragged fringe.
     fn grass_edge(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
         let (g, s) = self.grass_and_sand(x, y);
         let art = compose(|px, py| grass_or_sand(f, &g, &s, x, y, px, py));
-        self.bank.add_art(PAL_GRASS, &art)
+        self.unique_art(PAL_GRASS, &art)
     }
 
     /// Grass and sand texture slices for a cell, both in the grass palette.
@@ -346,7 +367,7 @@ impl Builder<'_> {
                 grass_or_sand(f, &g, &s, x, y, px, py)
             }
         });
-        self.bank.add_art(PAL_GRASS, &art)
+        self.unique_art(PAL_GRASS, &art)
     }
 
     /// River water (BG2, under BG1's transparent water pixels): dark under
@@ -376,7 +397,7 @@ impl Builder<'_> {
             }
             if d > 12.0 && b < 0.3 { deep::RIVER_SHADE } else { deep::RIVER_BODY }
         });
-        self.bank.add_art(PAL_DEEP, &art)
+        self.unique_art(PAL_DEEP, &art)
     }
 
     fn prop(&mut self, kind: u8, tile: &PropTile, flip: bool, x: i32, y: i32) -> MetatileId {
@@ -422,42 +443,202 @@ fn grass_or_sand(f: &CellField, g: &PixelArt, s: &PixelArt, x: i32, y: i32, px: 
     }
 }
 
-/// Owns the tile cache so cells can be rebuilt when the world changes
-/// (e.g. a tree is felled); new tiles go into VRAM like streamed CHR.
-#[derive(Default)]
+/// How far around the screen (px) ground must be ready before it is drawn,
+/// how far ahead of the screen chunks are built a little each frame, and
+/// past what distance built chunks are put away (their blocks freed).
+const NEEDED_MARGIN: i32 = 16;
+const PREFETCH_MARGIN: i32 = CHUNK_PX / 2;
+const KEEP_MARGIN: i32 = CHUNK_PX;
+/// Rows of a chunk built per frame while building ahead.
+const PREFETCH_ROWS: i32 = 4;
+
+/// How far a chunk's tiles have been built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Built {
+    No,
+    /// Rows above this one (chunk-relative) are built.
+    Rows(i32),
+    Yes,
+}
+
+/// Builds the ground for the chunks near the screen and puts away the rest,
+/// the way a game streams map tiles and CHR into VRAM as it scrolls. Also
+/// re-derives cells when the world changes (e.g. a tree is felled).
+///
+/// Blocks it makes are counted by the cells using them: shared ones (a
+/// texture's slice) are kept in a cache while any cell uses them, and a
+/// block no cell uses any longer is freed from VRAM.
 pub struct Tileset {
     cache: HashMap<Key, MetatileId>,
+    /// Blocks made here (ids from `first_made` on): cells using each, and
+    /// its cache key if it is shared.
+    uses: HashMap<MetatileId, (u32, Option<Key>)>,
+    /// Ids below this are the fixed blocks loaded with the assets.
+    first_made: usize,
+    chunks: (i32, i32),
+    built: Vec<Built>,
 }
 
 impl Tileset {
-    pub fn build(&mut self, map: &WorldMap, assets: &mut Assets) -> VisualMap {
-        let props: &PropSet = &assets.props;
-        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut self.cache };
+    /// Sets up the (still empty) visual map for `map`; ground is built as
+    /// it comes near the screen (`stream`).
+    pub fn new(map: &WorldMap, assets: &mut Assets) -> (Self, VisualMap) {
+        let chunks = map.chunk_count();
+        let mut tileset = Self {
+            cache: HashMap::new(),
+            uses: HashMap::new(),
+            first_made: assets.vram.metatiles.slots(),
+            chunks,
+            built: vec![Built::No; (chunks.0 * chunks.1) as usize],
+        };
+        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut tileset.cache, made: Vec::new() };
         let border = BgCell::new(b.interior(Terrain::DeepWater, 0, 0));
-        let mut visual = VisualMap {
+        let made = std::mem::take(&mut b.made);
+        tileset.note_made(made);
+        // The sea beyond the map's edge is always shown.
+        tileset.retain(border.tile);
+        let visual = VisualMap {
             ground: TileGrid::new(map.width(), map.height(), border),
             overhead: TileGrid::new(map.width(), map.height(), BgCell::EMPTY),
         };
-        for y in 0..map.height() {
-            for x in 0..map.width() {
-                let (g, o) = cell_tiles(&mut b, props, map, x, y);
-                visual.ground.set(x, y, g);
-                visual.overhead.set(x, y, o);
-            }
-        }
-        visual
+        (tileset, visual)
     }
 
-    /// Re-derives the tiles of the given cells from the current world state.
-    pub fn refresh(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, cells: &[(i32, i32)]) {
-        let props: &PropSet = &assets.props;
-        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut self.cache };
-        for &(x, y) in cells {
-            if map.in_bounds(x, y) {
-                let (g, o) = cell_tiles(&mut b, props, map, x, y);
-                visual.ground.set(x, y, g);
-                visual.overhead.set(x, y, o);
+    fn slot(&self, id: ChunkId) -> Option<usize> {
+        let ok = (0..self.chunks.0).contains(&id.cx) && (0..self.chunks.1).contains(&id.cy);
+        ok.then(|| (id.cy * self.chunks.0 + id.cx) as usize)
+    }
+
+    /// Whether a cell's tiles are built (so it may be redrawn in place).
+    fn is_built(&self, x: i32, y: i32) -> bool {
+        let id = ChunkId::of_cell(x, y);
+        match self.slot(id).map(|i| self.built[i]) {
+            Some(Built::Yes) => true,
+            Some(Built::Rows(r)) => y - id.origin().1 < r,
+            _ => false,
+        }
+    }
+
+    /// Blocks held for the map's ground now (for the dev tools).
+    pub fn resident(&self) -> usize {
+        self.uses.len()
+    }
+
+    /// Keeps the ground around the screen (`view`, world px) built: what
+    /// is on screen straight away, what lies just ahead a few rows a frame,
+    /// and puts away chunks left far behind.
+    pub fn stream(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, view: Rect) {
+        let grow = |m: i32| Rect::new(view.x - m, view.y - m, view.w + 2 * m, view.h + 2 * m);
+        let keep = grow(KEEP_MARGIN);
+        for cy in 0..self.chunks.1 {
+            for cx in 0..self.chunks.0 {
+                let id = ChunkId::new(cx, cy);
+                let i = (cy * self.chunks.0 + cx) as usize;
+                if self.built[i] != Built::No && !id.rect().overlaps(&keep) {
+                    self.put_away(map, visual, &mut assets.vram.metatiles, id);
+                }
             }
+        }
+        for id in chunks_touching(grow(NEEDED_MARGIN), self.chunks).collect::<Vec<_>>() {
+            self.build_rows(map, assets, visual, id, CHUNK_CELLS);
+        }
+        let ahead = chunks_touching(grow(PREFETCH_MARGIN), self.chunks)
+            .find(|&id| self.slot(id).is_some_and(|i| self.built[i] != Built::Yes));
+        if let Some(id) = ahead {
+            self.build_rows(map, assets, visual, id, PREFETCH_ROWS);
+        }
+    }
+
+    /// Builds up to `rows` more rows of a chunk.
+    fn build_rows(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, id: ChunkId, rows: i32) {
+        let Some(i) = self.slot(id) else { return };
+        let done = match self.built[i] {
+            Built::Yes => return,
+            Built::No => 0,
+            Built::Rows(r) => r,
+        };
+        let until = (done + rows).min(CHUNK_CELLS);
+        let y0 = id.origin().1;
+        let cells: Vec<(i32, i32)> = map.chunk_cells(id).filter(|&(_, y)| (y0 + done..y0 + until).contains(&y)).collect();
+        self.built[i] = if until >= CHUNK_CELLS { Built::Yes } else { Built::Rows(until) };
+        self.draw_cells(map, assets, visual, &cells);
+    }
+
+    /// Clears a chunk's cells, freeing the blocks nothing else uses.
+    fn put_away(&mut self, map: &WorldMap, visual: &mut VisualMap, bank: &mut MetatileBank, id: ChunkId) {
+        if let Some(i) = self.slot(id) {
+            self.built[i] = Built::No;
+        }
+        for (x, y) in map.chunk_cells(id) {
+            let (g, o) = (visual.ground.get(x, y), visual.overhead.get(x, y));
+            visual.ground.set(x, y, BgCell::EMPTY);
+            visual.overhead.set(x, y, BgCell::EMPTY);
+            self.release(bank, g.tile, !g.is_empty());
+            self.release(bank, o.tile, !o.is_empty());
+        }
+    }
+
+    /// Re-derives the tiles of the given cells from the current world state
+    /// (cells not built yet will be built from it when they come near).
+    pub fn refresh(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, cells: &[(i32, i32)]) {
+        let cells: Vec<(i32, i32)> = cells.iter().copied().filter(|&(x, y)| map.in_bounds(x, y) && self.is_built(x, y)).collect();
+        self.draw_cells(map, assets, visual, &cells);
+    }
+
+    fn draw_cells(&mut self, map: &WorldMap, assets: &mut Assets, visual: &mut VisualMap, cells: &[(i32, i32)]) {
+        let props: &PropSet = &assets.props;
+        let mut b = Builder { tex: &assets.textures, bank: &mut assets.vram.metatiles, cache: &mut self.cache, made: Vec::new() };
+        let mut placed = Vec::with_capacity(cells.len());
+        for &(x, y) in cells {
+            placed.push((x, y, cell_tiles(&mut b, props, map, x, y)));
+        }
+        let made = std::mem::take(&mut b.made);
+        self.note_made(made);
+        let bank = &mut assets.vram.metatiles;
+        for (x, y, (g, o)) in placed {
+            let (old_g, old_o) = (visual.ground.get(x, y), visual.overhead.get(x, y));
+            visual.ground.set(x, y, g);
+            visual.overhead.set(x, y, o);
+            self.retain_cell(g);
+            self.retain_cell(o);
+            self.release(bank, old_g.tile, !old_g.is_empty());
+            self.release(bank, old_o.tile, !old_o.is_empty());
+        }
+    }
+
+    /// Records blocks just made (with no cells using them yet).
+    fn note_made(&mut self, made: Vec<(MetatileId, Option<Key>)>) {
+        for (id, key) in made {
+            self.uses.insert(id, (0, key));
+        }
+    }
+
+    fn retain_cell(&mut self, c: BgCell) {
+        if !c.is_empty() {
+            self.retain(c.tile);
+        }
+    }
+
+    fn retain(&mut self, id: MetatileId) {
+        if let Some((n, _)) = self.uses.get_mut(&id) {
+            *n += 1;
+        }
+    }
+
+    /// One cell fewer uses the block; freed once none do. Fixed blocks
+    /// (loaded with the assets) are never freed.
+    fn release(&mut self, bank: &mut MetatileBank, id: MetatileId, used: bool) {
+        if !used || (id as usize) < self.first_made {
+            return;
+        }
+        let Some((n, key)) = self.uses.get_mut(&id) else { return };
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            if let Some(key) = key.take() {
+                self.cache.remove(&key);
+            }
+            self.uses.remove(&id);
+            bank.remove(id);
         }
     }
 }

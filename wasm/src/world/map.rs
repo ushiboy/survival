@@ -68,6 +68,18 @@ impl WorldMap {
         (self.w * TILE_SIZE, self.h * TILE_SIZE)
     }
 
+    /// Chunk columns and rows covering the map.
+    pub fn chunk_count(&self) -> (i32, i32) {
+        super::chunk::chunks_for(self.w, self.h)
+    }
+
+    /// The map's cells in a chunk, row by row (none past the map's edge).
+    pub fn chunk_cells(&self, id: super::chunk::ChunkId) -> impl Iterator<Item = (i32, i32)> + use<> {
+        let (x0, y0) = id.origin();
+        let (x1, y1) = ((x0 + super::chunk::CHUNK_CELLS).min(self.w), (y0 + super::chunk::CHUNK_CELLS).min(self.h));
+        (y0.max(0)..y1).flat_map(move |y| (x0.max(0)..x1).map(move |x| (x, y)))
+    }
+
     #[inline]
     pub fn in_bounds(&self, x: i32, y: i32) -> bool {
         x >= 0 && y >= 0 && x < self.w && y < self.h

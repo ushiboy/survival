@@ -10,7 +10,9 @@
 //! `SNAP_HP=n` to start with `n` health (of 64), `SNAP_FOOD=n` and
 //! `SNAP_WATER=n` with that much food and water, and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
-//! a fish in the water that far from the castaway's feet.
+//! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
+//! draws every frame as the browser does, and reports the ground blocks
+//! held at the end.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
@@ -90,14 +92,23 @@ fn main() {
         game.step(0x2000);
         game.step(0);
     }
+    // SNAP_EVERY_FRAME=1 draws every frame, as the browser does (so the
+    // ground streams in and out as it would there).
+    let every_frame = std::env::var("SNAP_EVERY_FRAME").is_ok();
     for step in script.split(',') {
         let (buttons, frames) = step.split_once(':').expect("step must be buttons:frames");
         let buttons = u16::from_str_radix(buttons, 16).expect("buttons must be hex");
         for _ in 0..frames.parse::<u32>().expect("frames must be a number") {
             game.step(buttons);
+            if every_frame {
+                game.render();
+            }
         }
     }
     eprintln!("player tile {:?}", game.player_tile());
+    if every_frame {
+        eprintln!("ground blocks held {}", game.ground_blocks());
+    }
     game.render();
     let mut data = format!("P6\n{SCREEN_W} {SCREEN_H}\n255\n").into_bytes();
     for px in game.rgba().chunks(4) {
