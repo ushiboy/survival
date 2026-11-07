@@ -72,6 +72,23 @@ impl BroadleafPart {
     }
 }
 
+/// One cell of a driftwood log lying on the beach, two cells long:
+/// `dx` 0 is the left cell. Mirrored logs have their roots on the right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DriftwoodPart {
+    pub dx: u8,
+    pub flip: bool,
+}
+
+impl DriftwoodPart {
+    pub const W: i32 = 2;
+
+    /// Left cell of the log this part at `(x, y)` belongs to.
+    pub fn anchor(&self, x: i32, y: i32) -> (i32, i32) {
+        (x - self.dx as i32, y)
+    }
+}
+
 /// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StumpPart {
@@ -89,7 +106,9 @@ pub enum Feature {
     BroadleafStump(StumpPart),
     Rock,
     Bush,
-    Driftwood,
+    /// A bleached log washed up on the beach; the axe splits it into
+    /// branches.
+    Driftwood(DriftwoodPart),
     Shell,
     Flower,
     /// A climbing plant whose vine can be pulled off (once).
@@ -113,7 +132,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
         Feature::Palm(p) => p.is_trunk_base(),
         Feature::Broadleaf(p) => p.is_trunk_base(),
-        Feature::BroadleafStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood | Feature::Vine | Feature::VineStake => true,
+        Feature::BroadleafStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };
     TileProps {

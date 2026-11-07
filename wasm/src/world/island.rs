@@ -9,7 +9,7 @@ use crate::items::ItemKind;
 use super::map::{TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{BroadleafPart, Feature, PalmPart, Terrain};
+use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 use std::f32::consts::TAU;
 
@@ -281,17 +281,21 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: 
 }
 
 fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
+    // A free cell, away from the spawn, the river and terrain edges.
+    let open = |map: &WorldMap, x: i32, y: i32| {
+        if !(0..MAP_W).contains(&x) || map.feature(x, y) != Feature::None || near_spawn(x, y) || map.is_riverside(x, y) {
+            return false;
+        }
+        let h = heights[(y * MAP_W + x) as usize];
+        h > SAND_BELOW + PROP_MARGIN || (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h)
+    };
     for y in 0..MAP_H {
         for x in 0..MAP_W {
-            if map.feature(x, y) != Feature::None || near_spawn(x, y) || map.is_riverside(x, y) {
+            if !open(map, x, y) {
                 continue;
             }
             let h = heights[(y * MAP_W + x) as usize];
             let r = hash_unit(x, y, seed ^ 0xF00D);
-            let clear_of_edges = h > SAND_BELOW + PROP_MARGIN || (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h);
-            if !clear_of_edges {
-                continue;
-            }
             let feature = match map.terrain(x, y) {
                 Terrain::Grass if h > JUNGLE_ABOVE => {
                     if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
@@ -305,7 +309,14 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
                     if r < 0.016 {
                         Feature::Rock
                     } else if r < 0.026 {
-                        Feature::Driftwood
+                        // A log two cells long, if there's sand for it.
+                        if map.terrain(x + 1, y) == Terrain::Sand && open(map, x + 1, y) {
+                            let flip = hash_unit(x, y, seed ^ 0xD81F) < 0.5;
+                            map.set_feature(x + 1, y, Feature::Driftwood(DriftwoodPart { dx: 1, flip }));
+                            Feature::Driftwood(DriftwoodPart { dx: 0, flip })
+                        } else {
+                            Feature::None
+                        }
                     } else if r < 0.05 {
                         Feature::Shell
                     } else {

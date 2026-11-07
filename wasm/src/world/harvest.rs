@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
-use super::terrain::{BroadleafPart, Feature, PalmPart, StumpPart};
+use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, StumpPart};
 use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
 
@@ -15,6 +15,10 @@ pub const PALM_WOOD: u32 = 3;
 /// timber it breaks into.
 pub const BROADLEAF_HP: u8 = 5;
 pub const BROADLEAF_WOOD: u32 = 3;
+/// Axe hits needed to split a driftwood log, and the branches it breaks
+/// into (at least, and up to one more).
+pub const DRIFTWOOD_HP: u8 = 2;
+pub const DRIFTWOOD_BRANCHES: u32 = 2;
 /// Strips of bark a broadleaf tree has to give (they don't grow back).
 pub const BARK_STRIPS: u8 = 3;
 /// Most coconuts a palm carries (they don't grow back yet).
@@ -33,6 +37,11 @@ pub enum Strike {
     Hard { kind: Feature },
     /// Hit foliage that doesn't yield (bushes).
     Brush,
+    /// Cracked a driftwood log; `anchor` is its left cell.
+    LogHit { anchor: (i32, i32) },
+    /// Split a driftwood log into branches; its cells (now bare sand) need
+    /// redrawing.
+    LogSplit { anchor: (i32, i32), changed: Vec<(i32, i32)> },
     /// Damaged a palm; `anchor` is its top-left cell.
     TreeHit { anchor: (i32, i32), hp_left: u8 },
     /// Felled a palm; the listed cells changed and need redrawing. The
@@ -161,10 +170,25 @@ impl Harvest {
         }
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
+            Feature::Driftwood(p) => self.split_log(map, p.anchor(x, y)),
             Feature::Bush | Feature::Vine => Strike::Brush,
-            f @ (Feature::Rock | Feature::Driftwood | Feature::Stump(_) | Feature::BroadleafStump(_)) => Strike::Hard { kind: f },
+            f @ (Feature::Rock | Feature::Stump(_) | Feature::BroadleafStump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
         }
+    }
+
+    fn split_log(&mut self, map: &mut WorldMap, anchor: (i32, i32)) -> Strike {
+        let hits = self.damage.entry(anchor).or_insert(0);
+        *hits += 1;
+        if *hits < DRIFTWOOD_HP {
+            return Strike::LogHit { anchor };
+        }
+        self.damage.remove(&anchor);
+        let changed: Vec<(i32, i32)> = (0..DriftwoodPart::W).map(|dx| (anchor.0 + dx, anchor.1)).collect();
+        for &(x, y) in &changed {
+            map.set_feature(x, y, Feature::None);
+        }
+        Strike::LogSplit { anchor, changed }
     }
 
     fn chop_palm(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {

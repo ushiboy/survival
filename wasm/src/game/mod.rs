@@ -331,6 +331,24 @@ impl Game {
                     self.drop_frond(anchor);
                 }
             }
+            Strike::LogHit { .. } => {
+                self.hitstop = HITSTOP_TREE;
+                self.particles.chips(point, toward, 4);
+            }
+            Strike::LogSplit { anchor, changed } => {
+                self.hitstop = HITSTOP_TREE;
+                self.particles.chips(point, toward, 8);
+                self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+                // The log falls apart into branches where it lay.
+                let n = harvest::DRIFTWOOD_BRANCHES + self.rng.chance(0.5) as u32;
+                let (lx, ly) = (anchor.0 * TILE_SIZE, anchor.1 * TILE_SIZE);
+                for k in 0..n {
+                    let x = lx + 6 + (k as i32 * 20 / n as i32) + self.rng.between(-2, 2);
+                    let y = ly + 9 + self.rng.between(-3, 3);
+                    let from = (x as f32, (y - 6) as f32);
+                    self.items.push(Item::falling(ItemKind::Branch, from, (x as f32, y as f32), (self.rng.between(-2, 2) as f32 * 0.1, 0.2)));
+                }
+            }
             Strike::Brush => {
                 self.particles.leaves((point.0 - 6, point.1 - 10, 12, 8), point.1 + 2, 3);
             }

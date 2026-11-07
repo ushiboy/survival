@@ -352,7 +352,8 @@ impl HudTiles {
 /// Background props, composited onto ground textures by the tileset builder.
 pub struct PropSet {
     pub boulder: PropTile,
-    pub driftwood: PropTile,
+    /// A driftwood log's left and right cell.
+    pub driftwood: [PropTile; 2],
     pub shell: PropTile,
     pub bush: PropTile,
     pub flowers: PropTile,

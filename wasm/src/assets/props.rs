@@ -144,34 +144,87 @@ pub fn boulder() -> PropTile {
     PropTile { palette: PAL_ROCK, ground: Ground::Sand, overlay: a }
 }
 
-pub fn driftwood() -> PropTile {
-    let mut a = PixelArt::filled(16, 16, 0);
-    shadow_ellipse(&mut a, 8.5, 11.0, 7.5, 2.0);
-    let mut log = PixelArt::filled(16, 16, 0);
-    let (x0, y0, x1, y1) = (1.5f32, 9.5f32, 14.5f32, 6.5f32);
-    let (dx, dy) = (x1 - x0, y1 - y0);
-    let len = (dx * dx + dy * dy).sqrt();
-    let (ux, uy) = (dx / len, dy / len);
-    for y in 0..16 {
-        for x in 0..16 {
-            let (px, py) = (x as f32 + 0.5 - x0, y as f32 + 0.5 - y0);
-            let along = px * ux + py * uy;
-            let across = -px * uy + py * ux;
-            let radius = 2.1 - (along / len - 0.5).abs() * 0.8;
-            if !(0.0..=len).contains(&along) || across.abs() > radius {
-                continue;
+/// A log of driftwood washed up on the beach, two cells long (32x16, cut
+/// into the left and right cell): weathered brown greying in the sun, its
+/// root ball splayed at one end and the other broken off jagged, a snapped
+/// branch sticking up, grain running along it, half sunk in the sand.
+pub fn driftwood() -> [PropTile; 2] {
+    let (w, h) = (32usize, 16usize);
+    let mut a = PixelArt::filled(w, h, 0);
+    shadow_ellipse(&mut a, 17.0, 12.0, 15.0, 2.6);
+    let mut log = PixelArt::filled(w, h, 0);
+    // Weathered wood, dark to light: brown, greying where the sun and salt
+    // have bleached it most; the grain and cracks are the darker browns, a
+    // broken end shows the paler wood inside.
+    let bleached = [rock::WOOD[0], rock::WOOD[1], rock::WOOD[2], rock::STONE[3], rock::WOOD[3]];
+    // A round limb from `a` to `b`, `r0` thick at `a` and `r1` at `b`.
+    let limb = |log: &mut PixelArt, (ax, ay): (f32, f32), (bx, by): (f32, f32), r0: f32, r1: f32, grain: bool| {
+        let (dx, dy) = (bx - ax, by - ay);
+        let len = (dx * dx + dy * dy).sqrt();
+        let (ux, uy) = (dx / len, dy / len);
+        for y in 0..h as i32 {
+            for x in 0..w as i32 {
+                let (px, py) = (x as f32 + 0.5 - ax, y as f32 + 0.5 - ay);
+                let along = px * ux + py * uy;
+                if !(0.0..=len).contains(&along) {
+                    continue;
+                }
+                let r = r0 + (r1 - r0) * along / len;
+                let across = -px * uy + py * ux;
+                if across.abs() > r {
+                    continue;
+                }
+                // Lit from above: the top of the round limb is brightest.
+                let v = across / r;
+                let mut t = 0.64 - v * 0.5 + (noise_px(x, y, 0xD21F) - 0.5) * 0.12;
+                if grain && ((along * 0.9 + v * 3.1).sin() > 0.88 || (along * 0.37 - v * 5.0).sin() > 0.95) {
+                    t -= 0.35;
+                }
+                log.put(x, y, ramp(&bleached, t, x, y, 0.5));
             }
-            let v = across / radius;
-            let mut t = 0.75 - v * 0.5;
-            if (along * 1.3 + v * 2.0).sin() > 0.85 {
-                t -= 0.3; // grain
+        }
+    };
+    // The trunk, thick at the root end and tapering a little.
+    limb(&mut log, (7.0, 9.0), (29.0, 8.0), 3.4, 2.6, true);
+    // Roots splayed out from the left end.
+    for (to, r) in [((1.5, 4.5), 1.1), ((1.0, 9.5), 1.2), ((2.5, 13.5), 1.0), ((5.0, 3.0), 0.9)] {
+        limb(&mut log, (7.5, 9.0), to, 1.8, r, false);
+    }
+    // A snapped-off branch sticking up.
+    limb(&mut log, (19.0, 7.0), (22.5, 2.0), 1.2, 0.9, false);
+    // Knots.
+    for (kx, ky) in [(13, 9), (24, 8)] {
+        log.put(kx, ky, rock::WOOD[0]);
+        log.put(kx + 1, ky, rock::WOOD[1]);
+    }
+    let mut log = log.outlined(rock::STONE[0]);
+    // The broken right end: jagged, the warmer wood inside showing.
+    for (y, cut) in [(5, 29), (6, 30), (7, 28), (8, 30), (9, 29), (10, 30), (11, 28)] {
+        log.put(cut, y, rock::WOOD[3]);
+        log.put(cut - 1, y, rock::WOOD[2]);
+    }
+    // The broken branch tip.
+    log.put(22, 2, rock::WOOD[3]);
+    log.put(23, 2, rock::WOOD[2]);
+    a.overlay(&log, 0, 0);
+    // Sand drifted up against the underside.
+    for x in 4..30 {
+        if noise_px(x, 0, 0x5A9D) < 0.45 {
+            let y = 12 + (noise_px(x, 1, 0x5A9D) * 1.5) as usize;
+            if a.get(x as usize, y) != 0 && a.get(x as usize, y) != SHADOW_MASK {
+                a.set(x as usize, y, rock::SAND[1]);
             }
-            let c = if along > len - 1.2 { rock::WOOD[2] } else { ramp(&rock::WOOD, t, x, y, 0.5) };
-            log.put(x, y, c);
         }
     }
-    a.overlay(&log.outlined(rock::WOOD[0]), 0, 0);
-    PropTile { palette: PAL_ROCK, ground: Ground::Sand, overlay: a }
+    std::array::from_fn(|half| {
+        let mut cell = PixelArt::filled(16, 16, 0);
+        for y in 0..16 {
+            for x in 0..16 {
+                cell.set(x, y, a.get(half * 16 + x, y));
+            }
+        }
+        PropTile { palette: PAL_ROCK, ground: Ground::Sand, overlay: cell }
+    })
 }
 
 // ---------------------------------------------------------------- beach debris (PAL_SAND)
