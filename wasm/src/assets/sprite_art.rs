@@ -639,3 +639,9 @@ pub fn lean_to() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A stone knife lying on the ground, 8x8 (effects palette).
+pub fn stone_knife() -> PixelArt {
+    let rows = ["........", "......o.", ".....oLo", "....oMLo", "...oMLo.", "..omMo..", ".ommo...", "..oo...."];
+    PixelArt::parse(&rows, FX_LEGEND)
+}

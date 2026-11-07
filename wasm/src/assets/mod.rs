@@ -183,6 +183,7 @@ pub struct BagSprites {
     pub pack_frame: [SpriteId; 2],
     pub husk: SpriteId,
     pub rope: SpriteId,
+    pub stone_knife: SpriteId,
     /// Upright, turned.
     pub palm_frond: [SpriteId; 2],
     /// Flat, turned.
@@ -223,6 +224,7 @@ impl BagSprites {
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
             ItemKind::Husk => (self.husk, palettes::OBJ_CRAB),
             ItemKind::Rope => (self.rope, palettes::OBJ_CRAB),
+            ItemKind::StoneKnife => (self.stone_knife, palettes::OBJ_FX),
             ItemKind::PalmFrond => (self.palm_frond[turned as usize], palettes::OBJ_FX),
             ItemKind::Thatch => (self.thatch[turned as usize], palettes::OBJ_FX),
             ItemKind::Shelter => (self.shelter, palettes::OBJ_FX),
@@ -278,6 +280,7 @@ pub struct SpriteIds {
     pub rope: SpriteId,
     pub palm_frond: SpriteId,
     pub thatch: SpriteId,
+    pub stone_knife: SpriteId,
     pub shelter_roll: SpriteId,
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
@@ -443,6 +446,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         },
         husk: bank.add(&item_art::icon_husk()),
         rope: bank.add(&item_art::icon_rope()),
+        stone_knife: bank.add(&item_art::icon_stone_knife()),
         palm_frond: {
             let f = item_art::icon_palm_frond();
             [bank.add(&f), bank.add(&f.rotated_cw())]
@@ -502,6 +506,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         rope: bank.add(&rope_coil()),
         palm_frond: bank.add(&palm_frond()),
         thatch: bank.add(&thatch()),
+        stone_knife: bank.add(&stone_knife()),
         shelter_roll: bank.add(&shelter_roll()),
         lean_to: bank.add(&lean_to()),
         snore: bank.add(&snore()),

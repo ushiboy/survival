@@ -11,6 +11,9 @@ pub enum ItemKind {
     RawWater,
     /// A sharp stone lashed to a branch with rope.
     StoneAxe,
+    /// A flake struck off one stone with another: an edge for cutting bark.
+    /// Carrying it is enough to use it.
+    StoneKnife,
     /// A bow strung with vine and a spindle for drilling a fire.
     FireDrill,
     /// A dead branch picked up off the ground.
@@ -90,7 +93,7 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
+            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear => (1, 3),
@@ -104,6 +107,7 @@ impl ItemKind {
             ItemKind::Timber => "TIMBER",
             ItemKind::RawWater => "RAW WATER",
             ItemKind::StoneAxe => "STONE AXE",
+            ItemKind::StoneKnife => "STONE KNIFE",
             ItemKind::FireDrill => "FIRE DRILL",
             ItemKind::Branch => "BRANCH",
             ItemKind::Stone => "STONE",
@@ -133,6 +137,7 @@ impl ItemKind {
             ItemKind::Timber => "A SQUARED LENGTH OF PALM WOOD.",
             ItemKind::RawWater => "RIVER WATER IN A LEAF. EASES THIRST.",
             ItemKind::StoneAxe => "A SHARP STONE LASHED TO A BRANCH. FELLS TREES.",
+            ItemKind::StoneKnife => "A SHARP FLAKE OF STONE WITH A CUTTING EDGE.",
             ItemKind::FireDrill => "A BOW AND SPINDLE. BURNS A BRANCH TO LIGHT A FIRE.",
             ItemKind::Branch => "A DEAD BRANCH, GOOD FOR TOOLS AND FIRES.",
             ItemKind::Stone => "A STONE WITH A SHARP EDGE.",

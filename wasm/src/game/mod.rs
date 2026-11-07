@@ -447,6 +447,10 @@ impl Game {
     /// leaves off a bush (only rustling one already stripped today).
     fn pull(&mut self, point: (i32, i32)) {
         if harvest::is_broadleaf_trunk(&self.map, point) {
+            // Bark won't come away by hand: it takes a knife's edge.
+            if !self.inventory.bag.has(ItemKind::StoneKnife) {
+                return;
+            }
             if let Some((x, y)) = harvest::strip_bark(&mut self.map, point) {
                 self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
                 let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);

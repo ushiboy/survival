@@ -16,6 +16,7 @@ pub struct Recipe {
 }
 
 pub const RECIPES: &[Recipe] = &[
+    Recipe { makes: ItemKind::StoneKnife, needs: &[(ItemKind::Stone, 2)], at_fire: false },
     Recipe { makes: ItemKind::StoneAxe, needs: &[(ItemKind::Stone, 1), (ItemKind::Rope, 1), (ItemKind::Branch, 1)], at_fire: false },
     Recipe { makes: ItemKind::WoodSpear, needs: &[(ItemKind::Branch, 1), (ItemKind::Stone, 1)], at_fire: false },
     Recipe { makes: ItemKind::GrilledCrab, needs: &[(ItemKind::Crab, 1)], at_fire: true },

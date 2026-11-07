@@ -34,6 +34,7 @@ fn main() {
                 "stone" => ItemKind::Stone,
                 "vine" => ItemKind::Vine,
                 "axe" => ItemKind::StoneAxe,
+                "knife" => ItemKind::StoneKnife,
                 "drill" => ItemKind::FireDrill,
                 "spear" => ItemKind::WoodSpear,
                 "crab" => ItemKind::Crab,

@@ -576,3 +576,32 @@ pub fn icon_shelter() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A stone knife, 16x16: a long flake knapped to a point, lying on the
+/// diagonal, its chipped cutting edge pale and the back left rough.
+pub fn icon_stone_knife() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    for y in 0..16 {
+        for x in 0..16 {
+            // Along the blade (butt bottom-left to point top-right) and
+            // across it (edge on the lower right).
+            let (u, v) = ((x as f32 + 0.5 + (15.5 - y as f32)) / 2.0, (x as f32 - (15.5 - y as f32)) / 2.0);
+            let half = if u < 5.0 { 2.4 } else { 2.4 * (14.0 - u).max(0.0) / 9.0 };
+            if !(3.0..14.0).contains(&u) || v.abs() > half {
+                continue;
+            }
+            let c = if v > half - 0.9 {
+                if (x + y) % 2 == 0 { 'L' } else { 'M' }
+            } else if v < -half + 0.9 {
+                'm'
+            } else if (x * 3 + y) % 5 == 0 {
+                'm'
+            } else {
+                'M'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    a.outlined(i('o'))
+}
