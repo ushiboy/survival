@@ -197,10 +197,6 @@ impl Game {
             // Debug: skip ahead to preview lighting.
             self.clock.advance_minutes(3 * 60);
         }
-        if self.input.pressed(Buttons::L) {
-            // Debug: give / take the lantern until items exist.
-            self.inventory.lantern = !self.inventory.lantern;
-        }
 
         self.frame_count = self.frame_count.wrapping_add(1);
         let near_fire = self.near_fire();
@@ -228,6 +224,8 @@ impl Game {
                 self.vitals.on_minute(Rest::Awake);
             }
         }
+        self.inventory.tend_torches(self.clock.total_minutes());
+        self.player.torch = self.inventory.torch_lit();
         self.tree_shake = self.tree_shake.filter(|s| s.frames > 0).map(|s| TreeShake { frames: s.frames - 1, ..s });
         self.camera_shake = self.camera_shake.saturating_sub(1);
         if self.hitstop > 0 {
@@ -656,7 +654,7 @@ impl Game {
             f.math = ColorMath::OFF;
             f.main_layers = layer::BG3 | layer::OBJ;
             f.bg3_priority = false;
-            hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
+            hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night);
             let list = &mut self.draw_list;
             list.clear();
             bag_screen::draw(&mut f.bg3, list, &self.assets.hud, &self.assets.sprites, &self.inventory, menu, self.frame_count);
@@ -671,17 +669,16 @@ impl Game {
 
         // Colour math + HDMA tables.
         if night {
-            // One light source: the lantern, or else the fire nearest the
-            // middle of the screen.
-            let (cx, cy) = self.player.center();
-            let lantern = self.inventory.lantern.then_some((cx, cy));
+            // One light source: a torch in hand, or else the fire nearest
+            // the middle of the screen.
+            let torch = self.inventory.torch_lit().then(|| self.player.center());
             let mid = (camera.x + SCREEN_W as i32 / 2, camera.y + SCREEN_H as i32 / 2);
             let fire = self
                 .fires
                 .iter()
                 .map(|f| f.flame_point())
                 .min_by_key(|&(x, y)| (x - mid.0).pow(2) + (y - mid.1).pow(2));
-            let light = lantern.or(fire).map(|p| Light { center: camera.to_screen(p.0, p.1) });
+            let light = torch.or(fire).map(|p| Light { center: camera.to_screen(p.0, p.1) });
             let t = ((lighting.darkness - NIGHT_THRESHOLD) / (1.0 - NIGHT_THRESHOLD)).clamp(0.0, 1.0);
             let strength = t * t * (3.0 - 2.0 * t);
             lighting::night(&mut f.lines, &mut f.cgram, light, HUD_LINES, strength, self.frame_count);
@@ -691,7 +688,7 @@ impl Game {
             f.math = MATH_TRANSLUCENT;
         }
 
-        hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.inventory, &self.clock, night);
+        hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night);
 
         // Sprites.
         let shadows = !night;
@@ -722,7 +719,7 @@ impl Game {
         self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
     }
 
-    /// Writes the lantern light mask into an off-screen area of the BG3 map.
+    /// Writes the light mask into an off-screen area of the BG3 map.
     fn place_light_mask(&mut self) {
         let n = crate::assets::hud_art::LIGHT_MASK_TILES;
         let (ox, oy) = (lighting::LIGHT_MASK_ORIGIN.0 as usize / 8, lighting::LIGHT_MASK_ORIGIN.1 as usize / 8);
@@ -760,6 +757,10 @@ impl Game {
 
     /// Dev tools: puts an item (a full stack of stackables) straight into
     /// the bag, if it fits.
+    pub fn debug_advance_hours(&mut self, hours: u32) {
+        self.clock.advance_minutes(hours * 60);
+    }
+
     pub fn debug_give(&mut self, kind: ItemKind) {
         self.debug_give_n(kind, kind.max_stack());
     }

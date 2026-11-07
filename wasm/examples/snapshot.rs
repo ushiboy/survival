@@ -7,7 +7,8 @@
 //! start awake in that cell instead of washed up at the spawn, and
 //! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag, and
 //! `SNAP_CRAB=dx` to set a crab down that far right of the castaway, and
-//! `SNAP_HP=n` to start with `n` hearts.
+//! `SNAP_HP=n` to start with `n` hearts, and `SNAP_HOURS=n` to start `n`
+//! hours later in the day.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
@@ -23,6 +24,10 @@ fn main() {
     if let Ok(at) = std::env::var("SNAP_AT") {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
         game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
+    }
+    // SNAP_HOURS=n starts n hours later in the day (before SNAP_GIVE).
+    if let Some(h) = std::env::var("SNAP_HOURS").ok().and_then(|h| h.parse().ok()) {
+        game.debug_advance_hours(h);
     }
     if let Ok(give) = std::env::var("SNAP_GIVE") {
         for name in give.split(',') {
@@ -51,6 +56,7 @@ fn main() {
                 "frond" => ItemKind::PalmFrond,
                 "thatch" => ItemKind::Thatch,
                 "shelter" => ItemKind::Shelter,
+                "torch" => ItemKind::Torch,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

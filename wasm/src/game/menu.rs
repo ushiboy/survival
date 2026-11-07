@@ -60,8 +60,7 @@ impl Command {
             Command::Move => "MOVE",
             Command::Wield => "TAKE IN HAND",
             Command::Wear => "WEAR",
-            Command::Drop if kind.can_put_down() => "PUT DOWN",
-            Command::Drop => "POUR OUT",
+            Command::Drop => kind.discard_words().0,
         }
     }
 }
@@ -315,7 +314,7 @@ impl BagMenu {
                     }
                     Command::Drop => {
                         let p = bag.remove(item);
-                        self.notice = Some(if kind.can_put_down() { "PUT IT DOWN" } else { "POURED IT OUT" });
+                        self.notice = Some(kind.discard_words().1);
                         Outcome::Drop(kind, p.count)
                     }
                 }
@@ -500,7 +499,7 @@ impl BagMenu {
                 self.notice = None;
                 return Outcome::Stay;
             }
-            self.notice = Some(if held.kind.can_put_down() { "LEFT IT ON THE GROUND" } else { "POURED IT OUT" });
+            self.notice = Some(if held.kind.can_put_down() { "LEFT IT ON THE GROUND" } else { held.kind.discard_words().1 });
             return Outcome::Drop(held.kind, held.count);
         }
         Outcome::Stay

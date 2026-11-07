@@ -131,12 +131,15 @@ impl Default for Vitals {
     }
 }
 
+/// How long a torch burns once lit (game minutes): about a whole night.
+pub const TORCH_BURN_MINUTES: u32 = 12 * 60;
+
 /// What the castaway carries and wears.
 #[derive(Clone, Debug)]
 pub struct Inventory {
     pub bag: Bag,
-    /// Lights the surroundings at night (debug toggle until it's an item).
-    pub lantern: bool,
+    /// When each torch carried was lit (game minutes), oldest first.
+    pub torches: Vec<u32>,
     /// What the castaway is wearing.
     pub outfit: Outfit,
     pub gear: Gear,
@@ -161,6 +164,26 @@ impl Gear {
 }
 
 impl Inventory {
+    /// Whether a torch held in hand lights the surroundings.
+    pub fn torch_lit(&self) -> bool {
+        self.gear.hand == Some(ItemKind::Torch)
+    }
+
+    /// Keeps the torches' lighting times in step with the torches carried
+    /// (a new one was lit just now; one put out was the newest), and burns
+    /// out the oldest once it's had its time. Called as time passes, never
+    /// while the bag is open, so a torch lifted out to move keeps its time.
+    pub fn tend_torches(&mut self, now: u32) {
+        let carried = self.bag.count(ItemKind::Torch) as usize;
+        self.torches.truncate(carried);
+        self.torches.resize(carried, now);
+        while self.torches.first().is_some_and(|&lit| now >= lit + TORCH_BURN_MINUTES) {
+            self.torches.remove(0);
+            self.bag.take_kind(ItemKind::Torch);
+        }
+        self.settle_hand();
+    }
+
     /// Lets go of a tool in hand that's no longer carried.
     pub fn settle_hand(&mut self) {
         if self.gear.hand.is_some_and(|t| !self.bag.has(t)) {
@@ -224,6 +247,6 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), lantern: false, outfit: Outfit::CASTAWAY, gear: Gear::default() }
+        Self { bag: Bag::default(), torches: Vec::new(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
     }
 }

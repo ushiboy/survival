@@ -141,8 +141,8 @@ impl Item {
             ItemKind::PalmFrond => (16, [sprites.palm_frond; 2], sprites.shadow_player),
             ItemKind::Thatch => (16, [sprites.thatch; 2], sprites.shadow_player),
             ItemKind::Shelter => (16, [sprites.shelter_roll; 2], sprites.shadow_player),
-            // Water never lies on the ground.
-            ItemKind::RawWater => return,
+            // Water and a burning torch never lie on the ground.
+            ItemKind::RawWater | ItemKind::Torch => return,
         };
         let (wx, wy) = (self.x as i32 - w / 2, (self.y - self.z) as i32 - 7);
         if !camera.sees(wx, wy, w, 8 + self.z as i32) {

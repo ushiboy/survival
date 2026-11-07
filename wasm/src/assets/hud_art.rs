@@ -153,19 +153,6 @@ pub fn icon_moon() -> PixelArt {
     ])
 }
 
-pub fn icon_lantern() -> PixelArt {
-    art([
-        "..111...",
-        ".1...1..",
-        ".11111..",
-        "1233321.",
-        "1232321.",
-        "1233321.",
-        ".11111..",
-        "........",
-    ])
-}
-
 /// Quarters of a 16px bag cell: a sunken slot with a dark rim on the top
 /// and left and a light one on the bottom and right.
 pub fn bag_cell() -> [PixelArt; 4] {

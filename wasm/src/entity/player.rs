@@ -1,5 +1,6 @@
 use super::body::Body;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
+use crate::assets::sprite_art::TORCH_GRIP;
 use crate::assets::{SpriteIds, VIEWS};
 use crate::assets::character::pose::AxeArt;
 use crate::assets::character::{CHAR_ORIGIN, CHAR_W};
@@ -85,6 +86,14 @@ const EAT_TOTAL: u32 = 60;
 /// `PONDER_DOT`, until it's given up on at `PONDER_TOTAL`.
 const PONDER_DOT: u32 = 12;
 const PONDER_TOTAL: u32 = 60;
+/// Frames per flicker of a held torch's flame.
+const TORCH_FLAME_FRAME: u32 = 6;
+/// How far out from the hand a held torch stands (px, screen-right facing
+/// toward or away, forward from the side), by view.
+const TORCH_REACH: [f32; 3] = [3.0, 3.0, 8.0];
+/// How much lower than the hand's grip a held torch sits, by view: from
+/// the side it's carried out in front at shoulder height.
+const TORCH_DROP: [f32; 3] = [0.0, 0.0, 4.0];
 
 /// Lighting a fire (frames): kneeling and sawing the drill's bow back and
 /// forth (one stroke every `DRILL_STROKE`), smoke from `DRILL_SMOKE`, until
@@ -213,6 +222,8 @@ pub struct Player {
     /// Sleeping under a pitched shelter (one is carried): only the
     /// shelter is drawn.
     pub sheltered: bool,
+    /// A lit torch is in hand: it's held up while standing and walking.
+    pub torch: bool,
     walk_timer: u32,
 }
 
@@ -236,6 +247,7 @@ impl Player {
             body: Body::new(px, py, HITBOX),
             facing: Dir::Down,
             sheltered: false,
+            torch: false,
             moving: false,
             running: false,
             wading: false,
@@ -351,7 +363,7 @@ impl Player {
             self.walk_timer = 0;
             return None;
         }
-        if let Some(tool) = tool.filter(|_| !self.wading && input.pressed(Buttons::B)) {
+        if let Some(tool) = tool.filter(|t| t.swung() && !self.wading && input.pressed(Buttons::B)) {
             // Using a tool roots you in place; change facing first if a
             // direction is held.
             let (ax, ay) = input.axis();
@@ -746,6 +758,9 @@ impl Player {
             return;
         }
         let frame = sprites.player.walk[view][phase as usize];
+        if self.torch {
+            self.draw_torch(list, (cx, cy), depth, sprites, (view, flip, phase as usize), clock, prio);
+        }
         if self.wading {
             // Foam ring first (in front), then the body above the waterline,
             // then the submerged legs in a blended palette.
@@ -901,6 +916,30 @@ impl Player {
 }
 
 impl Player {
+    /// The torch held in the near hand (the screen-right one facing toward
+    /// or away). It's behind the body facing away;
+    /// otherwise in front, with the hands drawn over its handle.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_torch(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (view, flip, phase): (usize, bool, usize), clock: u32, prio: u8) {
+        let pose = &sprites.player.walk_poses[view][phase];
+        // Held a little out from the body, so the flame stands clear of
+        // the face, and steady: the arm holding it doesn't swing, it only
+        // bobs with the step.
+        let hx = sprites.player.walk_poses[view][0].arms[1].c.0;
+        let hy = pose.arms[1].c.1 + TORCH_DROP[view];
+        let hx = hx + TORCH_REACH[view];
+        let hx = if flip { CHAR_W as f32 - hx } else { hx };
+        let (gx, gy) = TORCH_GRIP;
+        let flame = (clock / TORCH_FLAME_FRAME) as usize % sprites.torch.len();
+        let torch = ObjEntry::new(cx + (hx - gx).round() as i32, cy + (hy - gy).round() as i32, sprites.torch[flame], OBJ_CRAB, prio).flipped(flip);
+        if self.facing == Dir::Up {
+            list.actor(depth - 1, torch);
+        } else {
+            list.actor(depth + 1, ObjEntry::new(cx, cy, sprites.player.walk[view][phase].hands, OBJ_PLAYER, prio).flipped(flip));
+            list.actor(depth + 1, torch);
+        }
+    }
+
     /// Kneeling by the fire with the food held out toward the flames at
     /// arm's length, bobbing as it's turned. Crabs are turned over now and
     /// then; a pot is held steady. Facing away, it's hidden by the body.
@@ -908,6 +947,20 @@ impl Player {
     fn draw_cooking(&self, list: &mut DrawList, camera: &Camera, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (t, food, fire): (u32, ItemKind, (i32, i32)), prio: u8) {
         let (view, flip) = view_for(self.facing);
         list.actor(depth, ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip));
+        if food == ItemKind::Branch {
+            // A torch: its head thrust into the flames until it catches,
+            // leaning back toward the hands.
+            let lean = match self.facing {
+                Dir::Left => 4,
+                Dir::Right => -4,
+                _ => 0,
+            };
+            let (hx, hy) = (8, 14);
+            let (sx, sy) = camera.to_screen(fire.0 + lean - hx, fire.1 - 8 - hy);
+            let torch = sprites.torch[(t / TORCH_FLAME_FRAME) as usize % sprites.torch.len()];
+            list.actor(fire.1 + 1, ObjEntry::new(sx, sy, torch, OBJ_CRAB, prio));
+            return;
+        }
         let (fx, fy) = self.body.feet();
         let (dx, dy) = match self.facing {
             Dir::Up => (0, -10),

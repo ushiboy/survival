@@ -1,7 +1,7 @@
 //! Time-of-day lighting and water animation, done the way 16-bit games did:
 //! recomputed palettes uploaded to CGRAM each frame, palette cycling, and at
 //! night an HDMA-driven window with subtractive colour math that blacks out
-//! everything outside the lantern's light.
+//! everything outside the light of a torch or campfire.
 
 use crate::assets::palettes::{HUD_LIGHT_MASK, OBJ_SHADOW, water_cycles};
 use crate::ppu::{SCREEN_H, SCREEN_W};
@@ -17,7 +17,7 @@ struct Key {
     darkness: f32,
 }
 
-/// Night palette tint. Kept fairly bright: it is what the lantern light
+/// Night palette tint. Kept fairly bright: it is what a torch or fire
 /// shows. The darkness itself comes from colour math (see `night_darkness`).
 const NIGHT: ([f32; 3], [f32; 3], f32) = ([0.80, 0.64, 0.50], [1.0, 0.5, 0.0], 1.0);
 const KEYS: [Key; 9] = [

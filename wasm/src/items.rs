@@ -54,6 +54,10 @@ pub enum ItemKind {
     /// A lean-to of branch poles and thatch, rolled up to carry; pitched
     /// over the castaway when they lie down to sleep.
     Shelter,
+    /// A branch with husk fibre wound round its head, lit at a campfire.
+    /// Held in hand it lights the dark; it burns out half a day after it
+    /// was lit, carried or not.
+    Torch,
 }
 
 /// Where a piece of gear goes.
@@ -95,7 +99,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 24] = [
+    pub const ALL: [ItemKind; 25] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -120,13 +124,14 @@ impl ItemKind {
         ItemKind::PalmFrond,
         ItemKind::Thatch,
         ItemKind::Shelter,
+        ItemKind::Torch,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
             ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
-            ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond => (1, 2),
+            ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear => (1, 3),
             ItemKind::Timber | ItemKind::LauanTimber | ItemKind::Shelter => (2, 2),
@@ -159,6 +164,7 @@ impl ItemKind {
             ItemKind::PalmFrond => "PALM FROND",
             ItemKind::Thatch => "THATCH",
             ItemKind::Shelter => "SHELTER",
+            ItemKind::Torch => "TORCH",
         }
     }
 
@@ -190,6 +196,7 @@ impl ItemKind {
             ItemKind::PalmFrond => "A LONG PALM LEAF. WOVEN TOGETHER, FRONDS KEEP OFF RAIN.",
             ItemKind::Thatch => "PALM FRONDS WOVEN WITH VINE INTO A PIECE OF ROOF.",
             ItemKind::Shelter => "A LEAN-TO, ROLLED UP. SLEEP UNDER IT TO HEAL FASTER AND TIRE LESS.",
+            ItemKind::Torch => "HUSK FIBRE ON A BRANCH, LIT AT A FIRE. HELD, IT LIGHTS THE DARK UNTIL IT BURNS OUT.",
         }
     }
 
@@ -248,7 +255,7 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear => Some(Slot::Hand),
+            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::Torch => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }
@@ -262,8 +269,24 @@ impl ItemKind {
         }
     }
 
-    /// Whether it can lie on the ground (water can only be poured away).
+    /// Whether it can lie on the ground (water can only be poured away, a
+    /// torch only put out).
     pub fn can_put_down(self) -> bool {
-        self != ItemKind::RawWater
+        !matches!(self, ItemKind::RawWater | ItemKind::Torch)
+    }
+
+    /// Whether B swings or thrusts it (a torch is only held up).
+    pub fn swung(self) -> bool {
+        self.slot() == Some(Slot::Hand) && self != ItemKind::Torch
+    }
+
+    /// How getting rid of it from the bag reads: the command, and what's
+    /// said once it's done.
+    pub fn discard_words(self) -> (&'static str, &'static str) {
+        match self {
+            ItemKind::RawWater => ("POUR OUT", "POURED IT OUT"),
+            ItemKind::Torch => ("PUT OUT", "PUT IT OUT"),
+            _ => ("PUT DOWN", "PUT IT DOWN"),
+        }
     }
 }

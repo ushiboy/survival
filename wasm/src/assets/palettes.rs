@@ -42,7 +42,7 @@ pub const HUD_SKY: u8 = 4;
 pub const HUD_DIM: u8 = 5;
 /// Bag screen slots: fill, shadowed rim, lit rim.
 pub const HUD_MENU: u8 = 6;
-/// Darkness levels of the lantern light mask (written each frame).
+/// Darkness levels of the light mask (written each frame).
 pub const HUD_LIGHT_MASK: u8 = 7;
 
 /// Shallows and surf (shared water/sand so the shoreline fits one palette).

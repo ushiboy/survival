@@ -41,6 +41,7 @@ pub struct CharFrame {
 #[derive(Clone, Debug)]
 pub struct PlayerSprites {
     pub walk: [[CharFrame; 4]; 3],
+    pub walk_poses: [[Pose; 4]; 3],
     pub chop: [[CharFrame; 3]; 3],
     pub chop_poses: [[Pose; 3]; 3],
     /// Spear thrust: drawn back, lunging.
@@ -92,6 +93,7 @@ impl PlayerSprites {
         let sleeping = bank.add(&character::render_sleeping(outfit));
         Self {
             walk: walk_frames,
+            walk_poses: walk,
             chop: chop_frames,
             chop_poses: chop,
             thrust: thrust_frames,
@@ -190,6 +192,8 @@ pub struct BagSprites {
     /// Flat, turned.
     pub thatch: [SpriteId; 2],
     pub shelter: SpriteId,
+    /// Upright, turned.
+    pub torch: [SpriteId; 2],
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -230,6 +234,7 @@ impl BagSprites {
             ItemKind::PalmFrond => (self.palm_frond[turned as usize], palettes::OBJ_FX),
             ItemKind::Thatch => (self.thatch[turned as usize], palettes::OBJ_FX),
             ItemKind::Shelter => (self.shelter, palettes::OBJ_FX),
+            ItemKind::Torch => (self.torch[turned as usize], palettes::OBJ_CRAB),
         }
     }
 }
@@ -287,6 +292,8 @@ pub struct SpriteIds {
     pub shelter_roll: SpriteId,
     /// A thought bubble with one, two, three dots.
     pub thought: [SpriteId; 3],
+    /// A lit torch, 16x32, three flame frames.
+    pub torch: [SpriteId; 3],
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
@@ -314,7 +321,6 @@ pub struct HudTiles {
     pub water: HudTileId,
     pub sun: HudTileId,
     pub moon: HudTileId,
-    pub lantern: HudTileId,
     /// A bag cell's four 8x8 quarters: top-left, top-right, bottom-left,
     /// bottom-right.
     pub bag_cell: [HudTileId; 4],
@@ -460,6 +466,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             [bank.add(&t), bank.add(&t.rotated_cw())]
         },
         shelter: bank.add(&item_art::icon_shelter()),
+        torch: {
+            let t = &torch_frames()[0];
+            [bank.add(t), bank.add(&t.rotated_cw())]
+        },
         digits: item_art::count_digits().map(|a| bank.add(&a)),
         equipped: bank.add(&item_art::equipped_mark()),
         branch: {
@@ -515,6 +525,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         shelter_roll: bank.add(&shelter_roll()),
         lean_to: bank.add(&lean_to()),
         thought: thought_frames().map(|a| bank.add(&a)),
+        torch: torch_frames().map(|a| bank.add(&a)),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {
@@ -539,7 +550,6 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         water: bank.add(&hud_art::icon_water()),
         sun: bank.add(&hud_art::icon_sun()),
         moon: bank.add(&hud_art::icon_moon()),
-        lantern: bank.add(&hud_art::icon_lantern()),
         bag_cell: hud_art::bag_cell().map(|a| bank.add(&a)),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),

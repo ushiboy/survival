@@ -213,6 +213,45 @@ fn crab_ix(c: char) -> u8 {
     CRAB_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0)
 }
 
+/// A lit torch, 16x32 per frame: a branch handle, a head of husk fibre
+/// bound round its top, and a flame licking up from it (three frames).
+/// Held at `TORCH_GRIP`.
+pub fn torch_frames() -> [PixelArt; 3] {
+    let i = |c| ITEM_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    let mut body = PixelArt::filled(16, 32, 0);
+    // The handle, leaning a touch, lit from the left.
+    for y in 15..31 {
+        let cx = 8.0 - (y as f32 - 15.0) * 0.06;
+        for x in 0..16 {
+            let dx = x as f32 + 0.5 - cx;
+            if dx.abs() <= 0.9 {
+                let c = if dx < 0.0 { i('W') } else if y % 7 == 3 { i('d') } else { i('w') };
+                body.set(x, y, c);
+            }
+        }
+    }
+    // The fibre head: a fat bundle, streaked, with a binding round its foot.
+    fill_ellipse(&mut body, 8.0, 14.5, 2.4, 3.2, |x, y, nx, _| {
+        Some(if y == 17 || (x * 3 + y) % 4 == 0 || nx > 0.5 { i('d') } else if nx < -0.4 { i('h') } else { i('w') })
+    });
+    let body = body.outlined(i('o'));
+    std::array::from_fn(|f| {
+        let mut a = PixelArt::filled(16, 32, 0);
+        // A slim flame standing on the head, its foot hidden in the fibre.
+        a.overlay(&flames(9.0, 2.4)[f], 0, -3);
+        let mut out = body.clone();
+        // Charred, glowing top of the fibre under the flame.
+        for (x, y) in [(7, 11), (8, 11), (9, 12), (7, 12)] {
+            out.set(x, y, crab_ix(if (x + f) % 2 == 0 { 'q' } else { 'R' }));
+        }
+        out.overlay(&a, 0, 0);
+        out
+    })
+}
+
+/// Where the hand holds the torch in its image.
+pub const TORCH_GRIP: (f32, f32) = (7.5, 23.0);
+
 /// Flickering flames, 16x16 per frame, standing on the bottom edge: three
 /// frames of a lively fire (`height` ~12) or a dying one (~6).
 pub fn flames(height: f32, width: f32) -> [PixelArt; 3] {

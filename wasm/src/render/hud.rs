@@ -3,7 +3,7 @@
 
 use crate::assets::HudTiles;
 use crate::assets::palettes::{HUD_FOOD, HUD_HEART, HUD_SKY, HUD_TEXT, HUD_WATER};
-use crate::game::state::{GameClock, Inventory, Vitals};
+use crate::game::state::{GameClock, Vitals};
 use crate::ppu::Bg3Layer as HudLayer;
 
 const GAUGE_TILES: usize = 8;
@@ -30,7 +30,7 @@ fn gauge(hud: &mut HudLayer, tiles: &HudTiles, col: usize, row: usize, value: u3
     hud.put(col + 1 + GAUGE_TILES, row, tiles.gauge_cap_right, palette);
 }
 
-pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &Inventory, clock: &GameClock, night: bool) {
+pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameClock, night: bool) {
     hud.clear_rect(0, 0, HUD_COLS, HUD_ROWS);
     for i in 0..vitals.max_hp {
         let t = if i < vitals.hp { tiles.heart_full } else { tiles.heart_empty };
@@ -41,9 +41,6 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, inventory: &I
     hud.put(1, 3, tiles.water, HUD_WATER);
     gauge(hud, tiles, 2, 3, vitals.water, Vitals::MAX, HUD_WATER);
 
-    if inventory.lantern {
-        hud.put(21, 1, tiles.lantern, HUD_SKY);
-    }
     hud.put(23, 1, if night { tiles.moon } else { tiles.sun }, HUD_SKY);
     text(hud, tiles, 25, 1, &format!("DAY {:02}", clock.day));
     let (h, m) = clock.hour_minute();
