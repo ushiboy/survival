@@ -4,7 +4,7 @@
 //! everything outside the lantern's light.
 
 use crate::assets::palettes::{HUD_LIGHT_MASK, OBJ_SHADOW, water_cycles};
-use crate::ppu::SCREEN_H;
+use crate::ppu::{SCREEN_H, SCREEN_W};
 use crate::ppu::effects::LineTables;
 use crate::ppu::palette::{Cgram, Rgb555};
 
@@ -113,10 +113,25 @@ pub fn night(lines: &mut LineTables, cg: &mut Cgram, light: Option<Light>, hud_l
     cg.set_hud_palette(HUD_LIGHT_MASK, mask);
 
     let Some(Light { center: (cx, cy) }) = light else { return };
+    // BG3 wraps, so a mask scrolled far enough repeats a map's width away:
+    // a light whose mask misses the screen would cast a copy elsewhere.
+    // (One that reaches the screen can't: its copies lie a whole map
+    // width, more than a screen, away.)
+    let r = LIGHT_MASK_CENTRE;
+    if cx + r <= 0 || cx - r >= SCREEN_W as i32 || cy + r <= hud_lines as i32 || cy - r >= SCREEN_H as i32 {
+        return;
+    }
     let scroll = (LIGHT_MASK_ORIGIN.0 + LIGHT_MASK_CENTRE - cx, LIGHT_MASK_ORIGIN.1 + LIGHT_MASK_CENTRE - cy);
+    let mask_rows = LIGHT_MASK_ORIGIN.1..LIGHT_MASK_ORIGIN.1 + 2 * LIGHT_MASK_CENTRE;
     for y in hud_lines..SCREEN_H {
         lines.bg3_main[y] = false;
-        lines.bg3_sub[y] = true;
-        lines.bg3_scroll[y] = scroll;
+        // Only lines that cross the mask take BG3 as the sub-screen. Any
+        // other line would show whatever its scroll lands on — far from the
+        // light it wraps round the BG3 map onto the HUD — so it's left to
+        // the fixed colour: full darkness.
+        if mask_rows.contains(&(scroll.1 + y as i32)) {
+            lines.bg3_sub[y] = true;
+            lines.bg3_scroll[y] = scroll;
+        }
     }
 }
