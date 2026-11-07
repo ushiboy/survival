@@ -4,7 +4,7 @@
 //! everything outside the light of a torch or campfire.
 
 use crate::assets::palettes::{HUD_LIGHT_MASK, OBJ_SHADOW, water_cycles};
-use crate::ppu::{SCREEN_H, SCREEN_W};
+use crate::ppu::SCREEN_H;
 use crate::ppu::effects::LineTables;
 use crate::ppu::palette::{Cgram, Rgb555};
 
@@ -81,22 +81,12 @@ const DARK: [f32; 3] = [23.0, 20.0, 13.0];
 /// Darkness of light-mask levels 1 (centre) to 3 (rim), relative to DARK.
 const MASK_LEVELS: [f32; 3] = [0.12, 0.38, 0.66];
 
-/// Where the light mask sits in the BG3 map (px) and its centre.
-pub const LIGHT_MASK_ORIGIN: (i32, i32) = (256, 256);
-const LIGHT_MASK_CENTRE: i32 = (crate::assets::hud_art::LIGHT_MASK_TILES * 4) as i32;
-
-/// A light source in screen space.
-#[derive(Clone, Copy, Debug)]
-pub struct Light {
-    pub center: (i32, i32),
-}
-
 /// Night darkness. Colour math subtracts the sub-screen from the scene.
 /// Below the HUD, HDMA switches BG3 from the main screen to the sub-screen
-/// and scrolls it so the radial light mask sits on the light source; where
-/// the mask is empty (or with no light at all) the fixed colour — full
-/// darkness — is subtracted instead.
-pub fn night(lines: &mut LineTables, cg: &mut Cgram, light: Option<Light>, hud_lines: usize, strength: f32, clock: u32) {
+/// and scrolls it to the light map (see `light_canvas`): where a light falls
+/// its mask's levels are subtracted, and everywhere else (or with no light
+/// at all) the fixed colour — full darkness.
+pub fn night(lines: &mut LineTables, cg: &mut Cgram, light_map: Option<(i32, i32)>, hud_lines: usize, strength: f32, clock: u32) {
     lines.clear();
     let scale = |k: f32| {
         Rgb555::new(
@@ -112,26 +102,10 @@ pub fn night(lines: &mut LineTables, cg: &mut Cgram, light: Option<Light>, hud_l
     let mask = [scale(MASK_LEVELS[0] * flicker), scale(MASK_LEVELS[1] * flicker), scale(MASK_LEVELS[2])];
     cg.set_hud_palette(HUD_LIGHT_MASK, mask);
 
-    let Some(Light { center: (cx, cy) }) = light else { return };
-    // BG3 wraps, so a mask scrolled far enough repeats a map's width away:
-    // a light whose mask misses the screen would cast a copy elsewhere.
-    // (One that reaches the screen can't: its copies lie a whole map
-    // width, more than a screen, away.)
-    let r = LIGHT_MASK_CENTRE;
-    if cx + r <= 0 || cx - r >= SCREEN_W as i32 || cy + r <= hud_lines as i32 || cy - r >= SCREEN_H as i32 {
-        return;
-    }
-    let scroll = (LIGHT_MASK_ORIGIN.0 + LIGHT_MASK_CENTRE - cx, LIGHT_MASK_ORIGIN.1 + LIGHT_MASK_CENTRE - cy);
-    let mask_rows = LIGHT_MASK_ORIGIN.1..LIGHT_MASK_ORIGIN.1 + 2 * LIGHT_MASK_CENTRE;
+    let Some(scroll) = light_map else { return };
     for y in hud_lines..SCREEN_H {
         lines.bg3_main[y] = false;
-        // Only lines that cross the mask take BG3 as the sub-screen. Any
-        // other line would show whatever its scroll lands on — far from the
-        // light it wraps round the BG3 map onto the HUD — so it's left to
-        // the fixed colour: full darkness.
-        if mask_rows.contains(&(scroll.1 + y as i32)) {
-            lines.bg3_sub[y] = true;
-            lines.bg3_scroll[y] = scroll;
-        }
+        lines.bg3_sub[y] = true;
+        lines.bg3_scroll[y] = scroll;
     }
 }

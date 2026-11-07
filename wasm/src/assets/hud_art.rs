@@ -201,7 +201,7 @@ pub fn gauge_cap(right: bool) -> PixelArt {
     a
 }
 
-/// Size of the lantern light mask in tiles (128x128 px).
+/// Size of the light mask in tiles (128x128 px).
 pub const LIGHT_MASK_TILES: usize = 16;
 
 /// Radial light mask for the sub-screen: index 1 (centre) → 3 (rim) are

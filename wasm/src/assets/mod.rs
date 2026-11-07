@@ -328,8 +328,15 @@ pub struct HudTiles {
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
     pub gauge_cap_right: HudTileId,
-    /// Lantern light mask, `LIGHT_MASK_TILES`² tiles in row-major order.
+    /// Light mask, `LIGHT_MASK_TILES`² tiles in row-major order.
     pub light_mask: Vec<HudTileId>,
+    /// Its tiles' pixels, and which are all dark (nothing to lay) and
+    /// which all fully lit.
+    pub light_mask_art: Vec<PixelArt>,
+    pub light_mask_empty: Vec<bool>,
+    pub light_mask_solid: Vec<bool>,
+    /// Spare tiles rewritten each frame where lights overlap.
+    pub light_scratch: Vec<HudTileId>,
 }
 
 impl HudTiles {
@@ -541,6 +548,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
     let blank = bank.add(&PixelArt::filled(8, 8, 0));
     debug_assert_eq!(blank, HudTiles::BLANK);
     let glyphs = hud_art::glyphs().into_iter().map(|(c, a)| (c, bank.add(&a))).collect();
+    let mask = hud_art::light_mask();
     let gauge = std::array::from_fn(|i| bank.add(&hud_art::gauge_segment(i)));
     HudTiles {
         glyphs,
@@ -557,17 +565,20 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         light_mask: {
             // Identical tiles (solid centre, empty corners) share one pattern.
             let mut seen: Vec<(Vec<u8>, HudTileId)> = Vec::new();
-            hud_art::light_mask()
-                .into_iter()
+            mask.iter()
                 .map(|t| match seen.iter().find(|(px, _)| *px == t.px) {
                     Some((_, id)) => *id,
                     None => {
-                        let id = bank.add(&t);
+                        let id = bank.add(t);
                         seen.push((t.px.clone(), id));
                         id
                     }
                 })
                 .collect()
         },
+        light_mask_empty: mask.iter().map(|t| t.px.iter().all(|&v| v == 0)).collect(),
+        light_mask_solid: mask.iter().map(|t| t.px.iter().all(|&v| v == 1)).collect(),
+        light_scratch: (0..crate::render::light_canvas::SCRATCH_TILES).map(|_| bank.add(&PixelArt::filled(8, 8, 0))).collect(),
+        light_mask_art: mask,
     }
 }

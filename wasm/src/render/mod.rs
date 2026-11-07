@@ -3,6 +3,7 @@
 pub mod bag_screen;
 pub mod camera;
 pub mod hud;
+pub mod light_canvas;
 pub mod lighting;
 pub mod sprites;
 pub mod tileset;

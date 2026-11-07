@@ -8,7 +8,7 @@ pub mod state;
 
 use crate::assets::Assets;
 use crate::assets::character::Outfit;
-use crate::assets::palettes::{HUD_LIGHT_MASK, base_cgram, set_player_palettes};
+use crate::assets::palettes::{base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
@@ -21,7 +21,8 @@ use crate::crafting::{RECIPES, Recipe};
 use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
 use crate::render::hud::{self, HUD_LINES};
-use crate::render::lighting::{self, Light, Lighting};
+use crate::render::light_canvas;
+use crate::render::lighting::{self, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
@@ -180,7 +181,6 @@ impl Game {
             ppu: Ppu::new(),
         };
         game.camera.follow(game.player.center(), game.map.pixel_size());
-        game.place_light_mask();
         game
     }
 
@@ -669,19 +669,15 @@ impl Game {
 
         // Colour math + HDMA tables.
         if night {
-            // One light source: a torch in hand, or else the fire nearest
-            // the middle of the screen.
+            // Every light: a torch in hand and each campfire.
             let torch = self.inventory.torch_lit().then(|| self.player.center());
-            let mid = (camera.x + SCREEN_W as i32 / 2, camera.y + SCREEN_H as i32 / 2);
-            let fire = self
-                .fires
-                .iter()
-                .map(|f| f.flame_point())
-                .min_by_key(|&(x, y)| (x - mid.0).pow(2) + (y - mid.1).pow(2));
-            let light = torch.or(fire).map(|p| Light { center: camera.to_screen(p.0, p.1) });
+            let lights: Vec<(i32, i32)> = torch.into_iter().chain(self.fires.iter().map(|f| f.flame_point())).collect();
+            let at = (camera.x, camera.y);
+            let assets = &mut self.assets;
+            let lit = light_canvas::lay(&mut f.bg3, &mut assets.vram.hud_tiles, &assets.hud, at, &lights);
             let t = ((lighting.darkness - NIGHT_THRESHOLD) / (1.0 - NIGHT_THRESHOLD)).clamp(0.0, 1.0);
             let strength = t * t * (3.0 - 2.0 * t);
-            lighting::night(&mut f.lines, &mut f.cgram, light, HUD_LINES, strength, self.frame_count);
+            lighting::night(&mut f.lines, &mut f.cgram, lit.then(|| light_canvas::scroll(at)), HUD_LINES, strength, self.frame_count);
             f.math = MATH_NIGHT;
         } else {
             f.lines.clear();
@@ -717,15 +713,6 @@ impl Game {
         list.flush(&mut f.oam);
 
         self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
-    }
-
-    /// Writes the light mask into an off-screen area of the BG3 map.
-    fn place_light_mask(&mut self) {
-        let n = crate::assets::hud_art::LIGHT_MASK_TILES;
-        let (ox, oy) = (lighting::LIGHT_MASK_ORIGIN.0 as usize / 8, lighting::LIGHT_MASK_ORIGIN.1 as usize / 8);
-        for (i, &tile) in self.assets.hud.light_mask.iter().enumerate() {
-            self.frame.bg3.put(ox + i % n, oy + i / n, tile, HUD_LIGHT_MASK);
-        }
     }
 
     /// Dev tools: puts the castaway, awake, with their feet in a cell.

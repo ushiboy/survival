@@ -66,6 +66,11 @@ impl HudTileBank {
         (self.tiles.len() - 1) as HudTileId
     }
 
+    /// Rewrites a tile in place (a VRAM upload during the blank).
+    pub fn replace(&mut self, id: HudTileId, art: &PixelArt) {
+        self.tiles[id as usize] = art.to_tile8();
+    }
+
     #[inline]
     pub fn get(&self, id: HudTileId) -> &Tile8 {
         &self.tiles[id as usize]
