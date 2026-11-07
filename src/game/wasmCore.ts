@@ -41,6 +41,8 @@ export interface GameCore {
   debugGive(index: number, count: number): number;
   /** Debug: makes every recipe known. */
   debugLearnRecipes(): void;
+  /** Debug: sets health, food and water (0–64); a negative value leaves it as it is. */
+  debugSetVitals(hp: number, food: number, water: number): void;
   dispose(): void;
 }
 
@@ -76,6 +78,7 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     debugItems: () => debug_item_names().map((name, index) => ({ index, name, maxStack: debug_item_max_stack(index) })),
     debugGive: (index, count) => handle.debug_give(index, count),
     debugLearnRecipes: () => handle.debug_learn_recipes(),
+    debugSetVitals: (hp, food, water) => handle.debug_set_vitals(hp, food, water),
     dispose: () => handle.free(),
   };
 }

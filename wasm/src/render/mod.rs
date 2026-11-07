@@ -2,6 +2,7 @@
 
 pub mod bag_screen;
 pub mod camera;
+pub mod end_screen;
 pub mod hud;
 pub mod light_canvas;
 pub mod lighting;

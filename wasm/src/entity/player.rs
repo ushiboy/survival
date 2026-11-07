@@ -27,6 +27,9 @@ const SPEED_RUN: i32 = 560; // ~2.2 px
 const SPEED_RUN_DIAG: i32 = 396;
 const SPEED_WADE: i32 = 184;
 const SPEED_WADE_DIAG: i32 = 130;
+/// Too weak from hunger: the pace slowed to this share (in quarters), and
+/// the steps with it.
+const WEAK_PACE_QUARTERS: i32 = 3;
 const CORNER_ASSIST_PX: i32 = 6;
 /// Frames per walk-animation step.
 const STEP_FRAMES_WALK: u32 = 8;
@@ -177,6 +180,8 @@ pub enum Action {
     Cast { t: u32 },
     /// Holding the rod out with the float on the water, waiting for a bite.
     Fishing { t: u32 },
+    /// Fallen where they stood, health spent; there's no getting up.
+    Collapsed,
 }
 
 /// What the castaway has to hand and what lies around them this frame.
@@ -247,6 +252,8 @@ pub struct Player {
     /// A lit torch is carried (`Some(true)` once it's burning low): it's
     /// held up while standing and walking.
     pub torch: Option<bool>,
+    /// Weak with hunger: no running, and walking slower.
+    pub weak: bool,
     /// Frames left of the "!" over the head after a recipe came to mind.
     eureka: u32,
     walk_timer: u32,
@@ -273,6 +280,7 @@ impl Player {
             facing: Dir::Down,
             sheltered: false,
             torch: None,
+            weak: false,
             eureka: 0,
             moving: false,
             running: false,
@@ -289,6 +297,9 @@ impl Player {
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
         let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near } = situation;
         self.eureka = self.eureka.saturating_sub(1);
+        if self.action == Action::Collapsed {
+            return None;
+        }
         if let Action::WakeUp { t, end } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { end } else { t + 1 };
@@ -586,9 +597,9 @@ impl Player {
         let (fx, fy) = self.body.feet();
         self.wading = map.props_at_px(fx, fy).wading;
 
-        // Water drags at the legs too much to run.
+        // Water drags at the legs too much to run, and so does hunger.
         let was_running = self.running;
-        self.running = self.moving && !self.wading && input.held(Buttons::R);
+        self.running = self.moving && !self.wading && !self.weak && input.held(Buttons::R);
         if self.running != was_running {
             self.walk_timer = 0;
         }
@@ -601,6 +612,7 @@ impl Player {
             (false, false, false) => SPEED_WALK,
             (false, false, true) => SPEED_WALK_DIAG,
         };
+        let speed = if self.weak { speed * WEAK_PACE_QUARTERS / 4 } else { speed };
         self.body.move_by(ax * speed, ay * speed, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
 
         // Keep walking in place against walls, like classic action RPGs.
@@ -609,6 +621,17 @@ impl Player {
 
     pub fn is_asleep(&self) -> bool {
         matches!(self.action, Action::Sleep { .. })
+    }
+
+    /// Falls where they stand, health spent.
+    pub fn collapse(&mut self) {
+        self.action = Action::Collapsed;
+        self.facing = Dir::Right;
+        self.moving = false;
+        self.running = false;
+        self.walk_timer = 0;
+        self.eureka = 0;
+        self.torch = None;
     }
 
     /// Wakes from sleep: sitting up, getting up and looking round.
@@ -711,6 +734,7 @@ impl Player {
         } else {
             STEP_FRAMES_WALK
         };
+        let step_frames = if self.weak { step_frames * 4 / WEAK_PACE_QUARTERS as u32 } else { step_frames };
         // Start on a step frame so movement reads instantly.
         let phase = if self.moving { (self.walk_timer / step_frames + 1) % 4 } else { 0 };
         let (view, flip) = view_for(self.facing);
@@ -730,6 +754,14 @@ impl Player {
                 self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
                 return;
             }
+        }
+
+        if self.action == Action::Collapsed {
+            list.actor(depth, ObjEntry::new(sx - 15, sy + 6, sprites.player.sleeping, OBJ_PLAYER, prio));
+            if shadows {
+                list.shadow(ObjEntry::new(sx - 15, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
         }
 
         if let Action::Sleep { t } = self.action {

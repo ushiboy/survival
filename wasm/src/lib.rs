@@ -77,6 +77,13 @@ impl GameHandle {
         items::ItemKind::ALL.get(index).map_or(0, |&k| self.game.debug_give_n(k, count))
     }
 
+    /// Debug: sets health, food and water (0..=64); a negative value leaves
+    /// that one as it is.
+    pub fn debug_set_vitals(&mut self, hp: i32, food: i32, water: i32) {
+        let v = |n: i32| (n >= 0).then_some(n as u32);
+        self.game.debug_set_vitals(v(hp), v(food), v(water));
+    }
+
     /// Debug: makes every recipe known.
     pub fn debug_learn_recipes(&mut self) {
         self.game.debug_learn_recipes();

@@ -75,7 +75,7 @@ fn art(rows: [&str; 8]) -> PixelArt {
     PixelArt::parse(&rows, &[('1', 1), ('2', 2), ('3', 3)])
 }
 
-pub fn heart_full() -> PixelArt {
+pub fn icon_heart() -> PixelArt {
     art([
         ".11.11..",
         "1321221.",
@@ -83,19 +83,6 @@ pub fn heart_full() -> PixelArt {
         "1222221.",
         ".12221..",
         "..121...",
-        "...1....",
-        "........",
-    ])
-}
-
-pub fn heart_empty() -> PixelArt {
-    art([
-        ".11.11..",
-        "1..1..1.",
-        "1.....1.",
-        "1.....1.",
-        ".1...1..",
-        "..1.1...",
         "...1....",
         "........",
     ])

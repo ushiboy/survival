@@ -64,10 +64,16 @@ pub enum Rest {
     Sheltered,
 }
 
+/// Health, hunger and thirst: three gauges, health running from `max_hp`
+/// down to nothing (and then the castaway collapses).
+///
+/// Health wears down while awake (tiredness), and faster with nothing to
+/// eat or drink; sleep brings it back. Every rate is given as minutes for a
+/// sixty-fourth of the gauge, so a bigger gauge keeps the same days.
 #[derive(Clone, Debug)]
 pub struct Vitals {
-    pub hp: u8,
-    pub max_hp: u8,
+    pub hp: u32,
+    pub max_hp: u32,
     /// 0..=MAX
     pub food: u32,
     pub water: u32,
@@ -75,6 +81,13 @@ pub struct Vitals {
     /// `AWAKE_EFFORT`s per minute awake).
     food_spent: u32,
     water_spent: u32,
+    /// Minutes awake not yet slept off (never shown): sleep pays it back
+    /// two minutes for one, and with nothing to eat or drink that is all
+    /// sleep gives back.
+    tired: u32,
+    /// Health worn away and mended, in points, not yet a whole one.
+    wear: f32,
+    mend: f32,
 }
 
 impl Vitals {
@@ -82,36 +95,102 @@ impl Vitals {
     /// Minutes awake for each gauge to go down a notch.
     const FOOD_DECAY_MINUTES: u32 = 15;
     const WATER_DECAY_MINUTES: u32 = 10;
-    /// Effort of a minute awake: a minute asleep burns a sixth as much,
-    /// and under a shelter a twelfth.
+    /// Effort of a minute awake. Asleep, hunger grows a sixth as fast
+    /// (under a shelter a twelfth), thirst half as fast (a third): breath
+    /// still takes water.
     const AWAKE_EFFORT: u32 = 12;
+    /// Minutes for a sixty-fourth of health to wear away: awake (about a
+    /// fifth of it in a 16-hour day), with no water, with no food.
+    const TIRE_MINUTES: f32 = 75.0;
+    const THIRST_MINUTES: f32 = 68.0;
+    const HUNGER_MINUTES: f32 = 600.0;
+    /// Minutes of sleep for a sixty-fourth of health to come back, in the
+    /// open and under a shelter.
+    const SLEEP_MEND_MINUTES: f32 = 15.0;
+    const SHELTER_MEND_MINUTES: f32 = 10.0;
+    /// Minutes of tiredness one minute of sleep pays back.
+    const SLEEP_PAYS: u32 = 2;
 
     pub fn new() -> Self {
-        Self { hp: 5, max_hp: 5, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0 }
+        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0 }
     }
 
-    /// Called once per in-game minute: hunger and thirst grow, slower while
-    /// resting.
+    /// Nothing left to eat: too weak to run.
+    pub fn starving(&self) -> bool {
+        self.food == 0
+    }
+
+    /// Fed and watered: healing works (sleep mends past tiredness, cooked
+    /// food and boiled water heal).
+    fn nourished(&self) -> bool {
+        self.food > 0 && self.water > 0
+    }
+
+    pub fn collapsed(&self) -> bool {
+        self.hp == 0
+    }
+
+    /// Points of health for `minutes` at `per` minutes a sixty-fourth.
+    fn points(&self, minutes: f32, per: f32) -> f32 {
+        self.max_hp as f32 / 64.0 * minutes / per
+    }
+
+    /// Called once per in-game minute: hunger and thirst grow (slower while
+    /// resting), health wears with them and with tiredness, and sleep mends
+    /// it.
     pub fn on_minute(&mut self, rest: Rest) {
-        let effort = match rest {
-            Rest::Awake => Self::AWAKE_EFFORT,
-            Rest::Asleep => 2,
-            Rest::Sheltered => 1,
+        let (food_effort, water_effort) = match rest {
+            Rest::Awake => (Self::AWAKE_EFFORT, Self::AWAKE_EFFORT),
+            Rest::Asleep => (2, 6),
+            Rest::Sheltered => (1, 4),
         };
-        self.food_spent += effort;
+        self.food_spent += food_effort;
         if self.food_spent >= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT {
             self.food_spent -= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.food = self.food.saturating_sub(1);
         }
-        self.water_spent += effort;
+        self.water_spent += water_effort;
         if self.water_spent >= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT {
             self.water_spent -= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.water = self.water.saturating_sub(1);
         }
-    }
-}
 
-impl Vitals {
+        let mut wear = 0.0;
+        if self.water == 0 {
+            wear += self.points(1.0, Self::THIRST_MINUTES);
+        }
+        if self.food == 0 {
+            wear += self.points(1.0, Self::HUNGER_MINUTES);
+        }
+        let mut mend = 0.0;
+        if rest == Rest::Awake {
+            self.tired += 1;
+            wear += self.points(1.0, Self::TIRE_MINUTES);
+        } else {
+            let paid = self.tired.min(Self::SLEEP_PAYS);
+            self.tired -= paid;
+            mend = if self.nourished() {
+                let per = if rest == Rest::Sheltered { Self::SHELTER_MEND_MINUTES } else { Self::SLEEP_MEND_MINUTES };
+                self.points(1.0, per)
+            } else {
+                // Hungry or thirsty: sleep only makes up for being tired.
+                self.points(paid as f32, Self::TIRE_MINUTES)
+            };
+        }
+        self.wear += wear;
+        let lost = self.wear as u32;
+        self.wear -= lost as f32;
+        self.hp = self.hp.saturating_sub(lost);
+        if self.hp >= self.max_hp {
+            self.mend = 0.0;
+        } else {
+            self.mend += mend;
+            let gained = self.mend as u32;
+            self.mend -= gained as f32;
+            self.hp = (self.hp + gained).min(self.max_hp);
+        }
+    }
+
     pub fn eat(&mut self, amount: u32) {
         self.food = (self.food + amount).min(Self::MAX);
     }
@@ -120,9 +199,13 @@ impl Vitals {
         self.water = (self.water + amount).min(Self::MAX);
     }
 
-    /// Restores `hearts` of health, up to the most there can be.
-    pub fn heal(&mut self, hearts: u8) {
-        self.hp = self.hp.saturating_add(hearts).min(self.max_hp);
+    /// Restores `points` (of a 64-point gauge) of health, up to full; only
+    /// when fed and watered.
+    pub fn heal(&mut self, points: u32) {
+        if self.nourished() {
+            let gained = points * self.max_hp / 64;
+            self.hp = (self.hp + gained).min(self.max_hp);
+        }
     }
 }
 

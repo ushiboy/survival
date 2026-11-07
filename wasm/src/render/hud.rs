@@ -1,4 +1,4 @@
-//! HUD overlay on BG3: hearts, food & water gauges, day and clock.
+//! HUD overlay on BG3: health, food & water gauges, day and clock.
 //! Drawn over the playfield with no backing panel, as 16-bit games did.
 
 use crate::assets::HudTiles;
@@ -32,10 +32,8 @@ fn gauge(hud: &mut HudLayer, tiles: &HudTiles, col: usize, row: usize, value: u3
 
 pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameClock, night: bool) {
     hud.clear_rect(0, 0, HUD_COLS, HUD_ROWS);
-    for i in 0..vitals.max_hp {
-        let t = if i < vitals.hp { tiles.heart_full } else { tiles.heart_empty };
-        hud.put(1 + i as usize, 1, t, HUD_HEART);
-    }
+    hud.put(1, 1, tiles.heart, HUD_HEART);
+    gauge(hud, tiles, 2, 1, vitals.hp, vitals.max_hp, HUD_HEART);
     hud.put(1, 2, tiles.food, HUD_FOOD);
     gauge(hud, tiles, 2, 2, vitals.food, Vitals::MAX, HUD_FOOD);
     hud.put(1, 3, tiles.water, HUD_WATER);

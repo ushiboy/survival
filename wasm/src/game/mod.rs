@@ -25,6 +25,7 @@ use crate::render::camera::Camera;
 use crate::crafting::{RECIPES, Recipe};
 use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
+use crate::render::end_screen;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::light_canvas;
 use crate::render::lighting::{self, Lighting};
@@ -44,11 +45,12 @@ const HITSTOP_FELL: u32 = 7;
 const HITSTOP_HARD: u32 = 3;
 const HITSTOP_CRAB: u32 = 5;
 /// In-game minutes that pass each frame while asleep (an hour in half a
-/// second), and the minutes of sleep that restore a heart.
+/// second).
 const SLEEP_MINUTES_PER_FRAME: u32 = 2;
-const SLEEP_HEAL_MINUTES: u32 = 60;
-/// Minutes of sleep per heart restored under a shelter.
-const SHELTER_HEAL_MINUTES: u32 = 30;
+/// Frames the screen takes to fade out once the castaway collapses, and
+/// before the end can be dismissed.
+const COLLAPSE_FADE: u32 = 120;
+const COLLAPSE_HOLD: u32 = 60;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
@@ -136,7 +138,10 @@ pub struct Game {
     shell_day: u32,
     shell_cap: usize,
     /// In-game minutes the castaway has been asleep.
-    slept: u32,
+    /// The island's seed (to start again from).
+    seed: u32,
+    /// Frames since the castaway collapsed, once they have.
+    collapsed: Option<u32>,
     gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
@@ -193,7 +198,8 @@ impl Game {
             fires: Vec::new(),
             shell_day: 0,
             shell_cap: 0,
-            slept: 0,
+            seed,
+            collapsed: None,
             gulls,
             camera: Camera::new(0),
             clock: GameClock::new(1, START_HOUR),
@@ -220,6 +226,15 @@ impl Game {
     /// Advances the simulation by one frame (1/60 s).
     pub fn step(&mut self, buttons: u16) {
         self.input.update(buttons);
+        if let Some(t) = self.collapsed {
+            // The end: the screen fades, then START begins again.
+            self.frame_count = self.frame_count.wrapping_add(1);
+            self.collapsed = Some(t + 1);
+            if t >= COLLAPSE_FADE + COLLAPSE_HOLD && self.input.pressed(Buttons::START) {
+                self.start_over();
+            }
+            return;
+        }
         if self.input.pressed(Buttons::START) {
             self.paused = !self.paused;
         }
@@ -255,11 +270,15 @@ impl Game {
             self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
             self.sleep_on();
         } else {
-            self.slept = 0;
             if self.clock.tick() {
                 self.vitals.on_minute(Rest::Awake);
             }
         }
+        if self.vitals.collapsed() {
+            self.collapse();
+            return;
+        }
+        self.player.weak = self.vitals.starving();
         let now = self.clock.total_minutes();
         self.inventory.tend_torch(now);
         if self.clock.day != self.shell_day {
@@ -729,20 +748,34 @@ impl Game {
     }
 
     /// One frame of sleep: time hurries on (hunger and thirst with it, if
-    /// more slowly) and every hour slept restores a heart (every half hour,
-    /// and hunger and thirst slower still, under a shelter). The castaway sleeps on until
-    /// woken with a button.
+    /// more slowly) and sleep mends health (faster under a shelter; see
+    /// `Vitals`). The castaway sleeps on until woken with a button.
     fn sleep_on(&mut self) {
-        let sheltered = self.player.sheltered;
-        let (rest, heal_every) = if sheltered { (Rest::Sheltered, SHELTER_HEAL_MINUTES) } else { (Rest::Asleep, SLEEP_HEAL_MINUTES) };
+        let rest = if self.player.sheltered { Rest::Sheltered } else { Rest::Asleep };
         for _ in 0..SLEEP_MINUTES_PER_FRAME {
             self.clock.advance_minutes(1);
             self.vitals.on_minute(rest);
-            self.slept += 1;
-            if self.slept % heal_every == 0 {
-                self.vitals.heal(1);
+            if self.vitals.collapsed() {
+                return;
             }
         }
+    }
+
+    /// Health spent: the castaway falls where they are, and the game ends.
+    fn collapse(&mut self) {
+        if let Some(line) = &mut self.line {
+            line.let_go(&mut self.fish);
+        }
+        self.line = None;
+        self.player.collapse();
+        self.collapsed = Some(0);
+    }
+
+    /// Starts a new game on the same island.
+    fn start_over(&mut self) {
+        let sprite_limit = self.ppu.sprite_limit;
+        *self = Game::new(self.seed);
+        self.ppu.sprite_limit = sprite_limit;
     }
 
     /// Whether the castaway stands by a burning campfire.
@@ -850,6 +883,28 @@ impl Game {
         f.clock = self.frame_count;
         f.scroll_x = camera.x;
         f.scroll_y = camera.y;
+        f.brightness = 15;
+        if let Some(t) = self.collapsed {
+            if t >= COLLAPSE_FADE {
+                // The end screen, fading in on black.
+                f.cgram.clone_from(&self.base_cgram);
+                f.cgram.colors[0] = crate::ppu::palette::Rgb555::BLACK;
+                f.brightness = ((t - COLLAPSE_FADE) / 2).min(15) as u8;
+                f.lines.clear();
+                f.math = ColorMath::OFF;
+                f.main_layers = layer::BG3;
+                f.bg3_priority = false;
+                let start = GameClock::new(1, START_HOUR).total_minutes();
+                let lasted = self.clock.total_minutes() - start;
+                let prompt = t >= COLLAPSE_FADE + COLLAPSE_HOLD && (self.frame_count / 30).is_multiple_of(2);
+                end_screen::draw(&mut f.bg3, &self.assets.hud, &self.clock, lasted, prompt);
+                f.oam.clear();
+                self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
+                return;
+            }
+            // The world fades out around the fallen castaway.
+            f.brightness = (15 - 15 * t / COLLAPSE_FADE) as u8;
+        }
 
         // CGRAM: base palette → water cycling → time-of-day tint.
         f.cgram.clone_from(&self.base_cgram);
@@ -943,9 +998,23 @@ impl Game {
         self.equip(presets[(i + 1) % presets.len()]);
     }
 
-    /// Dev tools: sets the castaway's health in hearts.
-    pub fn debug_set_hp(&mut self, hearts: u8) {
-        self.vitals.hp = hearts.min(self.vitals.max_hp);
+    /// Dev tools: sets the castaway's health (of a 64-point gauge).
+    pub fn debug_set_hp(&mut self, hp: u32) {
+        self.vitals.hp = hp.min(self.vitals.max_hp);
+    }
+
+    /// Dev tools: sets health, food and water (each left as it is when
+    /// `None`).
+    pub fn debug_set_vitals(&mut self, hp: Option<u32>, food: Option<u32>, water: Option<u32>) {
+        if let Some(hp) = hp {
+            self.debug_set_hp(hp);
+        }
+        if let Some(food) = food {
+            self.vitals.food = food.min(Vitals::MAX);
+        }
+        if let Some(water) = water {
+            self.vitals.water = water.min(Vitals::MAX);
+        }
     }
 
     /// Dev tools: sets a crab down `dx` px to the right of the castaway's

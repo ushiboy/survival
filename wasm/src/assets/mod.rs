@@ -345,8 +345,7 @@ pub struct FireSprites {
 #[derive(Clone, Debug)]
 pub struct HudTiles {
     glyphs: Vec<(char, HudTileId)>,
-    pub heart_full: HudTileId,
-    pub heart_empty: HudTileId,
+    pub heart: HudTileId,
     pub food: HudTileId,
     pub water: HudTileId,
     pub sun: HudTileId,
@@ -604,8 +603,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
     let gauge = std::array::from_fn(|i| bank.add(&hud_art::gauge_segment(i)));
     HudTiles {
         glyphs,
-        heart_full: bank.add(&hud_art::heart_full()),
-        heart_empty: bank.add(&hud_art::heart_empty()),
+        heart: bank.add(&hud_art::icon_heart()),
         food: bank.add(&hud_art::icon_food()),
         water: bank.add(&hud_art::icon_water()),
         sun: bank.add(&hud_art::icon_sun()),

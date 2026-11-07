@@ -6,6 +6,15 @@ interface Props {
 }
 
 const MAX_COUNT = 99;
+const FULL = 64;
+
+/** Vitals presets: label, message, then health, food and water (-1 leaves it). */
+const VITALS: [string, string, number, number, number][] = [
+  ['全回復', '体力・満腹度・水分を満タンにしました', FULL, FULL, FULL],
+  ['飢え', '満腹度を0にしました', -1, 0, -1],
+  ['渇き', '水分を0にしました', -1, -1, 0],
+  ['瀕死', '体力を1にしました', 1, -1, -1],
+];
 
 /** Debug tools, shown with `?debug=true`: put any item in the bag. */
 export function DebugTools({ core }: Props) {
@@ -89,6 +98,21 @@ export function DebugTools({ core }: Props) {
         >
           全レシピを解放
         </button>
+      </div>
+      <div className="row">
+        <span>状態</span>
+        {VITALS.map(([label, done, hp, food, water]) => (
+          <button
+            key={label}
+            onClick={(e) => {
+              core.debugSetVitals(hp, food, water);
+              setMessage(done);
+              release(e);
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {message && <p className="note">{message}</p>}
       <p className="note">Shift (SELECT) — 時刻を3時間進める／O — 服装の切替</p>

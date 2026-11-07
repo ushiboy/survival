@@ -262,11 +262,11 @@ impl ItemKind {
         }
     }
 
-    /// Hearts of health eating or drinking it restores (cooked food and
-    /// boiled water are what heal).
-    pub fn heals(self) -> u8 {
+    /// Health eating or drinking it restores, of a 64-point gauge (cooked
+    /// food and boiled water are what heal, about a fifth of it).
+    pub fn heals(self) -> u32 {
         match self {
-            ItemKind::GrilledCrab | ItemKind::GrilledFish | ItemKind::BoiledWater => 1,
+            ItemKind::GrilledCrab | ItemKind::GrilledFish | ItemKind::BoiledWater => 13,
             _ => 0,
         }
     }
