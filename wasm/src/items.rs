@@ -144,7 +144,7 @@ impl ItemKind {
             ItemKind::Vine => "A LENGTH OF VINE FOR LIGHT LASHING.",
             ItemKind::WoodSpear => "A SHARPENED BRANCH. THRUST IT TO CATCH CRABS.",
             ItemKind::Crab => "A RAW CRAB. FILLING, BUT BETTER COOKED.",
-            ItemKind::GrilledCrab => "COOKED OVER A FIRE. VERY FILLING, AND HEALS.",
+            ItemKind::GrilledCrab => "CLEANED AND COOKED OVER A FIRE. VERY FILLING, AND HEALS.",
             ItemKind::Leaf => "A BROAD LEAF. FOLDED, IT HOLDS WATER.",
             ItemKind::Bark => "A STRIP OF BARK FROM A BROADLEAF TREE.",
             ItemKind::LauanTimber => "A SQUARED LENGTH OF LAUAN, A STRONG HARDWOOD.",

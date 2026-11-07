@@ -189,9 +189,9 @@ impl Bag {
         self.items.iter().any(|p| p.kind == kind)
     }
 
-    /// Whether the bag holds every material a recipe needs.
+    /// Whether the bag holds every material and tool a recipe needs.
     pub fn can_make(&self, recipe: &Recipe) -> bool {
-        recipe.needs.iter().all(|&(kind, n)| self.count(kind) >= n)
+        recipe.needs.iter().all(|&(kind, n)| self.count(kind) >= n) && recipe.tools.iter().all(|&kind| self.has(kind))
     }
 
     /// Takes a recipe's materials out of the bag; the caller has checked it

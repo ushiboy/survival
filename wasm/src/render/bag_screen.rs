@@ -250,8 +250,8 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
 }
 
 /// One recipe opened: what it makes and what that's for, the materials
-/// with how many are needed and carried (short ones greyed), whether it
-/// needs a fire, and MAKE / BACK.
+/// with how many are needed and carried (short ones greyed), the tools it
+/// takes, whether it needs a fire, and MAKE / BACK.
 #[allow(clippy::too_many_arguments)]
 fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, near_fire: bool, index: usize, choice: usize) {
     let recipe = &RECIPES[index];
@@ -277,8 +277,17 @@ fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprite
         text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
         text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
     }
+    // Tools: carried, not used up.
+    for (i, &kind) in recipe.tools.iter().enumerate() {
+        let row = top + 1 + recipe.needs.len() + i;
+        let have = bag.has(kind);
+        let palette = if have { HUD_TEXT } else { HUD_DIM };
+        text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
+        text_in(bg3, tiles, NEED_COL - 2, row, "TOOL", palette);
+        text_in(bg3, tiles, HAVE_COL - 1, row, if have { "YES" } else { " NO" }, palette);
+    }
     if recipe.at_fire {
-        let row = top + 1 + recipe.needs.len();
+        let row = top + 1 + recipe.needs.len() + recipe.tools.len();
         let palette = if near_fire { HUD_TEXT } else { HUD_DIM };
         text_in(bg3, tiles, GRID_COL + 1, row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
         text_in(bg3, tiles, GRID_COL + 3, row, "A FIRE", palette);

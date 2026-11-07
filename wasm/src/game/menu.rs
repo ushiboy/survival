@@ -428,7 +428,7 @@ impl BagMenu {
         let bag = &mut inv.bag;
         let recipe = &RECIPES[index];
         if !bag.can_make(recipe) {
-            self.notice = Some("NOT ENOUGH MATERIALS");
+            self.notice = Some(if recipe.tools.iter().all(|&t| bag.has(t)) { "NOT ENOUGH MATERIALS" } else { "MISSING A TOOL" });
             return Outcome::Stay;
         }
         if recipe.at_fire && !self.near_fire {

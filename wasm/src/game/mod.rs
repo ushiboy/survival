@@ -459,6 +459,10 @@ impl Game {
             }
             return;
         }
+        // Vine has to be cut free; without a knife it won't give.
+        if harvest::can_pull_vine(&self.map, point) && !self.inventory.bag.has(ItemKind::StoneKnife) {
+            return;
+        }
         if let Some((x, y)) = harvest::pull_vine(&mut self.map, point) {
             self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
             let (px, py) = (x * TILE_SIZE, y * TILE_SIZE);
