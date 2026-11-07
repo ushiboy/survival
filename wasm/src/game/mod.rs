@@ -773,9 +773,14 @@ impl Game {
 
     /// Starts a new game on the same island.
     fn start_over(&mut self) {
-        let sprite_limit = self.ppu.sprite_limit;
+        // Keep the PPU (its frame buffer stays where the page reads it, and
+        // the sprite limit as set) and the buttons as they are held (so the
+        // START that began again doesn't count as pressed once more).
+        let ppu = std::mem::replace(&mut self.ppu, Ppu::new());
+        let input = std::mem::take(&mut self.input);
         *self = Game::new(self.seed);
-        self.ppu.sprite_limit = sprite_limit;
+        self.ppu = ppu;
+        self.input = input;
     }
 
     /// Whether the castaway stands by a burning campfire.
