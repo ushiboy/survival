@@ -254,7 +254,10 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
         let (w, h) = footprint(makes, false);
         let (gfx, pal) = sprites.bag.icon(makes, false);
         list.sky(ObjEntry::new(PREVIEW_COL as i32 * 8, GRID_ROW as i32 * 8, gfx, pal, 3));
-        text(bg3, tiles, PREVIEW_COL, GRID_ROW + h as usize * 2 + 1, &format!("SIZE {w}X{h}"));
+        // A torch never takes room in the bag.
+        if makes.goes_in_bag() {
+            text(bg3, tiles, PREVIEW_COL, GRID_ROW + h as usize * 2 + 1, &format!("SIZE {w}X{h}"));
+        }
     }
 }
 
@@ -267,7 +270,9 @@ fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprite
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);
     text(bg3, tiles, GRID_COL, GRID_ROW, makes.name());
-    text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+    if makes.goes_in_bag() {
+        text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+    }
     let (gfx, pal) = sprites.bag.icon(makes, false);
     list.sky(ObjEntry::new(ICON_RIGHT * 8 - w * CELL, GRID_ROW as i32 * 8, gfx, pal, 3));
     for (i, line) in wrap(makes.description(), DESC_WIDTH).iter().enumerate() {

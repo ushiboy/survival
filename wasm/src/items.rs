@@ -55,8 +55,9 @@ pub enum ItemKind {
     /// over the castaway when they lie down to sleep.
     Shelter,
     /// A branch with husk fibre wound round its head, lit at a campfire.
-    /// Held in hand it lights the dark; it burns out half a day after it
-    /// was lit, carried or not.
+    /// Unlike everything else it never goes in the bag: once lit it's
+    /// carried (beside whatever tool is in hand), lighting the dark, until
+    /// it burns out half a day later.
     Torch,
 }
 
@@ -196,7 +197,7 @@ impl ItemKind {
             ItemKind::PalmFrond => "A LONG PALM LEAF. WOVEN TOGETHER, FRONDS KEEP OFF RAIN.",
             ItemKind::Thatch => "PALM FRONDS WOVEN WITH VINE INTO A PIECE OF ROOF.",
             ItemKind::Shelter => "A LEAN-TO, ROLLED UP. SLEEP UNDER IT TO HEAL FASTER AND TIRE LESS.",
-            ItemKind::Torch => "HUSK FIBRE ON A BRANCH, LIT AT A FIRE. HELD, IT LIGHTS THE DARK UNTIL IT BURNS OUT.",
+            ItemKind::Torch => "HUSK FIBRE ON A BRANCH, LIT AT A FIRE. CARRIED, IT LIGHTS THE DARK UNTIL IT BURNS OUT.",
         }
     }
 
@@ -255,7 +256,7 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::Torch => Some(Slot::Hand),
+            ItemKind::StoneAxe | ItemKind::WoodSpear => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }
@@ -269,15 +270,15 @@ impl ItemKind {
         }
     }
 
-    /// Whether it can lie on the ground (water can only be poured away, a
-    /// torch only put out).
+    /// Whether it can lie on the ground (water can only be poured away).
     pub fn can_put_down(self) -> bool {
-        !matches!(self, ItemKind::RawWater | ItemKind::Torch)
+        self != ItemKind::RawWater
     }
 
-    /// Whether B swings or thrusts it (a torch is only held up).
-    pub fn swung(self) -> bool {
-        self.slot() == Some(Slot::Hand) && self != ItemKind::Torch
+    /// Whether it goes in the bag once made or picked up (a lit torch is
+    /// carried instead).
+    pub fn goes_in_bag(self) -> bool {
+        self != ItemKind::Torch
     }
 
     /// How getting rid of it from the bag reads: the command, and what's
@@ -285,7 +286,6 @@ impl ItemKind {
     pub fn discard_words(self) -> (&'static str, &'static str) {
         match self {
             ItemKind::RawWater => ("POUR OUT", "POURED IT OUT"),
-            ItemKind::Torch => ("PUT OUT", "PUT IT OUT"),
             _ => ("PUT DOWN", "PUT IT DOWN"),
         }
     }

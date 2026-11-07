@@ -134,13 +134,15 @@ impl Default for Vitals {
 
 /// How long a torch burns once lit (game minutes): about a whole night.
 pub const TORCH_BURN_MINUTES: u32 = 12 * 60;
+/// The last stretch of it, when the flame burns low.
+const TORCH_DYING_MINUTES: u32 = 60;
 
 /// What the castaway carries and wears.
 #[derive(Clone, Debug)]
 pub struct Inventory {
     pub bag: Bag,
-    /// When each torch carried was lit (game minutes), oldest first.
-    pub torches: Vec<u32>,
+    /// When the torch carried was lit (game minutes), if one is.
+    pub torch: Option<u32>,
     /// The recipes thought of so far.
     pub recipes: RecipeBook,
     /// What the castaway is wearing.
@@ -167,24 +169,27 @@ impl Gear {
 }
 
 impl Inventory {
-    /// Whether a torch held in hand lights the surroundings.
+    /// Whether a lit torch is carried, lighting the surroundings.
     pub fn torch_lit(&self) -> bool {
-        self.gear.hand == Some(ItemKind::Torch)
+        self.torch.is_some()
     }
 
-    /// Keeps the torches' lighting times in step with the torches carried
-    /// (a new one was lit just now; one put out was the newest), and burns
-    /// out the oldest once it's had its time. Called as time passes, never
-    /// while the bag is open, so a torch lifted out to move keeps its time.
-    pub fn tend_torches(&mut self, now: u32) {
-        let carried = self.bag.count(ItemKind::Torch) as usize;
-        self.torches.truncate(carried);
-        self.torches.resize(carried, now);
-        while self.torches.first().is_some_and(|&lit| now >= lit + TORCH_BURN_MINUTES) {
-            self.torches.remove(0);
-            self.bag.take_kind(ItemKind::Torch);
+    /// Takes up a freshly lit torch: one already carried is lit afresh,
+    /// so it burns for the full time again.
+    pub fn light_torch(&mut self, now: u32) {
+        self.torch = Some(now);
+    }
+
+    /// Whether the torch is in its last hour, burning low.
+    pub fn torch_dying(&self, now: u32) -> bool {
+        self.torch.is_some_and(|lit| now + TORCH_DYING_MINUTES >= lit + TORCH_BURN_MINUTES)
+    }
+
+    /// Burns out the torch once it's had its time.
+    pub fn tend_torch(&mut self, now: u32) {
+        if self.torch.is_some_and(|lit| now >= lit + TORCH_BURN_MINUTES) {
+            self.torch = None;
         }
-        self.settle_hand();
     }
 
     /// Thinks of any recipe whose materials are now all carried; whether
@@ -257,6 +262,6 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), torches: Vec::new(), recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
+        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
     }
 }

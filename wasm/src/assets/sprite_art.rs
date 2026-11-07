@@ -214,9 +214,9 @@ fn crab_ix(c: char) -> u8 {
 }
 
 /// A lit torch, 16x32 per frame: a branch handle, a head of husk fibre
-/// bound round its top, and a flame licking up from it (three frames).
-/// Held at `TORCH_GRIP`.
-pub fn torch_frames() -> [PixelArt; 3] {
+/// bound round its top, and a flame licking up from it (three frames),
+/// lively or (`low`) burning down. Held at `TORCH_GRIP`.
+pub fn torch_frames(low: bool) -> [PixelArt; 3] {
     let i = |c| ITEM_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
     let mut body = PixelArt::filled(16, 32, 0);
     // The handle, leaning a touch, lit from the left.
@@ -238,7 +238,8 @@ pub fn torch_frames() -> [PixelArt; 3] {
     std::array::from_fn(|f| {
         let mut a = PixelArt::filled(16, 32, 0);
         // A slim flame standing on the head, its foot hidden in the fibre.
-        a.overlay(&flames(9.0, 2.4)[f], 0, -3);
+        let (height, width) = if low { (4.5, 1.8) } else { (9.0, 2.4) };
+        a.overlay(&flames(height, width)[f], 0, -3);
         let mut out = body.clone();
         // Charred, glowing top of the fibre under the flame.
         for (x, y) in [(7, 11), (8, 11), (9, 12), (7, 12)] {

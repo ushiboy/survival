@@ -294,8 +294,9 @@ pub struct SpriteIds {
     pub thought: [SpriteId; 3],
     /// A speech bubble with a "!": a recipe came to mind.
     pub eureka: SpriteId,
-    /// A lit torch, 16x32, three flame frames.
+    /// A lit torch, 16x32, three flame frames; and burning low.
     pub torch: [SpriteId; 3],
+    pub torch_low: [SpriteId; 3],
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
@@ -477,7 +478,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         },
         shelter: bank.add(&item_art::icon_shelter()),
         torch: {
-            let t = &torch_frames()[0];
+            let t = &torch_frames(false)[0];
             [bank.add(t), bank.add(&t.rotated_cw())]
         },
         digits: item_art::count_digits().map(|a| bank.add(&a)),
@@ -536,7 +537,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         lean_to: bank.add(&lean_to()),
         thought: thought_frames().map(|a| bank.add(&a)),
         eureka: bank.add(&eureka_bubble()),
-        torch: torch_frames().map(|a| bank.add(&a)),
+        torch: torch_frames(false).map(|a| bank.add(&a)),
+        torch_low: torch_frames(true).map(|a| bank.add(&a)),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

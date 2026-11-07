@@ -226,8 +226,9 @@ pub struct Player {
     /// Sleeping under a pitched shelter (one is carried): only the
     /// shelter is drawn.
     pub sheltered: bool,
-    /// A lit torch is in hand: it's held up while standing and walking.
-    pub torch: bool,
+    /// A lit torch is carried (`Some(true)` once it's burning low): it's
+    /// held up while standing and walking.
+    pub torch: Option<bool>,
     /// Frames left of the "!" over the head after a recipe came to mind.
     eureka: u32,
     walk_timer: u32,
@@ -253,7 +254,7 @@ impl Player {
             body: Body::new(px, py, HITBOX),
             facing: Dir::Down,
             sheltered: false,
-            torch: false,
+            torch: None,
             eureka: 0,
             moving: false,
             running: false,
@@ -371,7 +372,7 @@ impl Player {
             self.walk_timer = 0;
             return None;
         }
-        if let Some(tool) = tool.filter(|t| t.swung() && !self.wading && input.pressed(Buttons::B)) {
+        if let Some(tool) = tool.filter(|_| !self.wading && input.pressed(Buttons::B)) {
             // Using a tool roots you in place; change facing first if a
             // direction is held.
             let (ax, ay) = input.axis();
@@ -780,8 +781,8 @@ impl Player {
             return;
         }
         let frame = sprites.player.walk[view][phase as usize];
-        if self.torch {
-            self.draw_torch(list, (cx, cy), depth, sprites, (view, flip, phase as usize), clock, prio);
+        if let Some(low) = self.torch {
+            self.draw_torch(list, (cx, cy), depth, sprites, (view, flip, phase as usize), (clock, low), prio);
         }
         if self.wading {
             // Foam ring first (in front), then the body above the waterline,
@@ -942,7 +943,7 @@ impl Player {
     /// or away). It's behind the body facing away;
     /// otherwise in front, with the hands drawn over its handle.
     #[allow(clippy::too_many_arguments)]
-    fn draw_torch(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (view, flip, phase): (usize, bool, usize), clock: u32, prio: u8) {
+    fn draw_torch(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (view, flip, phase): (usize, bool, usize), (clock, low): (u32, bool), prio: u8) {
         let pose = &sprites.player.walk_poses[view][phase];
         // Held a little out from the body, so the flame stands clear of
         // the face, and steady: the arm holding it doesn't swing, it only
@@ -952,8 +953,9 @@ impl Player {
         let hx = hx + TORCH_REACH[view];
         let hx = if flip { CHAR_W as f32 - hx } else { hx };
         let (gx, gy) = TORCH_GRIP;
-        let flame = (clock / TORCH_FLAME_FRAME) as usize % sprites.torch.len();
-        let torch = ObjEntry::new(cx + (hx - gx).round() as i32, cy + (hy - gy).round() as i32, sprites.torch[flame], OBJ_CRAB, prio).flipped(flip);
+        let frames = if low { &sprites.torch_low } else { &sprites.torch };
+        let flame = (clock / TORCH_FLAME_FRAME) as usize % frames.len();
+        let torch = ObjEntry::new(cx + (hx - gx).round() as i32, cy + (hy - gy).round() as i32, frames[flame], OBJ_CRAB, prio).flipped(flip);
         if self.facing == Dir::Up {
             list.actor(depth - 1, torch);
         } else {

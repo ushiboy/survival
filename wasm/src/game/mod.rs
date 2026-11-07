@@ -227,8 +227,9 @@ impl Game {
                 self.vitals.on_minute(Rest::Awake);
             }
         }
-        self.inventory.tend_torches(self.clock.total_minutes());
-        self.player.torch = self.inventory.torch_lit();
+        let now = self.clock.total_minutes();
+        self.inventory.tend_torch(now);
+        self.player.torch = self.inventory.torch_lit().then(|| self.inventory.torch_dying(now));
         if self.inventory.think() {
             self.player.eureka();
         }
@@ -513,6 +514,11 @@ impl Game {
     /// all fit, the bag opens with the rest in hand so room can be made (or
     /// they can be left).
     fn take(&mut self, kind: ItemKind, count: u32) {
+        if !kind.goes_in_bag() {
+            // A torch lit at the fire is carried straight off.
+            self.inventory.light_torch(self.clock.total_minutes());
+            return;
+        }
         let left = self.inventory.bag.stow(kind, count);
         if left > 0 {
             self.menu = Some(BagMenu::holding(kind, left));
@@ -693,7 +699,7 @@ impl Game {
 
         // Colour math + HDMA tables.
         if night {
-            // Every light: a torch in hand and each campfire.
+            // Every light: a torch carried and each campfire.
             let torch = self.inventory.torch_lit().then(|| self.player.center());
             let lights: Vec<(i32, i32)> = torch.into_iter().chain(self.fires.iter().map(|f| f.flame_point())).collect();
             let at = (camera.x, camera.y);
@@ -783,6 +789,10 @@ impl Game {
 
     /// Puts up to `n` of a kind in the bag; returns how many went in.
     pub fn debug_give_n(&mut self, kind: ItemKind, n: u32) -> u32 {
+        if !kind.goes_in_bag() {
+            self.inventory.light_torch(self.clock.total_minutes());
+            return n.min(1);
+        }
         let given = n - self.inventory.bag.stow(kind, n);
         if given > 0 {
             self.inventory.took(kind);

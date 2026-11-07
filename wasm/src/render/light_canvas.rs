@@ -1,4 +1,4 @@
-//! The night's light map. Every light on screen — a torch in hand, each
+//! The night's light map. Every light on screen — a torch carried, each
 //! campfire — is laid each frame onto a screen-sized patch of the BG3 map,
 //! one copy of the radial light mask per light, on the world's 8px tile
 //! grid. BG3 is then scrolled by the camera's fine offset, so the map moves
