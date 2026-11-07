@@ -238,6 +238,7 @@ impl Game {
         let situation = Situation {
             tool: self.inventory.gear.hand,
             has_leaf: self.inventory.bag.has(ItemKind::Leaf),
+            has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
             item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
         };
         match self.player.update(&self.input, &self.map, situation) {
@@ -824,22 +825,24 @@ fn palm_flip(map: &WorldMap, anchor: (i32, i32)) -> bool {
     }
 }
 
-/// Whether the castaway stands in front of (south of) a palm whose canopy
-/// tiles overlap their sprite, so they must be drawn above BG2.
+/// Whether the castaway stands in front of (south of) a palm or broadleaf
+/// tree whose canopy or upper trunk tiles overlap their sprite, so they must be drawn above BG2.
 fn player_in_front_of_canopy(map: &WorldMap, player: &Player) -> bool {
     use crate::assets::character::{CHAR_H, CHAR_ORIGIN, CHAR_W};
-    use crate::world::terrain::PalmPart;
+    use crate::world::terrain::{BroadleafPart, PalmPart};
     let (px, py) = player.body.px();
     let feet_row = player.body.feet().1.div_euclid(TILE_SIZE);
     let (x0, y0) = (px - CHAR_ORIGIN.0, py - CHAR_ORIGIN.1);
     let (x1, y1) = (x0 + CHAR_W as i32 - 1, y0 + CHAR_H as i32 - 1);
     for cy in y0.div_euclid(TILE_SIZE)..=y1.div_euclid(TILE_SIZE) {
         for cx in x0.div_euclid(TILE_SIZE)..=x1.div_euclid(TILE_SIZE) {
-            if let crate::world::Feature::Palm(p) = map.feature(cx, cy) {
-                let base_row = cy - p.dy as i32 + PalmPart::H - 1;
-                if feet_row > base_row {
-                    return true;
-                }
+            let base_row = match map.feature(cx, cy) {
+                crate::world::Feature::Palm(p) => cy - p.dy as i32 + PalmPart::H - 1,
+                crate::world::Feature::Broadleaf(p) => cy - p.dy as i32 + BroadleafPart::H - 1,
+                _ => continue,
+            };
+            if feet_row > base_row {
+                return true;
             }
         }
     }

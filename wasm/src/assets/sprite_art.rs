@@ -652,3 +652,37 @@ pub fn opened_coconut() -> PixelArt {
     let rows = ["........", "..oooo..", ".oddddo.", "odfFFfdo", "oWdFFdWo", "owwddwwo", ".owwwwo.", "..oooo.."];
     PixelArt::parse(&rows, ITEM_LEGEND)
 }
+
+/// A thought bubble, 16x16 (effects palette), with one, two then three
+/// dots in it; trailing puffs lead down-left toward the thinker's head.
+pub fn thought_frames() -> [PixelArt; 3] {
+    let base = [
+        "................",
+        "...oooooooooo...",
+        "..oLLLLLLLLLLo..",
+        ".oLLLLLLLLLLLLo.",
+        ".oLLLLLLLLLLLLo.",
+        ".oLLLLLLLLLLLLo.",
+        "..oLLLLLLLLLLo..",
+        "...ooooooooooo..",
+        "....oLLo........",
+        "....oooo........",
+        "..oLo...........",
+        "..ooo...........",
+        "................",
+        "................",
+        "................",
+        "................",
+    ];
+    std::array::from_fn(|n| {
+        let mut a = PixelArt::parse(&base, FX_LEGEND);
+        let dot = FX_LEGEND.iter().find(|(k, _)| *k == 'm').map(|(_, v)| *v).unwrap_or(0);
+        for k in 0..=n {
+            let x = 4 + k * 3;
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                a.set(x + dx, 4 + dy, dot);
+            }
+        }
+        a
+    })
+}

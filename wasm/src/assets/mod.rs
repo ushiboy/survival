@@ -285,6 +285,8 @@ pub struct SpriteIds {
     pub stone_knife: SpriteId,
     pub opened_coconut: SpriteId,
     pub shelter_roll: SpriteId,
+    /// A thought bubble with one, two, three dots.
+    pub thought: [SpriteId; 3],
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
@@ -514,6 +516,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         opened_coconut: bank.add(&opened_coconut()),
         shelter_roll: bank.add(&shelter_roll()),
         lean_to: bank.add(&lean_to()),
+        thought: thought_frames().map(|a| bank.add(&a)),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

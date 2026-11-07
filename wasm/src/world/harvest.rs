@@ -111,6 +111,12 @@ pub fn is_broadleaf_trunk(map: &WorldMap, point: (i32, i32)) -> bool {
     broadleaf_at(map, point).is_some()
 }
 
+/// Whether there's a broadleaf trunk at the world pixel with bark still
+/// on it.
+pub fn has_bark(map: &WorldMap, point: (i32, i32)) -> bool {
+    broadleaf_at(map, point).is_some_and(|(anchor, _)| map.bark(anchor) > 0)
+}
+
 /// Strips a piece of bark off the broadleaf trunk at the world pixel: the
 /// trunk-base cell, which needs redrawing, or `None` if there's no trunk
 /// or no bark left on it.

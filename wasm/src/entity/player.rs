@@ -11,7 +11,7 @@ use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
 use crate::world::WorldMap;
 use crate::items::{ItemKind, Use};
-use crate::world::harvest::{can_pull_vine, can_shake, is_broadleaf_trunk, is_bush};
+use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_broadleaf_trunk, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -81,6 +81,10 @@ const EAT_RAISE: u32 = 8;
 const EAT_BITES: [u32; 3] = [16, 30, 44];
 const EAT_BITE: u32 = EAT_BITES[2];
 const EAT_TOTAL: u32 = 60;
+/// Pondering (frames): the thought bubble's dots appear one by one every
+/// `PONDER_DOT`, until it's given up on at `PONDER_TOTAL`.
+const PONDER_DOT: u32 = 12;
+const PONDER_TOTAL: u32 = 60;
 
 /// Lighting a fire (frames): kneeling and sawing the drill's bow back and
 /// forth (one stroke every `DRILL_STROKE`), smoke from `DRILL_SMOKE`, until
@@ -121,6 +125,9 @@ const SNORE_EVERY: u32 = 40;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Idle,
+    /// Standing hand to chin, wondering how to go about something that
+    /// needs a tool or material not carried; `t` counts frames.
+    Ponder { t: u32 },
     /// Swinging the axe; `t` counts frames since the swing started.
     Chop { t: u32 },
     /// Jabbing with the spear.
@@ -159,6 +166,8 @@ pub struct Situation {
     pub item_in_reach: Option<(i32, i32)>,
     /// Carrying a leaf to scoop water into.
     pub has_leaf: bool,
+    /// Carrying a knife to cut bark and vine with.
+    pub has_knife: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -240,7 +249,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife } = situation;
         if let Action::WakeUp { t, end } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { end } else { t + 1 };
@@ -308,6 +317,10 @@ impl Player {
             }
             // Smoke and sparks rise off it while it cooks.
             return (t < COOK_DONE && t % 10 == 0).then_some(Deed::Smoulder((fire.0, fire.1 - 4)));
+        }
+        if let Action::Ponder { t } = self.action {
+            self.action = if t + 1 >= PONDER_TOTAL { Action::Idle } else { Action::Ponder { t: t + 1 } };
+            return None;
         }
         if let Action::Scoop { t } = self.action {
             let t = t + 1;
@@ -381,6 +394,11 @@ impl Player {
                 return None;
             }
             let reach = self.reach_point();
+            // Vine and bark need cutting: without a knife, stop and think.
+            if !has_knife && (can_pull_vine(map, reach) || has_bark(map, reach)) {
+                self.ponder();
+                return None;
+            }
             if can_pull_vine(map, reach) || is_bush(map, reach) || is_broadleaf_trunk(map, reach) {
                 self.action = Action::Pull { t: 0 };
                 self.moving = false;
@@ -389,9 +407,14 @@ impl Player {
             }
             self.facing = before;
         }
-        if has_leaf && !self.wading && input.pressed(Buttons::A) {
-            // Crouch at the water-drawing spot and scoop some up in a leaf.
+        if !self.wading && input.pressed(Buttons::A) {
+            // Crouch at the water-drawing spot and scoop some up in a leaf
+            // (with nothing to hold it in, stop and think).
             let (rx, ry) = self.reach_point();
+            if map.is_drinking_water(rx, ry) && !has_leaf {
+                self.ponder();
+                return None;
+            }
             if map.is_drinking_water(rx, ry) {
                 self.action = Action::Scoop { t: 0 };
                 self.moving = false;
@@ -480,6 +503,13 @@ impl Player {
     }
 
     /// Standing ready: not mid-action (so the bag can be opened).
+    /// Stops to think (something here needs what isn't carried).
+    fn ponder(&mut self) {
+        self.action = Action::Ponder { t: 0 };
+        self.moving = false;
+        self.walk_timer = 0;
+    }
+
     pub fn is_idle(&self) -> bool {
         self.action == Action::Idle
     }
@@ -672,6 +702,18 @@ impl Player {
         if let Action::Cook { t, food, fire, .. } = self.action {
             self.draw_cooking(list, camera, (cx, cy), depth, sprites, (t, food, fire), prio);
             if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Ponder { t } = self.action {
+            // Hand to chin, a thought bubble filling with dots above.
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.drink[view], OBJ_PLAYER, prio).flipped(flip));
+            let dots = ((t / PONDER_DOT) as usize).min(2);
+            let bx = if flip { sx - 12 } else { sx + 12 };
+            list.actor(depth + 1, ObjEntry::new(bx, sy - 18, sprites.thought[dots], OBJ_FX, prio).flipped(flip));
+            if shadows && !self.wading {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             return;
