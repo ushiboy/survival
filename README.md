@@ -2,6 +2,10 @@
 
 無人島サバイバル（見下ろし型ARPG）。ゲームロジックと描画は Rust → WebAssembly、ページは Vite + React + TypeScript。
 
+## 仕様
+
+ゲームのコンセプトと現在の仕様は [docs/](docs/README.md) にまとめています。素材・道具・食べ物は [docs/items/](docs/items/README.md)、レシピは [docs/recipes/](docs/recipes/README.md) に1つずつファイルを分けています。
+
 ## 開発
 
 前提: Rust (`wasm32-unknown-unknown` target), `wasm-pack`, Node, pnpm
