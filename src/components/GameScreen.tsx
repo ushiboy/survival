@@ -15,6 +15,8 @@ interface Props {
   display: DisplayOptions;
   spriteLimit: boolean;
   onStatus?: (s: CoreStatus) => void;
+  /** Called with the core once it's loaded, and with null when it goes away. */
+  onCore?: (core: GameCore | null) => void;
 }
 
 const STATUS_INTERVAL_FRAMES = 15;
@@ -24,11 +26,13 @@ const OUTFIT_KEY = 'KeyO';
 const SCREEN_W = 256;
 const SCREEN_H = 224;
 
-export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
+export function GameScreen({ seed, display, spriteLimit, onStatus, onCore }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const coreRef = useRef<GameCore | null>(null);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
+  const onCoreRef = useRef(onCore);
+  onCoreRef.current = onCore;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,6 +44,7 @@ export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
       .then((core) => {
         if (cancelled) return core.dispose();
         coreRef.current = core;
+        onCoreRef.current?.(core);
         const ctx = canvasRef.current?.getContext('2d');
         if (!ctx) throw new Error('Canvas 2D context unavailable');
 
@@ -69,6 +74,7 @@ export function GameScreen({ seed, display, spriteLimit, onStatus }: Props) {
       cancelled = true;
       stopLoop?.();
       detachInput?.();
+      onCoreRef.current?.(null);
       coreRef.current?.dispose();
       coreRef.current = null;
     };

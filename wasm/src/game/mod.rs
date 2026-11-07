@@ -761,8 +761,16 @@ impl Game {
     /// Dev tools: puts an item (a full stack of stackables) straight into
     /// the bag, if it fits.
     pub fn debug_give(&mut self, kind: ItemKind) {
-        self.inventory.bag.stow(kind, kind.max_stack());
-        self.inventory.took(kind);
+        self.debug_give_n(kind, kind.max_stack());
+    }
+
+    /// Puts up to `n` of a kind in the bag; returns how many went in.
+    pub fn debug_give_n(&mut self, kind: ItemKind, n: u32) -> u32 {
+        let given = n - self.inventory.bag.stow(kind, n);
+        if given > 0 {
+            self.inventory.took(kind);
+        }
+        given
     }
 
     pub fn rgba(&self) -> &[u8] {

@@ -93,6 +93,35 @@ impl Use {
 }
 
 impl ItemKind {
+    /// Every kind, in the order the debug tools list them (add new kinds
+    /// here too).
+    pub const ALL: [ItemKind; 24] = [
+        ItemKind::Coconut,
+        ItemKind::OpenedCoconut,
+        ItemKind::Timber,
+        ItemKind::RawWater,
+        ItemKind::StoneAxe,
+        ItemKind::StoneKnife,
+        ItemKind::FireDrill,
+        ItemKind::Branch,
+        ItemKind::Stone,
+        ItemKind::Vine,
+        ItemKind::WoodSpear,
+        ItemKind::Crab,
+        ItemKind::GrilledCrab,
+        ItemKind::Bark,
+        ItemKind::LauanTimber,
+        ItemKind::BarkContainer,
+        ItemKind::BoiledWater,
+        ItemKind::PackFrame,
+        ItemKind::Leaf,
+        ItemKind::Husk,
+        ItemKind::Rope,
+        ItemKind::PalmFrond,
+        ItemKind::Thatch,
+        ItemKind::Shelter,
+    ];
+
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {

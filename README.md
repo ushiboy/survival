@@ -12,6 +12,8 @@ pnpm dev      # wasm(debug) をビルドして Vite 起動
 pnpm build    # wasm(release) + 型チェック + 本番ビルド
 ```
 
+URL に `?debug=true` を付けると（例: `http://localhost:5173/?debug=true`）デバッグパネルが出て、好きなアイテムを個数を指定してバッグに入れられます。
+
 Rust 単体でフレームを PPM に書き出す確認用ツール（入力スクリプト = `ボタン(16進):フレーム数` の列）:
 
 ```bash

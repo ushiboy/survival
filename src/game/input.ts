@@ -68,11 +68,17 @@ function readGamepads(): number {
   return bits;
 }
 
+function isFormControl(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+}
+
 /** Collects keyboard + gamepad state into a single button byte. */
 export class InputController {
   private keyBits = 0;
 
   private onKeyDown = (e: KeyboardEvent) => {
+    // Leave keys alone while typing into a form control (the debug tools).
+    if (isFormControl(e.target)) return;
     const bit = KEY_MAP[e.code];
     if (bit === undefined) return;
     e.preventDefault();

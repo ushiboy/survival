@@ -23,6 +23,18 @@ pub fn screen_height() -> u32 {
     ppu::SCREEN_H as u32
 }
 
+/// Debug: every item's name, indexed as `GameHandle::debug_give` takes them.
+#[wasm_bindgen]
+pub fn debug_item_names() -> Vec<String> {
+    items::ItemKind::ALL.iter().map(|k| k.name().to_string()).collect()
+}
+
+/// Debug: how many of the item at that index fit in one stack.
+#[wasm_bindgen]
+pub fn debug_item_max_stack(index: usize) -> u32 {
+    items::ItemKind::ALL.get(index).map_or(1, |k| k.max_stack())
+}
+
 #[wasm_bindgen]
 pub struct GameHandle {
     game: game::Game,
@@ -57,6 +69,12 @@ impl GameHandle {
     /// Debug: puts the castaway in the next outfit preset.
     pub fn debug_cycle_outfit(&mut self) {
         self.game.debug_cycle_outfit();
+    }
+
+    /// Debug: puts up to `count` of the item at `index` (in
+    /// `debug_item_names`) in the bag; returns how many fitted.
+    pub fn debug_give(&mut self, index: usize, count: u32) -> u32 {
+        items::ItemKind::ALL.get(index).map_or(0, |&k| self.game.debug_give_n(k, count))
     }
 
     /// Compact status for the debug panel:

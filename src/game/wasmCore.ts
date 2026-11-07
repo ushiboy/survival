@@ -1,4 +1,10 @@
-import init, { GameHandle, screen_height, screen_width } from '../../wasm/pkg/survival_core';
+import init, {
+  GameHandle,
+  debug_item_max_stack,
+  debug_item_names,
+  screen_height,
+  screen_width,
+} from '../../wasm/pkg/survival_core';
 
 export interface CoreStatus {
   tileX: number;
@@ -8,6 +14,13 @@ export interface CoreStatus {
   paused: boolean;
   /** VRAM needed for the current screen, in bytes (SNES has 64 KiB). */
   vramBytes: number;
+}
+
+export interface DebugItem {
+  /** Index to pass to `GameCore.debugGive`. */
+  index: number;
+  name: string;
+  maxStack: number;
 }
 
 /** Thin, typed wrapper over the wasm module so React never touches raw pointers. */
@@ -22,6 +35,10 @@ export interface GameCore {
   setSpriteLimit(on: boolean): void;
   /** Debug: switch to the next outfit preset. */
   cycleOutfit(): void;
+  /** Debug: every item that can be given. */
+  debugItems(): DebugItem[];
+  /** Debug: puts up to `count` of an item in the bag; returns how many fitted. */
+  debugGive(index: number, count: number): number;
   dispose(): void;
 }
 
@@ -54,6 +71,8 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     },
     setSpriteLimit: (on) => handle.set_sprite_limit(on),
     cycleOutfit: () => handle.debug_cycle_outfit(),
+    debugItems: () => debug_item_names().map((name, index) => ({ index, name, maxStack: debug_item_max_stack(index) })),
+    debugGive: (index, count) => handle.debug_give(index, count),
     dispose: () => handle.free(),
   };
 }
