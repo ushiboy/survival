@@ -59,6 +59,17 @@ pub enum ItemKind {
     /// carried (beside whatever tool is in hand), lighting the dark, until
     /// it burns out half a day later.
     Torch,
+    /// A scallop shell picked up off the beach (more wash up every day).
+    SeaShell,
+    /// A fish hook ground out of shell with the knife.
+    ShellHook,
+    /// A branch rod with a rope line and a shell hook: cast into the water
+    /// with B and struck with B when the float goes under.
+    FishingRod,
+    /// A fish caught on the line.
+    Fish,
+    /// A fish cleaned and cooked over a fire.
+    GrilledFish,
 }
 
 /// Where a piece of gear goes.
@@ -100,7 +111,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 25] = [
+    pub const ALL: [ItemKind; 30] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -126,15 +137,20 @@ impl ItemKind {
         ItemKind::Thatch,
         ItemKind::Shelter,
         ItemKind::Torch,
+        ItemKind::SeaShell,
+        ItemKind::ShellHook,
+        ItemKind::FishingRod,
+        ItemKind::Fish,
+        ItemKind::GrilledFish,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
+            ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope | ItemKind::SeaShell | ItemKind::ShellHook | ItemKind::Fish | ItemKind::GrilledFish => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
-            ItemKind::WoodSpear => (1, 3),
+            ItemKind::WoodSpear | ItemKind::FishingRod => (1, 3),
             ItemKind::Timber | ItemKind::LauanTimber | ItemKind::Shelter => (2, 2),
         }
     }
@@ -166,6 +182,11 @@ impl ItemKind {
             ItemKind::Thatch => "THATCH",
             ItemKind::Shelter => "SHELTER",
             ItemKind::Torch => "TORCH",
+            ItemKind::SeaShell => "SEA SHELL",
+            ItemKind::ShellHook => "SHELL HOOK",
+            ItemKind::FishingRod => "FISHING ROD",
+            ItemKind::Fish => "FISH",
+            ItemKind::GrilledFish => "GRILLED FISH",
         }
     }
 
@@ -198,12 +219,17 @@ impl ItemKind {
             ItemKind::Thatch => "PALM FRONDS WOVEN WITH VINE INTO A PIECE OF ROOF.",
             ItemKind::Shelter => "A LEAN-TO, ROLLED UP. SLEEP UNDER IT TO HEAL FASTER AND TIRE LESS.",
             ItemKind::Torch => "HUSK FIBRE ON A BRANCH, LIT AT A FIRE. CARRIED, IT LIGHTS THE DARK UNTIL IT BURNS OUT.",
+            ItemKind::SeaShell => "A SCALLOP SHELL WASHED UP ON THE BEACH. HARD AND SMOOTH.",
+            ItemKind::ShellHook => "A HOOK GROUND OUT OF SHELL. SMALL BUT SHARP.",
+            ItemKind::FishingRod => "A ROD WITH A ROPE LINE AND A SHELL HOOK. CAST IT INTO WATER WHERE FISH SWIM.",
+            ItemKind::Fish => "A FRESH FISH. FILLING, BUT BETTER COOKED.",
+            ItemKind::GrilledFish => "CLEANED AND COOKED OVER A FIRE. FILLING, AND HEALS.",
         }
     }
 
     pub fn usage(self) -> Option<Use> {
         match self {
-            ItemKind::OpenedCoconut | ItemKind::Crab | ItemKind::GrilledCrab => Some(Use::Eat),
+            ItemKind::OpenedCoconut | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Fish | ItemKind::GrilledFish => Some(Use::Eat),
             ItemKind::RawWater | ItemKind::BoiledWater => Some(Use::Drink),
             ItemKind::FireDrill => Some(Use::Light),
             _ => None,
@@ -221,6 +247,8 @@ impl ItemKind {
             ItemKind::OpenedCoconut => (22, 6),
             ItemKind::Crab => (30, 2),
             ItemKind::GrilledCrab => (48, 4),
+            ItemKind::Fish => (18, 4),
+            ItemKind::GrilledFish => (36, 6),
             _ => (0, 0),
         }
     }
@@ -229,7 +257,7 @@ impl ItemKind {
     pub fn max_stack(self) -> u32 {
         match self {
             ItemKind::Leaf => 20,
-            ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond => 5,
+            ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond | ItemKind::SeaShell => 5,
             _ => 1,
         }
     }
@@ -238,7 +266,7 @@ impl ItemKind {
     /// boiled water are what heal).
     pub fn heals(self) -> u8 {
         match self {
-            ItemKind::GrilledCrab | ItemKind::BoiledWater => 1,
+            ItemKind::GrilledCrab | ItemKind::GrilledFish | ItemKind::BoiledWater => 1,
             _ => 0,
         }
     }
@@ -256,7 +284,7 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear => Some(Slot::Hand),
+            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }

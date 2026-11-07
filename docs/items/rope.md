@@ -17,7 +17,7 @@
 
 ## 使い道
 
-- レシピの材料: [石斧](../recipes/stone-axe.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)
+- レシピの材料: [石斧](../recipes/stone-axe.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[釣り竿](../recipes/fishing-rod.md)
 
 ## メモ
 

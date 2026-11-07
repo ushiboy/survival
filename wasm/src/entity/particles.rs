@@ -17,6 +17,8 @@ enum Kind {
     Ember,
     /// A puff of dust kicked up by running feet.
     Dust,
+    /// A drop of water thrown up by a splash.
+    Drop,
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +102,14 @@ impl Particles {
         self.spawn(Kind::Dust, x as f32 + dx, y as f32, 1.0, (vx, 0.0, 0.15), 14);
     }
 
+    /// Drops of water thrown up where something hits the water at `(x, y)`.
+    pub fn splash(&mut self, (x, y): (i32, i32)) {
+        for _ in 0..5 {
+            let v = (self.rand(-0.7, 0.7), self.rand(-0.3, 0.3), self.rand(1.2, 2.0));
+            self.spawn(Kind::Drop, x as f32, y as f32, 1.0, v, 24);
+        }
+    }
+
     pub fn update(&mut self) {
         for p in &mut self.list {
             p.life -= 1;
@@ -132,6 +142,15 @@ impl Particles {
                     }
                 }
                 Kind::Spark => {}
+                Kind::Drop => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.z += p.vz;
+                    p.vz -= GRAVITY;
+                    if p.z <= 0.0 {
+                        p.life = 0;
+                    }
+                }
                 Kind::Dust => {
                     p.x += p.vx;
                     p.z += p.vz;
@@ -163,6 +182,7 @@ impl Particles {
                 Kind::Ember => (sprites.spark[1], 3),
                 // Grows, then thins out.
                 Kind::Dust => (sprites.dust[(p.life < 8) as usize], 2),
+                Kind::Drop => (sprites.droplet, 2),
             };
             let flip = p.kind == Kind::Leaf && p.phase.cos() < 0.0;
             list.actor(p.y as i32, ObjEntry::new(sx, sy, gfx, OBJ_FX, priority).flipped(flip));

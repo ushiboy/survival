@@ -19,7 +19,7 @@
 ## 使い道
 
 - 焚き火の燃料（火起こし器で1本使う）
-- レシピの材料: [石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)、[松明](../recipes/torch.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[火起こし器](../recipes/fire-drill.md)
+- レシピの材料: [石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)、[松明](../recipes/torch.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[火起こし器](../recipes/fire-drill.md)、[釣り竿](../recipes/fishing-rod.md)
 
 ## メモ
 

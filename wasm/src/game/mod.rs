@@ -3,16 +3,21 @@
 //! separate so the host can run fixed-rate updates independent of display.
 
 pub mod bag;
+pub mod fishing;
 pub mod menu;
 pub mod state;
 
-use crate::assets::Assets;
+use crate::assets::{Assets, SpriteIds};
+use crate::ppu::oam::ObjEntry;
 use crate::assets::character::Outfit;
-use crate::assets::palettes::{base_cgram, set_player_palettes};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::rng::Rng;
-use crate::entity::{Campfire, Crab, Deed, Gull, Item, Particles, Player, Situation};
+use crate::entity::fish;
+use crate::entity::player::ACTOR_PRIORITY;
+use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, Situation};
+use fishing::{Float, Line};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
@@ -26,7 +31,7 @@ use crate::render::lighting::{self, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
-use crate::world::{TILE_SIZE, WorldMap, island};
+use crate::world::{Feature, TILE_SIZE, Terrain, WorldMap, island};
 use menu::{BagMenu, Outcome};
 use state::{GameClock, Inventory, Rest, Vitals};
 
@@ -47,6 +52,15 @@ const SHELTER_HEAL_MINUTES: u32 = 30;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
+/// Shells the tide leaves on the beach each morning, at most.
+const SHELLS_PER_DAY: usize = 3;
+/// Fish in the water, and how long (game minutes) before another comes in
+/// for one caught.
+const FISH_COUNT: usize = 12;
+const FISH_RETURN_MINUTES: u32 = 3 * 60;
+/// How near a fish must be to the water ahead for the castaway to wonder
+/// about catching it (px).
+const FISH_NEAR: i32 = 40;
 
 /// Standing within this distance of a campfire counts as being by it (px).
 const NEAR_FIRE: i32 = 40;
@@ -111,7 +125,16 @@ pub struct Game {
     camera_shake: u32,
     player: Player,
     crabs: Vec<Crab>,
+    fish: Vec<Fish>,
+    /// The line in the water, if one's cast; and when (game minutes) new
+    /// fish come in to replace the ones caught.
+    line: Option<Line>,
+    fish_due: Vec<u32>,
     fires: Vec<Campfire>,
+    /// The day shells last washed up, and the most the beach holds (as
+    /// many as it started with).
+    shell_day: u32,
+    shell_cap: usize,
     /// In-game minutes the castaway has been asleep.
     slept: u32,
     gulls: Vec<Gull>,
@@ -164,7 +187,12 @@ impl Game {
             camera_shake: 0,
             player,
             crabs,
+            fish: Vec::new(),
+            line: None,
+            fish_due: Vec::new(),
             fires: Vec::new(),
+            shell_day: 0,
+            shell_cap: 0,
             slept: 0,
             gulls,
             camera: Camera::new(0),
@@ -181,6 +209,11 @@ impl Game {
             ppu: Ppu::new(),
         };
         game.camera.follow(game.player.center(), game.map.pixel_size());
+        for _ in 0..FISH_COUNT {
+            game.spawn_fish(false);
+        }
+        game.shell_day = game.clock.day;
+        game.shell_cap = game.shells_on_beach().len();
         game
     }
 
@@ -229,6 +262,10 @@ impl Game {
         }
         let now = self.clock.total_minutes();
         self.inventory.tend_torch(now);
+        if self.clock.day != self.shell_day {
+            self.shell_day = self.clock.day;
+            self.wash_up_shells();
+        }
         self.player.torch = self.inventory.torch_lit().then(|| self.inventory.torch_dying(now));
         if self.inventory.think() {
             self.player.eureka();
@@ -244,7 +281,8 @@ impl Game {
             tool: self.inventory.gear.hand,
             has_leaf: self.inventory.bag.has(ItemKind::Leaf),
             has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
-            item_in_reach: self.item_in_reach().map(|i| self.items[i].ground()),
+            item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
+            fish_near: !self.inventory.bag.has(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
         };
         match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
@@ -263,8 +301,15 @@ impl Game {
             Some(Deed::KickDust(feet)) => self.particles.dust(feet),
             Some(Deed::Cooked(dish)) => self.take(dish, 1),
             Some(Deed::LightFire(spot)) => self.light_fire(spot),
+            Some(Deed::Cast(at)) => {
+                self.line = Some(Line::new(at));
+                self.particles.splash(at);
+            }
+            Some(Deed::Strike) => self.strike(),
+            Some(Deed::ReelIn) => self.reel_in(),
             None => {}
         }
+        self.tend_line();
         let now = self.clock.total_minutes();
         self.fires.retain(|f| !f.burnt_out(now));
         for fire in &self.fires {
@@ -283,6 +328,15 @@ impl Game {
         }
         for gull in &mut self.gulls {
             gull.update();
+        }
+        for fish in &mut self.fish {
+            fish.update(&self.map);
+        }
+        let now = self.clock.total_minutes();
+        let due = self.fish_due.len();
+        self.fish_due.retain(|&t| now < t);
+        for _ in self.fish_due.len()..due {
+            self.spawn_fish(true);
         }
         self.camera.follow(pc, self.map.pixel_size());
     }
@@ -455,10 +509,135 @@ impl Game {
             .map(|(i, _)| i)
     }
 
-    /// Takes the item within reach (if it hasn't rolled away) into the bag.
-    fn pick_up(&mut self) {
-        let Some(i) = self.item_in_reach() else {
+    /// What A would pick up: an item lying within reach, or else a shell
+    /// on the sand underfoot or just ahead.
+    fn pickup_target(&self) -> Option<Pickup> {
+        if let Some(i) = self.item_in_reach() {
+            return Some(Pickup::Item(i));
+        }
+        [self.player.body.feet(), self.player.reach_point()]
+            .into_iter()
+            .map(|(x, y)| (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)))
+            .find(|&(x, y)| self.map.feature(x, y) == Feature::Shell)
+            .map(Pickup::Shell)
+    }
+
+    /// Puts a fish somewhere it can swim; `unseen` keeps it off screen.
+    fn spawn_fish(&mut self, unseen: bool) {
+        let (w, h) = self.map.pixel_size();
+        for _ in 0..400 {
+            let p = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
+            if fish::swimmable(&self.map, p) && !(unseen && self.camera.sees(p.0 - 16, p.1 - 16, 32, 32)) {
+                let seed = self.rng.range(u32::MAX);
+                self.fish.push(Fish::new(p, seed));
+                return;
+            }
+        }
+    }
+
+    /// Whether a fish swims near the point (and there's water there).
+    fn fish_near(&self, (x, y): (i32, i32)) -> bool {
+        fish::swimmable(&self.map, (x, y)) && self.fish.iter().any(|f| {
+            let (fx, fy) = f.pos();
+            (fx - x).pow(2) + (fy - y).pow(2) < FISH_NEAR * FISH_NEAR
+        })
+    }
+
+    /// The line in the water this frame; it's gone if the castaway stopped
+    /// fishing some other way.
+    fn tend_line(&mut self) {
+        let Some(line) = &mut self.line else { return };
+        if !self.player.is_fishing() {
+            line.let_go(&mut self.fish);
+            self.line = None;
             return;
+        }
+        if line.update(&mut self.fish, &mut self.rng) {
+            // The float goes under with a splash.
+            self.particles.splash(line.float);
+        }
+    }
+
+    /// B while fishing: a fish biting is landed at the castaway's feet;
+    /// otherwise the line just comes in and frightens off any fish there.
+    fn strike(&mut self) {
+        let Some(mut line) = self.line.take() else { return };
+        let Some(i) = line.fish.filter(|_| line.biting()) else {
+            line.let_go(&mut self.fish);
+            return;
+        };
+        self.fish.swap_remove(i);
+        self.fish_due.push(self.clock.total_minutes() + FISH_RETURN_MINUTES);
+        // It comes flying out of the water to land beside the castaway.
+        let (fx, fy) = self.player.body.feet();
+        let side = if line.float.0 < fx { 10 } else { -10 };
+        let to = ((fx + side) as f32, (fy + 2) as f32);
+        // Swung up out of the water: it drops onto the sand from head height.
+        let from = ((line.float.0 + fx + side) as f32 / 2.0, to.1 - 28.0);
+        self.particles.splash(line.float);
+        self.items.push(Item::falling(ItemKind::Fish, from, to, (0.0, 0.0)));
+        self.hitstop = HITSTOP_CRAB;
+    }
+
+    /// Moving off while fishing: the line comes in.
+    fn reel_in(&mut self) {
+        if let Some(mut line) = self.line.take() {
+            line.let_go(&mut self.fish);
+        }
+    }
+
+    /// The cells with a shell lying on the sand.
+    fn shells_on_beach(&self) -> Vec<(i32, i32)> {
+        (0..self.map.height())
+            .flat_map(|y| (0..self.map.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| self.map.feature(x, y) == Feature::Shell)
+            .collect()
+    }
+
+    /// A new day: the tide leaves a few shells on open sand near the water,
+    /// until the beach holds as many as it started with.
+    fn wash_up_shells(&mut self) {
+        let room = self.shell_cap.saturating_sub(self.shells_on_beach().len()).min(SHELLS_PER_DAY);
+        let (w, h) = (self.map.width(), self.map.height());
+        let near_water = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| !map.terrain(x + dx, y + dy).is_land()));
+        let mut changed = Vec::new();
+        for _ in 0..400 {
+            if changed.len() >= room {
+                break;
+            }
+            let (x, y) = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
+            let open = self.map.terrain(x, y) == Terrain::Sand && self.map.feature(x, y) == Feature::None && !self.map.is_riverside(x, y);
+            if open && near_water(&self.map, x, y) {
+                self.map.set_feature(x, y, Feature::Shell);
+                changed.push((x, y));
+            }
+        }
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// Where a pickup lies (ground px), to turn toward it.
+    fn pickup_point(&self, target: Pickup) -> (i32, i32) {
+        match target {
+            Pickup::Item(i) => self.items[i].ground(),
+            Pickup::Shell((x, y)) => (x * TILE_SIZE + 8, y * TILE_SIZE + 11),
+        }
+    }
+
+    /// Takes what's within reach (an item, if it hasn't rolled away, or a
+    /// shell off the sand) into the bag.
+    fn pick_up(&mut self) {
+        let Some(target) = self.pickup_target() else {
+            return;
+        };
+        let i = match target {
+            Pickup::Item(i) => i,
+            Pickup::Shell((x, y)) => {
+                self.map.set_feature(x, y, Feature::None);
+                self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
+                self.particles.sparks((x * TILE_SIZE + 8, y * TILE_SIZE + 7), 1);
+                self.take(ItemKind::SeaShell, 1);
+                return;
+            }
         };
         let item = self.items.swap_remove(i);
         let (x, y) = item.ground();
@@ -730,6 +909,12 @@ impl Game {
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }
+        for fish in &self.fish {
+            fish.draw(list, &camera, sprites, night);
+        }
+        if let Some(line) = &self.line {
+            draw_line(list, &camera, sprites, line, self.player.rod_tip(sprites), self.player.depth(), self.frame_count);
+        }
         for item in &self.items {
             item.draw(list, &camera, sprites, night);
         }
@@ -776,6 +961,13 @@ impl Game {
     /// the bag, if it fits.
     pub fn debug_advance_hours(&mut self, hours: u32) {
         self.clock.advance_minutes(hours * 60);
+    }
+
+    /// Dev tools: puts a fish in the water this far from the castaway's
+    /// feet.
+    pub fn debug_fish_at(&mut self, (dx, dy): (i32, i32)) {
+        let (fx, fy) = self.player.body.feet();
+        self.fish.push(Fish::new((fx + dx, fy + dy), 7));
     }
 
     /// Debug: knows every recipe.
@@ -841,6 +1033,15 @@ impl Game {
     }
 }
 
+/// Something A can pick up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pickup {
+    /// An item lying on the ground (index into the items).
+    Item(usize),
+    /// A shell on the sand (its cell).
+    Shell((i32, i32)),
+}
+
 /// Canopy box (x, y, w, h) and the ground row leaves fall to, for the palm
 /// whose top-left cell is `anchor`.
 fn palm_canopy(anchor: (i32, i32)) -> ((i32, i32, i32, i32), i32) {
@@ -892,4 +1093,34 @@ fn near_line(p: (i32, i32), a: (i32, i32), b: (i32, i32), r: f32) -> bool {
     let t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
     let (qx, qy) = (ax + dx * t - px, ay + dy * t - py);
     qx * qx + qy * qy <= r * r
+}
+
+/// The fishing line from the rod tip (world px) sagging down to the float,
+/// and the float itself: riding, bobbing as a fish nibbles, or pulled under
+/// with rings spreading.
+fn draw_line(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, line: &Line, tip: (i32, i32), depth: i32, clock: u32) {
+    let (fx, fy) = line.float;
+    const DOTS: i32 = 7;
+    for k in 1..DOTS {
+        let t = k as f32 / DOTS as f32;
+        let sag = 6.0 * t * (1.0 - t) * 4.0;
+        let x = tip.0 as f32 + (fx - tip.0) as f32 * t;
+        let y = tip.1 as f32 + (fy - 1 - tip.1) as f32 * t + sag;
+        let (sx, sy) = camera.to_screen(x as i32, y as i32);
+        list.actor(depth, ObjEntry::new(sx, sy, sprites.line_dot, OBJ_FX, ACTOR_PRIORITY));
+    }
+    let frame = match line.float() {
+        Float::Riding => 0,
+        Float::Bobbing => 1,
+        Float::Under => 2,
+    };
+    // A gentle rise and fall on the swell while riding.
+    let swell = if frame == 0 && (line.age / 30) % 2 == 1 { 1 } else { 0 };
+    let (sx, sy) = camera.to_screen(fx - 4, fy - 4 + swell);
+    list.actor(fy, ObjEntry::new(sx, sy, sprites.float[frame], OBJ_CRAB, ACTOR_PRIORITY));
+    if frame == 2 {
+        let ripple = sprites.ripples[(clock / 6) as usize % sprites.ripples.len()];
+        let (rx, ry) = camera.to_screen(fx - 12, fy - 3);
+        list.actor(fy - 1, ObjEntry::new(rx, ry, ripple, OBJ_WATER_FX, ACTOR_PRIORITY));
+    }
 }

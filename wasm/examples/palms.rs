@@ -1,5 +1,5 @@
 //! Dev tool: lists the water-drawing spot, and the palms (with their
-//! coconuts), bushes, vines, boulders, driftwood and broadleaf trees nearest the spawn point.
+//! coconuts), bushes, vines, boulders, driftwood, shells and broadleaf trees nearest the spawn point.
 //! Usage: cargo run --release --example palms -- [seed]
 use survival_core::world::terrain::PalmPart;
 use survival_core::world::{Feature, TILE_SIZE, island};
@@ -61,6 +61,16 @@ fn main() {
     logs.sort();
     for (d, cell) in logs.iter().take(4) {
         println!("driftwood (left cell) {cell:?} dist {d}");
+    }
+    let mut shells: Vec<_> = (0..map.height())
+        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| map.feature(x, y) == Feature::Shell)
+        .map(|(x, y)| ((x - spawn.0).abs() + (y - spawn.1).abs(), (x, y)))
+        .collect();
+    shells.sort();
+    println!("{} shells", shells.len());
+    for (d, cell) in shells.iter().take(4) {
+        println!("shell {cell:?} dist {d}");
     }
     let mut trees: Vec<_> = (0..map.height())
         .flat_map(|y| (0..map.width()).map(move |x| (x, y)))

@@ -23,6 +23,8 @@
 | [ロープ（ROPE）](rope.md) | 素材 | 1×1 | クラフト |
 | [ヤシの葉（PALM FROND）](palm-frond.md) | 素材 | 1×2 | ヤシの木を揺すると、1回につき15%で落ちる |
 | [茅葺き（THATCH）](thatch.md) | 素材 | 2×1 | クラフト |
+| [貝殻（SEA SHELL）](sea-shell.md) | 素材 | 1×1 | 砂浜の貝殻を A で拾う。毎朝いくつか打ち上がる |
+| [貝の釣り針（SHELL HOOK）](shell-hook.md) | 素材 | 1×1 | クラフト |
 
 ## 道具
 
@@ -36,6 +38,7 @@
 | [背負子（PACK FRAME）](pack-frame.md) | 道具（背中） | 1×2 | クラフト |
 | [シェルター（SHELTER）](shelter.md) | 道具（持っているだけで使う） | 2×2 | クラフト |
 | [松明（TORCH）](torch.md) | 持ち物（バッグに入らない） | — | クラフト |
+| [釣り竿（FISHING ROD）](fishing-rod.md) | 道具（手） | 1×3 | クラフト |
 
 ## 食べ物・飲み物
 
@@ -47,3 +50,5 @@
 | [沸かした水（BOILED WATER）](boiled-water.md) | 飲み物 | 1×1 | 焚き火のそばで、樹皮の鍋と生水から作る |
 | [蟹（CRAB）](crab.md) | 食べ物 | 1×1 | 木の槍で突いて捕まえる |
 | [焼き蟹（GRILLED CRAB）](grilled-crab.md) | 食べ物 | 1×1 | クラフト |
+| [魚（FISH）](fish.md) | 食べ物 | 1×1 | 釣り竿で釣る |
+| [焼き魚（GRILLED FISH）](grilled-fish.md) | 食べ物 | 1×1 | クラフト |

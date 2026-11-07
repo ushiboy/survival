@@ -635,3 +635,130 @@ pub fn icon_opened_coconut() -> PixelArt {
     });
     a.outlined(i('o'))
 }
+
+/// A scallop shell, 16x16: a fan of pale coral ribs from a hinge with two
+/// little ears, the crab palette's pinks.
+pub fn icon_sea_shell() -> PixelArt {
+    let i = |c| ix(crate::assets::palettes::CRAB_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    let (cx, cy) = (8.0f32, 13.0f32);
+    for y in 0..16 {
+        for x in 0..16 {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let r = (dx * dx + dy * dy).sqrt();
+            let ang = dy.atan2(dx);
+            // A fan opening upward, rounded at the rim.
+            if dy > 0.0 || r > 10.5 || !(-2.6..=-0.54).contains(&ang) {
+                continue;
+            }
+            let rib = ((ang + 2.6) * 9.0 / 2.06) as i32 % 2 == 0;
+            let lit = dx < 0.0;
+            a.set(x, y, if rib { if lit { i('w') } else { i('l') } } else if lit { i('l') } else { i('q') });
+        }
+    }
+    // The ears at the hinge.
+    for (x, y) in [(5, 12), (6, 12), (10, 12), (11, 12), (6, 13), (7, 13), (8, 13), (9, 13), (10, 13)] {
+        a.set(x, y, i('q'));
+    }
+    a.outlined(i('o'))
+}
+
+/// A fish hook ground from shell, 16x16: a pale curved J with a barb, its
+/// shank bound with a twist of cord.
+pub fn icon_shell_hook() -> PixelArt {
+    let i = |c| ITEM_LEGEND.iter().chain(crate::assets::palettes::CRAB_LEGEND).find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    PixelArt::parse(
+        &[
+            "................",
+            "......oooo......",
+            "......oWdo......",
+            "......odWo......",
+            "......oWdo......",
+            "......olwo......",
+            "......olwo......",
+            "......olwo......",
+            "..oo..olwo......",
+            ".olwo.olwo......",
+            ".olqo.olwo......",
+            ".olwoolwqo......",
+            "..oqlllqo.......",
+            "...oqqqo........",
+            "....ooo.........",
+            "................",
+        ],
+        &[('o', i('o')), ('W', i('W')), ('d', i('d')), ('l', i('l')), ('w', i('w')), ('q', i('q'))],
+    )
+}
+
+/// A fishing rod, 16x48: a slim branch, bending at the tip, with the rope
+/// line running down from it to a shell hook.
+pub fn icon_fishing_rod() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 48, 0);
+    // The rod, thick at the butt and leaning right toward the tip.
+    for y in 4..46 {
+        let x = 5 + (46 - y) / 14;
+        a.set(x as usize, y as usize, if y % 9 == 2 { i('w') } else { i('W') });
+        if y > 24 {
+            a.set(x as usize + 1, y as usize, i('w'));
+        }
+    }
+    // The line from the tip down to the hook.
+    for y in 5..30 {
+        a.set(11, y, i('L'));
+    }
+    for (x, y) in [(10, 3), (9, 4), (11, 4)] {
+        a.set(x, y, i('L'));
+    }
+    // The hook.
+    for (x, y) in [(11, 30), (11, 31), (12, 32), (13, 31), (13, 30)] {
+        a.set(x, y, i('c'));
+    }
+    a.outlined(i('o'))
+}
+
+/// A silver fish, 16x16, swimming left: dark blue back, pale belly, a
+/// forked tail and an eye.
+pub fn icon_fish() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    fill_ellipse(&mut a, 7.0, 8.0, 5.6, 3.0, |x, y, nx, ny| {
+        let _ = (x, y, nx);
+        Some(if ny < -0.45 { i('b') } else if ny < 0.0 { i('M') } else if ny < 0.5 { i('L') } else { i('i') })
+    });
+    // Tail.
+    for (x, y, c) in [(12, 6, 'b'), (13, 5, 'b'), (14, 4, 'm'), (12, 8, 'M'), (13, 8, 'M'), (12, 10, 'L'), (13, 11, 'L'), (14, 12, 'm'), (12, 7, 'M'), (12, 9, 'L')] {
+        a.set(x, y, i(c));
+    }
+    let mut a = a.outlined(i('o'));
+    a.set(3, 7, i('o'));
+    a
+}
+
+/// A grilled fish, 16x16: the same shape browned, with dark grill marks.
+pub fn icon_grilled_fish() -> PixelArt {
+    let fx = icon_fish();
+    let i = |c| ITEM_LEGEND.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or(0);
+    let f = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    for y in 0..16 {
+        for x in 0..16 {
+            let v = fx.get(x, y);
+            let out = if v == 0 {
+                0
+            } else if v == f('o') {
+                i('o')
+            } else if (x + y) % 4 == 0 && (3..12).contains(&x) {
+                i('d')
+            } else if v == f('b') || v == f('m') {
+                i('w')
+            } else if v == f('i') {
+                i('h')
+            } else {
+                i('W')
+            };
+            a.set(x, y, out);
+        }
+    }
+    a
+}

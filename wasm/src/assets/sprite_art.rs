@@ -751,3 +751,101 @@ pub fn thought_frames() -> [PixelArt; 3] {
         a
     })
 }
+
+/// A fishing rod held out level, 32x8: the butt at the left, thinning to a
+/// bent tip at the right (the line is drawn separately).
+pub fn rod_side() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            "................................",
+            "............................ooo.",
+            "...............ooooooooooooooWWo",
+            "ooooooooooooooooWWWWWWWWWWWWWWoo",
+            "oWWWWWWWWWWWWWWWwwwwwwwwwwwwwo..",
+            "owwwwwwwwwwwwwwoooooooooooooo...",
+            "ooooooooooooooo.................",
+        ],
+        FX_LEGEND,
+    )
+}
+
+/// Where the line leaves the tip in `rod_side`.
+pub const ROD_TIP: (i32, i32) = (30, 3);
+
+/// The float on the line, 8x8: riding the water, bobbing down as a fish
+/// nibbles, and pulled under (just the ring it leaves).
+pub fn float_frames() -> [PixelArt; 3] {
+    let float = [
+        "........",
+        "...oo...",
+        "..oRqo..",
+        "..owwo..",
+        "...oo...",
+        "........",
+        "........",
+        "........",
+    ];
+    let bob = [
+        "........",
+        "........",
+        "...oo...",
+        "..oRqo..",
+        "..owwo..",
+        "........",
+        "........",
+        "........",
+    ];
+    let under = [
+        "........",
+        "........",
+        "........",
+        "........",
+        "...RR...",
+        "........",
+        "........",
+        "........",
+    ];
+    [PixelArt::parse(&float, CRAB_LEGEND), PixelArt::parse(&bob, CRAB_LEGEND), PixelArt::parse(&under, CRAB_LEGEND)]
+}
+
+/// One dot of fishing line, 8x8 (a dark grey pixel in the top-left, to
+/// show on sand and water alike).
+pub fn line_dot() -> PixelArt {
+    let mut a = PixelArt::filled(8, 8, 0);
+    a.set(0, 0, FX_LEGEND.iter().find(|(k, _)| *k == 'm').map(|(_, v)| *v).unwrap_or(0));
+    a
+}
+
+/// A fish's dark shape under the water, 16x8, swimming left, its tail
+/// swishing between two frames (drawn in the blended shadow palette).
+pub fn fish_shadow_frames() -> [PixelArt; 2] {
+    let rows = [
+        [
+            "................",
+            "................",
+            "...########..#..",
+            "..###########...",
+            "..###########...",
+            "...########..#..",
+            "................",
+            "................",
+        ],
+        [
+            "................",
+            "............#...",
+            "...########.#...",
+            "..###########...",
+            "..###########...",
+            "...########.##..",
+            "................",
+            "................",
+        ],
+    ];
+    rows.map(|r| PixelArt::parse(&r, &[('#', 1)]))
+}
+
+/// A drop of water, 8x8 (thrown up by a splash).
+pub fn droplet() -> PixelArt {
+    PixelArt::parse(&["........", "...i....", "..ili...", "..lbl...", "...l....", "........", "........", "........"], FX_LEGEND)
+}

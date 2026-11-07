@@ -194,6 +194,12 @@ pub struct BagSprites {
     pub shelter: SpriteId,
     /// Upright, turned.
     pub torch: [SpriteId; 2],
+    pub sea_shell: SpriteId,
+    pub shell_hook: SpriteId,
+    /// Upright, turned.
+    pub fishing_rod: [SpriteId; 2],
+    pub fish: SpriteId,
+    pub grilled_fish: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -235,6 +241,11 @@ impl BagSprites {
             ItemKind::Thatch => (self.thatch[turned as usize], palettes::OBJ_FX),
             ItemKind::Shelter => (self.shelter, palettes::OBJ_FX),
             ItemKind::Torch => (self.torch[turned as usize], palettes::OBJ_CRAB),
+            ItemKind::SeaShell => (self.sea_shell, palettes::OBJ_CRAB),
+            ItemKind::ShellHook => (self.shell_hook, palettes::OBJ_CRAB),
+            ItemKind::FishingRod => (self.fishing_rod[turned as usize], palettes::OBJ_FX),
+            ItemKind::Fish => (self.fish, palettes::OBJ_FX),
+            ItemKind::GrilledFish => (self.grilled_fish, palettes::OBJ_CRAB),
         }
     }
 }
@@ -297,6 +308,22 @@ pub struct SpriteIds {
     /// A lit torch, 16x32, three flame frames; and burning low.
     pub torch: [SpriteId; 3],
     pub torch_low: [SpriteId; 3],
+    /// The fishing rod held out: level, tip up, tip down.
+    pub rod_side: SpriteId,
+    pub rod_up: SpriteId,
+    pub rod_down: SpriteId,
+    /// The float riding, bobbing, pulled under; a dot of line.
+    pub float: [SpriteId; 3],
+    pub line_dot: SpriteId,
+    /// A drop of water from a splash.
+    pub droplet: SpriteId,
+    /// A fish's shape under the water (two tail frames), and lying caught
+    /// or grilled on the ground.
+    pub fish_shadow: [SpriteId; 2],
+    pub fish: SpriteId,
+    pub grilled_fish: SpriteId,
+    pub sea_shell: SpriteId,
+    pub shell_hook: SpriteId,
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
@@ -477,6 +504,14 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             [bank.add(&t), bank.add(&t.rotated_cw())]
         },
         shelter: bank.add(&item_art::icon_shelter()),
+        sea_shell: bank.add(&item_art::icon_sea_shell()),
+        shell_hook: bank.add(&item_art::icon_shell_hook()),
+        fishing_rod: {
+            let r = item_art::icon_fishing_rod();
+            [bank.add(&r), bank.add(&r.rotated_cw())]
+        },
+        fish: bank.add(&item_art::icon_fish()),
+        grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         torch: {
             let t = &torch_frames(false)[0];
             [bank.add(t), bank.add(&t.rotated_cw())]
@@ -539,6 +574,17 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         eureka: bank.add(&eureka_bubble()),
         torch: torch_frames(false).map(|a| bank.add(&a)),
         torch_low: torch_frames(true).map(|a| bank.add(&a)),
+        rod_side: bank.add(&rod_side()),
+        rod_up: bank.add(&rod_side().transposed().flipped_v()),
+        rod_down: bank.add(&rod_side().transposed()),
+        float: float_frames().map(|a| bank.add(&a)),
+        line_dot: bank.add(&line_dot()),
+        droplet: bank.add(&droplet()),
+        fish_shadow: fish_shadow_frames().map(|a| bank.add(&a)),
+        fish: bank.add(&item_art::icon_fish()),
+        grilled_fish: bank.add(&item_art::icon_grilled_fish()),
+        sea_shell: bank.add(&item_art::icon_sea_shell()),
+        shell_hook: bank.add(&item_art::icon_shell_hook()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

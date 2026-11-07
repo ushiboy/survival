@@ -141,6 +141,11 @@ impl Item {
             ItemKind::PalmFrond => (16, [sprites.palm_frond; 2], sprites.shadow_player),
             ItemKind::Thatch => (16, [sprites.thatch; 2], sprites.shadow_player),
             ItemKind::Shelter => (16, [sprites.shelter_roll; 2], sprites.shadow_player),
+            ItemKind::SeaShell => (8, [sprites.sea_shell; 2], sprites.shadow_coconut),
+            ItemKind::ShellHook => (8, [sprites.shell_hook; 2], sprites.shadow_coconut),
+            ItemKind::FishingRod => (32, [sprites.rod_side; 2], sprites.shadow_lying),
+            ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),
+            ItemKind::GrilledFish => (16, [sprites.grilled_fish; 2], sprites.shadow_crab),
             // Water and a burning torch never lie on the ground.
             ItemKind::RawWater | ItemKind::Torch => return,
         };
@@ -152,7 +157,7 @@ impl Item {
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
         let palette = match self.kind {
-            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Thatch | ItemKind::Shelter | ItemKind::StoneKnife => OBJ_FX,
+            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Thatch | ItemKind::Shelter | ItemKind::StoneKnife | ItemKind::FishingRod | ItemKind::Fish => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,

@@ -86,6 +86,11 @@ const EAT_TOTAL: u32 = 60;
 /// `PONDER_DOT`, until it's given up on at `PONDER_TOTAL`.
 const PONDER_DOT: u32 = 12;
 const PONDER_TOTAL: u32 = 60;
+/// Casting (frames): drawn back, then the line flies out at
+/// `CAST_RELEASE`; and how far out the float lands (px).
+const CAST_RELEASE: u32 = 8;
+const CAST_TOTAL: u32 = 14;
+const CAST_REACH: i32 = 30;
 /// How long the "!" of a recipe coming to mind shows, and the frames it
 /// takes to pop up.
 const EUREKA_FRAMES: u32 = 50;
@@ -168,6 +173,10 @@ pub enum Action {
     Cook { t: u32, food: ItemKind, dish: ItemKind, fire: (i32, i32) },
     /// Tugging a vine off a climbing plant, or leaves off a bush.
     Pull { t: u32 },
+    /// Casting the line out over the water.
+    Cast { t: u32 },
+    /// Holding the rod out with the float on the water, waiting for a bite.
+    Fishing { t: u32 },
 }
 
 /// What the castaway has to hand and what lies around them this frame.
@@ -181,6 +190,9 @@ pub struct Situation {
     pub has_leaf: bool,
     /// Carrying a knife to cut bark and vine with.
     pub has_knife: bool,
+    /// Fish are swimming in the water just ahead, and there's no rod to
+    /// catch them with.
+    pub fish_near: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -212,6 +224,12 @@ pub enum Deed {
     LightFire((i32, i32)),
     /// Finished cooking this.
     Cooked(ItemKind),
+    /// The float landed on the water at the point (world px).
+    Cast((i32, i32)),
+    /// The line was struck (B while fishing): a fish biting is caught.
+    Strike,
+    /// The line was drawn in without striking (moving off).
+    ReelIn,
 }
 
 #[derive(Clone, Debug)]
@@ -269,7 +287,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf, has_knife } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near } = situation;
         self.eureka = self.eureka.saturating_sub(1);
         if let Action::WakeUp { t, end } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
@@ -305,6 +323,25 @@ impl Player {
                 let (from, to) = self.spear_line();
                 Deed::Thrust(from, to)
             });
+        }
+        if let Action::Cast { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= CAST_TOTAL { Action::Fishing { t: 0 } } else { Action::Cast { t } };
+            return (t == CAST_RELEASE).then(|| Deed::Cast(self.cast_point()));
+        }
+        if let Action::Fishing { t } = self.action {
+            // B strikes; moving off (or A) draws the line in.
+            if input.pressed(Buttons::B) {
+                self.action = Action::Idle;
+                return Some(Deed::Strike);
+            }
+            let (ax, ay) = input.axis();
+            if ax != 0 || ay != 0 || input.pressed(Buttons::A) {
+                self.action = Action::Idle;
+                return Some(Deed::ReelIn);
+            }
+            self.action = Action::Fishing { t: t + 1 };
+            return None;
         }
         if let Action::PickUp { t } = self.action {
             let t = t + 1;
@@ -379,6 +416,9 @@ impl Player {
             self.facing = facing_for(self.facing, ax, ay);
             self.action = match tool {
                 ItemKind::WoodSpear => Action::Thrust { t: 0 },
+                // The line goes out only over water.
+                ItemKind::FishingRod if !is_water(map, self.cast_point()) => return None,
+                ItemKind::FishingRod => Action::Cast { t: 0 },
                 _ => Action::Chop { t: 0 },
             };
             self.moving = false;
@@ -442,6 +482,11 @@ impl Player {
                 self.walk_timer = 0;
                 return None;
             }
+            // Fish swimming just there, and nothing to catch them with.
+            if fish_near {
+                self.ponder();
+                return None;
+            }
         }
         self.walk(input, map);
         (self.running && self.walk_timer % DUST_EVERY == 1).then(|| {
@@ -457,6 +502,56 @@ impl Player {
                 Dir::Down => (fx + side, fy + 1),
             })
         })
+    }
+
+    /// Where a cast lands the float: out in front, a rod and line's length
+    /// away.
+    pub fn cast_point(&self) -> (i32, i32) {
+        let (fx, fy) = self.body.feet();
+        match self.facing {
+            Dir::Up => (fx, fy - CAST_REACH - 16),
+            Dir::Down => (fx, fy + CAST_REACH + 14),
+            Dir::Left => (fx - CAST_REACH - 4, fy - 2),
+            Dir::Right => (fx + CAST_REACH + 4, fy - 2),
+        }
+    }
+
+    /// Pose while fishing: drawn back to cast, then arms out.
+    fn rod_stage(&self) -> usize {
+        match self.action {
+            Action::Cast { t } if t < CAST_RELEASE => 0,
+            _ => 1,
+        }
+    }
+
+    /// The rod held out while casting or fishing: its image, where its
+    /// top-left is drawn (world px), whether mirrored, and its tip (world
+    /// px), placed so the hands hold it just above the butt.
+    fn rod_hold(&self, sprites: &SpriteIds) -> (SpriteId, (i32, i32), bool, (i32, i32)) {
+        let (view, flip) = view_for(self.facing);
+        let (gx, gy) = sprites.player.thrust_poses[view][self.rod_stage()].grip();
+        let gx = if flip { CHAR_W as f32 - gx } else { gx };
+        let (wx, wy) = self.body.px();
+        let (cx, cy) = (wx - CHAR_ORIGIN.0, wy - CHAR_ORIGIN.1);
+        // Image, hands in it, tip in it.
+        let (gfx, (hx, hy), (tx, ty)) = match self.facing {
+            Dir::Right => (sprites.rod_side, (5.0, 5.0), (30, 3)),
+            Dir::Left => (sprites.rod_side, (26.0, 5.0), (1, 3)),
+            Dir::Down => (sprites.rod_down, (5.0, 5.0), (3, 30)),
+            Dir::Up => (sprites.rod_up, (5.0, 26.0), (3, 1)),
+        };
+        let (x, y) = (cx + (gx - hx).round() as i32, cy + (gy - hy).round() as i32);
+        (gfx, (x, y), self.facing == Dir::Left, (x + tx, y + ty))
+    }
+
+    /// The tip of the rod held out (world px), where the line leaves it.
+    pub fn rod_tip(&self, sprites: &SpriteIds) -> (i32, i32) {
+        self.rod_hold(sprites).3
+    }
+
+    /// Whether the line is out (or going out).
+    pub fn is_fishing(&self) -> bool {
+        matches!(self.action, Action::Cast { .. } | Action::Fishing { .. })
     }
 
     /// The spot just in front of the feet that hands and tools reach: where
@@ -666,6 +761,28 @@ impl Player {
         if let Action::Chop { t } = self.action {
             self.draw_chop(list, (sx, sy), (cx, cy), depth, sprites, t, prio);
             if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if self.is_fishing() {
+            // Holding the rod out over the water (the line and float are
+            // drawn with the line). Facing away it's behind the body.
+            let frame = sprites.player.thrust[view][self.rod_stage()];
+            let (gfx, (rx, ry), mirror, _) = self.rod_hold(sprites);
+            let (rx, ry) = camera.to_screen(rx, ry);
+            let rod = ObjEntry::new(rx, ry, gfx, OBJ_FX, prio).flipped(mirror);
+            let body = ObjEntry::new(cx, cy, frame.full, OBJ_PLAYER, prio).flipped(flip);
+            if self.facing == Dir::Up {
+                list.actor(depth, body);
+                list.actor(depth, rod);
+            } else {
+                list.actor(depth, ObjEntry::new(cx, cy, frame.hands, OBJ_PLAYER, prio).flipped(flip));
+                list.actor(depth, rod);
+                list.actor(depth, body);
+            }
+            if shadows && !self.wading {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             return;
@@ -1074,4 +1191,10 @@ fn facing_for(current: Dir, ax: i32, ay: i32) -> Dir {
         (_, y) if y > 0 => Dir::Down,
         _ => current,
     }
+}
+
+/// Whether there's water (sea or river) at the world pixel.
+fn is_water(map: &WorldMap, (x, y): (i32, i32)) -> bool {
+    let (cx, cy) = (x.div_euclid(crate::world::TILE_SIZE), y.div_euclid(crate::world::TILE_SIZE));
+    (0..map.width()).contains(&cx) && (0..map.height()).contains(&cy) && !map.terrain(cx, cy).is_land()
 }
