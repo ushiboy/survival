@@ -33,7 +33,7 @@
   - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグパネルの一覧。追加しないとデバッグパネルに出ない）
   - `wasm/examples/snapshot.rs` の `SNAP_GIVE` の名前
   - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵
-- 操作を変えたとき: `src/components/ControlsHelp.tsx` の操作説明。ただし、条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。
+- 操作を変えたとき: `src/components/ControlsHelp.tsx` の操作説明。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
 - 開発用ツールの使い方を変えたとき: [README.md](README.md)
 
 ## 設計の方針

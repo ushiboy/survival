@@ -80,6 +80,7 @@ export function DebugTools({ core }: Props) {
         )}
       </div>
       {message && <p className="note">{message}</p>}
+      <p className="note">Shift (SELECT) — 時刻を3時間進める／O — 服装の切替</p>
     </section>
   );
 }
