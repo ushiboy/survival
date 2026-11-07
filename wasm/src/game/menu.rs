@@ -130,7 +130,8 @@ pub enum Mode {
     /// Choosing what to do with the item at `item`.
     Commands { item: usize, choice: usize },
     Holding(HeldItem),
-    /// Choosing something to make from the list of `RECIPES`.
+    /// Choosing something to make from the recipes thought of so far
+    /// (`choice` is a place in that list).
     Crafting { choice: usize },
     /// Looking over one recipe (index into `RECIPES`), with MAKE (0) or
     /// BACK (1) chosen.
@@ -320,7 +321,7 @@ impl BagMenu {
                 }
             }
             Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
-            Mode::Crafting { choice } => self.update_crafting(input, choice, step),
+            Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Recipe { recipe, choice } => self.update_recipe(input, inv, recipe, choice, step),
             Mode::Gear { slot } => {
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
@@ -378,16 +379,18 @@ impl BagMenu {
         }
     }
 
-    /// The recipe list: up and down through it, left and right a page at a
-    /// time; A opens the recipe.
-    fn update_crafting(&mut self, input: &InputState, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
-        let last = RECIPES.len() as i32 - 1;
+    /// The list of recipes thought of so far (`choice` is a place in it):
+    /// up and down through it, left and right a page at a time; A opens the
+    /// recipe, which is then no longer fresh.
+    fn update_crafting(&mut self, input: &InputState, inv: &mut Inventory, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        let listed = inv.recipes.listed();
+        let last = listed.len() as i32 - 1;
         match step {
             Some((0, dy)) if dy < 0 && choice == 0 => {
                 self.mode = Mode::Tabs(Page::Craft);
                 return Outcome::Stay;
             }
-            Some((0, dy)) => choice = (choice as i32 + dy).clamp(0, last) as usize,
+            Some((0, dy)) => choice = (choice as i32 + dy).clamp(0, last.max(0)) as usize,
             Some((dx, _)) => {
                 let page = (choice / RECIPES_PER_PAGE) as i32 + dx;
                 if (0..=last / RECIPES_PER_PAGE as i32).contains(&page) {
@@ -400,8 +403,9 @@ impl BagMenu {
         if input.pressed(Buttons::B) {
             self.mode = Mode::Tabs(Page::Craft);
             self.notice = None;
-        } else if input.pressed(Buttons::A) {
-            self.mode = Mode::Recipe { recipe: choice, choice: 0 };
+        } else if let Some(&recipe) = listed.get(choice).filter(|_| input.pressed(Buttons::A)) {
+            inv.recipes.looked_at(recipe);
+            self.mode = Mode::Recipe { recipe, choice: 0 };
             self.notice = None;
         }
         Outcome::Stay
@@ -417,7 +421,8 @@ impl BagMenu {
         }
         let back = input.pressed(Buttons::B) || (input.pressed(Buttons::A) && choice == 1);
         if back {
-            self.mode = Mode::Crafting { choice: index };
+            let place = inv.recipes.listed().iter().position(|&i| i == index).unwrap_or(0);
+            self.mode = Mode::Crafting { choice: place };
             self.notice = None;
             return Outcome::Stay;
         }

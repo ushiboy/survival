@@ -694,6 +694,31 @@ pub fn opened_coconut() -> PixelArt {
 
 /// A thought bubble, 16x16 (effects palette), with one, two then three
 /// dots in it; trailing puffs lead down-left toward the thinker's head.
+/// A speech bubble with a "!" in it, 16x16: a recipe has come to mind.
+pub fn eureka_bubble() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................",
+            "...oooooooooo...",
+            "..oLLLLmmLLLLo..",
+            ".oLLLLLmmLLLLLo.",
+            ".oLLLLLmmLLLLLo.",
+            ".oLLLLLLLLLLLLo.",
+            ".oLLLLLmmLLLLLo.",
+            "..oLLLLLLLLLLo..",
+            "...ooLLoooooo...",
+            ".....oLo........",
+            "......o.........",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        FX_LEGEND,
+    )
+}
+
 pub fn thought_frames() -> [PixelArt; 3] {
     let base = [
         "................",

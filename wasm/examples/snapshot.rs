@@ -8,7 +8,7 @@
 //! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag, and
 //! `SNAP_CRAB=dx` to set a crab down that far right of the castaway, and
 //! `SNAP_HP=n` to start with `n` hearts, and `SNAP_HOURS=n` to start `n`
-//! hours later in the day.
+//! hours later in the day, and `SNAP_RECIPES=all` to know every recipe.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
@@ -24,6 +24,10 @@ fn main() {
     if let Ok(at) = std::env::var("SNAP_AT") {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
         game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
+    }
+    // SNAP_RECIPES=all starts with every recipe known.
+    if std::env::var("SNAP_RECIPES").is_ok_and(|v| v == "all") {
+        game.debug_learn_recipes();
     }
     // SNAP_HOURS=n starts n hours later in the day (before SNAP_GIVE).
     if let Some(h) = std::env::var("SNAP_HOURS").ok().and_then(|h| h.parse().ok()) {

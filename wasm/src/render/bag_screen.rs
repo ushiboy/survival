@@ -7,7 +7,7 @@ use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::game::state::Inventory;
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
-use crate::crafting::RECIPES;
+use crate::crafting::{RECIPES, RecipeBook};
 use crate::game::menu::{BagMenu, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices};
 use crate::items::Slot;
 use crate::ppu::Bg3Layer;
@@ -68,7 +68,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
     }
     if menu.page() == Page::Craft {
-        draw_craft_page(bg3, tiles, list, sprites, bag, menu);
+        draw_craft_page(bg3, tiles, list, sprites, bag, &inventory.recipes, menu);
         return;
     }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
@@ -198,15 +198,15 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
 }
 
 /// The crafting page: the recipe list, or one recipe opened from it.
-fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, menu: &BagMenu) {
+fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, menu: &BagMenu) {
     if menu.near_fire {
         text_in(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "^", HUD_FOOD);
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
         Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, menu.near_fire, recipe, choice),
-        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, menu.near_fire, Some(choice)),
-        _ => draw_recipe_list(bg3, tiles, list, sprites, bag, menu.near_fire, None),
+        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, Some(choice)),
+        _ => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, None),
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
@@ -214,23 +214,32 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
     draw_help(bg3, tiles, menu);
 }
 
-/// A page of recipe names: those that can be made now lit, the rest
-/// greyed, a flame by those made at a fire; and a picture of the chosen
-/// one's result. `choice` is None while only previewing from the tab row.
-fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, near_fire: bool, choice: Option<usize>) {
+/// A page of the recipes thought of so far: those that can be made now
+/// lit, the rest greyed, a flame by those made at a fire, a "!" by those
+/// not yet looked at; and a picture of the chosen one's result. `choice`
+/// (a place in the list) is None while only previewing from the tab row.
+/// Recipes not yet thought of aren't shown at all, not even as a count.
+#[allow(clippy::too_many_arguments)]
+fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, near_fire: bool, choice: Option<usize>) {
+    let listed = book.listed();
     let at = choice.unwrap_or(0);
     let page = at / RECIPES_PER_PAGE;
-    let pages = RECIPES.len().div_ceil(RECIPES_PER_PAGE);
+    let pages = listed.len().div_ceil(RECIPES_PER_PAGE);
     let first = page * RECIPES_PER_PAGE;
-    for (i, r) in RECIPES.iter().enumerate().skip(first).take(RECIPES_PER_PAGE) {
-        let row = GRID_ROW + (i - first) * 2;
-        if choice == Some(i) {
+    for (place, &i) in listed.iter().enumerate().skip(first).take(RECIPES_PER_PAGE) {
+        let r = &RECIPES[i];
+        let row = GRID_ROW + (place - first) * 2;
+        if choice == Some(place) {
             text(bg3, tiles, GRID_COL, row, ">");
         }
         let ready = bag.can_make(r) && (!r.at_fire || near_fire);
-        text_in(bg3, tiles, GRID_COL + 1, row, r.makes.name(), if ready { HUD_TEXT } else { HUD_DIM });
+        let name = r.makes.name();
+        text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {
-            text_in(bg3, tiles, GRID_COL + 2 + r.makes.name().len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+            text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+        }
+        if book.is_fresh(i) {
+            text_in(bg3, tiles, GRID_COL + 4 + name.len(), row, "!", HUD_FOOD);
         }
     }
     if pages > 1 {
@@ -240,8 +249,8 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
         text(bg3, tiles, GRID_COL + 3, row, &label);
         text_in(bg3, tiles, GRID_COL + 4 + label.len(), row, ">", if page + 1 < pages { HUD_TEXT } else { HUD_DIM });
     }
-    if choice.is_some() {
-        let makes = RECIPES[at].makes;
+    if let Some(&i) = listed.get(at).filter(|_| choice.is_some()) {
+        let makes = RECIPES[i].makes;
         let (w, h) = footprint(makes, false);
         let (gfx, pal) = sprites.bag.icon(makes, false);
         list.sky(ObjEntry::new(PREVIEW_COL as i32 * 8, GRID_ROW as i32 * 8, gfx, pal, 3));

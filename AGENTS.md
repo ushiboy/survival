@@ -17,7 +17,7 @@
 | 変更の内容 | 更新するドキュメント |
 |---|---|
 | アイテムを追加・変更・削除した（大きさ、重ねられる数、説明文、使い道、手に入れ方など） | `docs/items/<slug>.md` と [docs/items/README.md](docs/items/README.md) の一覧 |
-| レシピを追加・変更・削除した（材料、道具、焚き火の要否、並び順） | `docs/recipes/<slug>.md` と [docs/recipes/README.md](docs/recipes/README.md) の一覧。材料や作るものになっているアイテムのページの「使い道」「手に入れ方」も |
+| レシピを追加・変更・削除した（材料、道具、焚き火の要否、並び順。材料を変えると思いつく条件も変わる） | `docs/recipes/<slug>.md` と [docs/recipes/README.md](docs/recipes/README.md) の一覧。材料や作るものになっているアイテムのページの「使い道」「手に入れ方」も |
 | ルールや数値を変えた（時間、体力・満腹度・水分、採取の回数、焚き火、夜の明かり、バッグ、操作など） | [docs/README.md](docs/README.md) の該当する節 |
 | 島に置く物、地形、マップを変えた | [docs/README.md](docs/README.md) の「島」 |
 | 「なにかできそう」のヒント（考える仕草など）を足した・変えた | [docs/README.md](docs/README.md) の「ヒントの出し方」 |
@@ -63,5 +63,5 @@ pnpm exec tsc -b     # 型チェック
 pnpm dev             # wasm をビルドして開発サーバーを起動
 ```
 
-- 見た目の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS` など）は [README.md](README.md) にある。
-- ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせられる。
+- 見た目の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
+- ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したりできる。

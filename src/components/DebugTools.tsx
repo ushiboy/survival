@@ -79,6 +79,17 @@ export function DebugTools({ core }: Props) {
           </button>
         )}
       </div>
+      <div className="row">
+        <button
+          onClick={(e) => {
+            core.debugLearnRecipes();
+            setMessage('全レシピを解放しました');
+            release(e);
+          }}
+        >
+          全レシピを解放
+        </button>
+      </div>
       {message && <p className="note">{message}</p>}
       <p className="note">Shift (SELECT) — 時刻を3時間進める／O — 服装の切替</p>
     </section>

@@ -209,6 +209,9 @@ impl Game {
             if moving.is_none() || moving != self.inventory.gear.hand {
                 self.inventory.settle_hand();
             }
+            // Something made in the bag may bring a recipe to mind: it
+            // shows up in the list straight away.
+            self.inventory.think();
             return;
         }
         if self.input.pressed(Buttons::X) && self.player.is_idle() {
@@ -226,6 +229,9 @@ impl Game {
         }
         self.inventory.tend_torches(self.clock.total_minutes());
         self.player.torch = self.inventory.torch_lit();
+        if self.inventory.think() {
+            self.player.eureka();
+        }
         self.tree_shake = self.tree_shake.filter(|s| s.frames > 0).map(|s| TreeShake { frames: s.frames - 1, ..s });
         self.camera_shake = self.camera_shake.saturating_sub(1);
         if self.hitstop > 0 {
@@ -746,6 +752,11 @@ impl Game {
     /// the bag, if it fits.
     pub fn debug_advance_hours(&mut self, hours: u32) {
         self.clock.advance_minutes(hours * 60);
+    }
+
+    /// Debug: knows every recipe.
+    pub fn debug_learn_recipes(&mut self) {
+        self.inventory.recipes.learn_all();
     }
 
     pub fn debug_give(&mut self, kind: ItemKind) {

@@ -1,6 +1,7 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
 use super::bag::{BASE_ROWS, Bag};
+use crate::crafting::RecipeBook;
 use crate::items::{ItemKind, Slot};
 use crate::assets::character::Outfit;
 
@@ -140,6 +141,8 @@ pub struct Inventory {
     pub bag: Bag,
     /// When each torch carried was lit (game minutes), oldest first.
     pub torches: Vec<u32>,
+    /// The recipes thought of so far.
+    pub recipes: RecipeBook,
     /// What the castaway is wearing.
     pub outfit: Outfit,
     pub gear: Gear,
@@ -182,6 +185,13 @@ impl Inventory {
             self.bag.take_kind(ItemKind::Torch);
         }
         self.settle_hand();
+    }
+
+    /// Thinks of any recipe whose materials are now all carried; whether
+    /// one came to mind.
+    pub fn think(&mut self) -> bool {
+        let bag = &self.bag;
+        self.recipes.notice(|kind| bag.has(kind))
     }
 
     /// Lets go of a tool in hand that's no longer carried.
@@ -247,6 +257,6 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), torches: Vec::new(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
+        Self { bag: Bag::default(), torches: Vec::new(), recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
     }
 }

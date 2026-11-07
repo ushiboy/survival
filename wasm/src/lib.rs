@@ -77,6 +77,11 @@ impl GameHandle {
         items::ItemKind::ALL.get(index).map_or(0, |&k| self.game.debug_give_n(k, count))
     }
 
+    /// Debug: makes every recipe known.
+    pub fn debug_learn_recipes(&mut self) {
+        self.game.debug_learn_recipes();
+    }
+
     /// Compact status for the debug panel:
     /// `[tileX, tileY, day, minuteOfDay, paused, vramBytes]`.
     pub fn status(&self) -> Vec<i32> {

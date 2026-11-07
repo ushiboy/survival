@@ -86,6 +86,10 @@ const EAT_TOTAL: u32 = 60;
 /// `PONDER_DOT`, until it's given up on at `PONDER_TOTAL`.
 const PONDER_DOT: u32 = 12;
 const PONDER_TOTAL: u32 = 60;
+/// How long the "!" of a recipe coming to mind shows, and the frames it
+/// takes to pop up.
+const EUREKA_FRAMES: u32 = 50;
+const EUREKA_POP: u32 = 4;
 /// Frames per flicker of a held torch's flame.
 const TORCH_FLAME_FRAME: u32 = 6;
 /// How far out from the hand a held torch stands (px, screen-right facing
@@ -224,6 +228,8 @@ pub struct Player {
     pub sheltered: bool,
     /// A lit torch is in hand: it's held up while standing and walking.
     pub torch: bool,
+    /// Frames left of the "!" over the head after a recipe came to mind.
+    eureka: u32,
     walk_timer: u32,
 }
 
@@ -248,6 +254,7 @@ impl Player {
             facing: Dir::Down,
             sheltered: false,
             torch: false,
+            eureka: 0,
             moving: false,
             running: false,
             wading: false,
@@ -262,6 +269,7 @@ impl Player {
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
         let Situation { tool, item_in_reach, has_leaf, has_knife } = situation;
+        self.eureka = self.eureka.saturating_sub(1);
         if let Action::WakeUp { t, end } = self.action {
             let skip = t >= WAKE_SKIPPABLE && (input.pressed(Buttons::A) || input.pressed(Buttons::B));
             let t = if skip { end } else { t + 1 };
@@ -514,7 +522,6 @@ impl Player {
         }
     }
 
-    /// Standing ready: not mid-action (so the bag can be opened).
     /// Stops to think (something here needs what isn't carried).
     fn ponder(&mut self) {
         self.action = Action::Ponder { t: 0 };
@@ -522,6 +529,13 @@ impl Player {
         self.walk_timer = 0;
     }
 
+    /// A recipe has come to mind: a "!" pops up over the head for a moment,
+    /// without stopping whatever's being done.
+    pub fn eureka(&mut self) {
+        self.eureka = EUREKA_FRAMES;
+    }
+
+    /// Standing ready: not mid-action (so the bag can be opened).
     pub fn is_idle(&self) -> bool {
         self.action == Action::Idle
     }
@@ -606,6 +620,14 @@ impl Player {
         let (view, flip) = view_for(self.facing);
         // The 24x32 character canvas is offset from the 16x24 logical frame.
         let (cx, cy) = (sx - CHAR_ORIGIN.0, sy - CHAR_ORIGIN.1);
+
+        if self.eureka > 0 && !self.is_asleep() {
+            // Over the head, springing up into place.
+            let age = EUREKA_FRAMES - self.eureka;
+            let rise = EUREKA_POP.saturating_sub(age) as i32;
+            let bx = if flip { sx - 12 } else { sx + 12 };
+            list.actor(depth + 1, ObjEntry::new(bx, sy - 18 + rise, sprites.eureka, OBJ_FX, prio).flipped(flip));
+        }
 
         if let Action::WakeUp { t, .. } = self.action {
             if t < WAKE_KNEEL {

@@ -39,6 +39,8 @@ export interface GameCore {
   debugItems(): DebugItem[];
   /** Debug: puts up to `count` of an item in the bag; returns how many fitted. */
   debugGive(index: number, count: number): number;
+  /** Debug: makes every recipe known. */
+  debugLearnRecipes(): void;
   dispose(): void;
 }
 
@@ -73,6 +75,7 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     cycleOutfit: () => handle.debug_cycle_outfit(),
     debugItems: () => debug_item_names().map((name, index) => ({ index, name, maxStack: debug_item_max_stack(index) })),
     debugGive: (index, count) => handle.debug_give(index, count),
+    debugLearnRecipes: () => handle.debug_learn_recipes(),
     dispose: () => handle.free(),
   };
 }

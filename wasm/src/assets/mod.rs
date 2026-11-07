@@ -292,6 +292,8 @@ pub struct SpriteIds {
     pub shelter_roll: SpriteId,
     /// A thought bubble with one, two, three dots.
     pub thought: [SpriteId; 3],
+    /// A speech bubble with a "!": a recipe came to mind.
+    pub eureka: SpriteId,
     /// A lit torch, 16x32, three flame frames.
     pub torch: [SpriteId; 3],
     /// The shelter pitched over a sleeper (who is hidden in it).
@@ -532,6 +534,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         shelter_roll: bank.add(&shelter_roll()),
         lean_to: bank.add(&lean_to()),
         thought: thought_frames().map(|a| bank.add(&a)),
+        eureka: bank.add(&eureka_bubble()),
         torch: torch_frames().map(|a| bank.add(&a)),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
