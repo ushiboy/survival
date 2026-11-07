@@ -88,7 +88,6 @@ pub enum Feature {
     /// What's left of a felled broadleaf tree.
     BroadleafStump(StumpPart),
     Rock,
-    Pebbles,
     Bush,
     Driftwood,
     Shell,

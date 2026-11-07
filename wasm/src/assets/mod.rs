@@ -337,7 +337,6 @@ impl HudTiles {
 /// Background props, composited onto ground textures by the tileset builder.
 pub struct PropSet {
     pub boulder: PropTile,
-    pub pebbles: PropTile,
     pub driftwood: PropTile,
     pub shell: PropTile,
     pub bush: PropTile,
@@ -407,7 +406,6 @@ fn load_props(vram: &mut Vram) -> PropSet {
         broadleaf_base: tree.base,
         broadleaf_stump: tree.stump,
         boulder: props::boulder(),
-        pebbles: props::pebbles(),
         driftwood: props::driftwood(),
         shell: props::shell(),
         bush: props::bush(),

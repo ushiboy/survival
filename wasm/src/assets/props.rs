@@ -3,7 +3,7 @@
 //! Background props are overlays: 0 = show the ground underneath,
 //! `SHADOW_MASK` = darken the ground, anything else = a palette index.
 
-use super::paint::{fill_ellipse, line, noise_px, ramp, sphere_light};
+use super::paint::{bayer, fill_ellipse, line, noise_px, ramp, sphere_light};
 use super::palettes::{PAL_FOLIAGE, PAL_GRASS, PAL_ROCK, PAL_SAND, foliage, grass, rock, sand};
 use crate::ppu::pattern::PixelArt;
 use std::f32::consts::PI;
@@ -79,34 +79,68 @@ fn shadow_ellipse(art: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32) {
 
 // ---------------------------------------------------------------- rocks & wood (PAL_ROCK)
 
+/// A boulder sunk in the sand: a rounded crown whose flanks spread out
+/// into a broad foot, the sand banked up round it so it reads as bedded in
+/// rather than lying loose.
 pub fn boulder() -> PropTile {
+    const TOP: f32 = 2.5;
+    const FOOT: f32 = 14.5;
     let mut a = PixelArt::filled(16, 16, 0);
-    shadow_ellipse(&mut a, 9.5, 12.0, 7.0, 3.0);
+    // Shadow thrown down and to the right, hugging the foot.
+    shadow_ellipse(&mut a, 9.5, 13.5, 7.5, 2.3);
     let mut stone = PixelArt::filled(16, 16, 0);
-    fill_ellipse(&mut stone, 8.0, 8.5, 6.5, 5.5, |x, y, nx, ny| {
-        if ny < -0.45 && noise_px(x, y, 0x3055) < 0.55 && nx < 0.4 {
-            return Some(rock::MOSS);
+    let cx = 8.0;
+    for y in 0..16 {
+        let fy = y as f32 + 0.5;
+        if !(TOP..FOOT).contains(&fy) {
+            continue;
         }
-        let t = sphere_light(nx, ny) * 0.92 + noise_px(x, y, 0xB01) * 0.12 - 0.02;
-        Some(ramp(&rock::STONE[1..], t, x, y, 0.6))
-    });
-    // A crack.
-    line(&mut stone, 9.0, 6.0, 11.0, 10.0, rock::STONE[1]);
-    a.overlay(&stone.outlined(rock::STONE[0]), 0, 0);
-    PropTile { palette: PAL_ROCK, ground: Ground::Sand, overlay: a }
-}
-
-pub fn pebbles() -> PropTile {
-    let mut a = PixelArt::filled(16, 16, 0);
-    shadow_ellipse(&mut a, 6.0, 11.0, 4.5, 2.0);
-    shadow_ellipse(&mut a, 12.0, 8.0, 3.5, 1.5);
-    let mut stones = PixelArt::filled(16, 16, 0);
-    for (cx, cy, rx, ry) in [(5.5, 9.0, 4.0, 3.0), (11.5, 6.5, 3.0, 2.3)] {
-        fill_ellipse(&mut stones, cx, cy, rx, ry, |x, y, nx, ny| {
-            Some(ramp(&rock::STONE[1..], sphere_light(nx, ny), x, y, 0.6))
-        });
+        // 0 at the crown, 1 at the foot.
+        let t = (fy - TOP) / (FOOT - TOP);
+        // A dome that flares out near the ground.
+        let half = 4.4 * (1.0 - (1.0 - t).powi(3)).sqrt() + 3.6 * t.powi(3);
+        for x in 0..16 {
+            let dx = x as f32 + 0.5 - cx;
+            if dx.abs() > half {
+                continue;
+            }
+            // The crown faces up, the flanks face out, the foot faces the
+            // viewer and slopes away into the sand.
+            let ny = -0.85 * (1.0 - t).powf(1.4) + 0.35 * t * t;
+            let nx = dx / half * (1.0 - ny * ny).sqrt();
+            let mut l = sphere_light(nx, ny) * 0.92 + noise_px(x, y, 0xB01) * 0.12 - 0.02;
+            // The flared foot sits lower and darker.
+            l -= 0.18 * t.powi(4);
+            let c = if t < 0.4 && ny < -0.3 && nx < 0.3 && noise_px(x, y, 0x3055) < 0.45 {
+                rock::MOSS
+            } else {
+                ramp(&rock::STONE[1..], l, x, y, 0.6)
+            };
+            stone.put(x, y, c);
+        }
     }
-    a.overlay(&stones.outlined(rock::STONE[0]), 0, 0);
+    // Cracks and a ledge where the stone breaks.
+    line(&mut stone, 9.0, 4.0, 10.0, 7.0, rock::STONE[1]);
+    line(&mut stone, 10.0, 7.0, 12.0, 8.0, rock::STONE[1]);
+    line(&mut stone, 4.0, 10.0, 6.0, 10.0, rock::STONE[2]);
+    let mut outlined = stone.outlined(rock::STONE[0]);
+    // The foot has no outline: sand banks up over it, ragged and dithered.
+    for y in 12..16 {
+        for x in 0..16 {
+            let fy = y as f32 + 0.5;
+            let depth = (fy - 13.0) / 1.5 + (noise_px(x, y, 0x5A4D) - 0.5) * 0.5;
+            if outlined.at(x, y) != 0 && depth > bayer(x, y) {
+                outlined.put(x, y, if depth > 0.9 { rock::SAND[1] } else { rock::SAND[0] });
+            }
+        }
+    }
+    a.overlay(&outlined, 0, 0);
+    // A little sand heaped against the flanks.
+    for (x, y) in [(1, 13), (2, 12), (14, 13), (13, 12), (0, 14), (15, 14)] {
+        if a.at(x, y) == 0 || a.at(x, y) == SHADOW_MASK {
+            a.put(x, y, rock::SAND[2]);
+        }
+    }
     PropTile { palette: PAL_ROCK, ground: Ground::Sand, overlay: a }
 }
 

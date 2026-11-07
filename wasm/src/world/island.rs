@@ -304,11 +304,9 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
                 Terrain::Sand => {
                     if r < 0.016 {
                         Feature::Rock
-                    } else if r < 0.028 {
-                        Feature::Pebbles
-                    } else if r < 0.038 {
+                    } else if r < 0.026 {
                         Feature::Driftwood
-                    } else if r < 0.062 {
+                    } else if r < 0.05 {
                         Feature::Shell
                     } else {
                         Feature::None

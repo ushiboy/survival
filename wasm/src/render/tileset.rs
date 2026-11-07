@@ -494,7 +494,6 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         }
         Feature::BroadleafStump(s) => b.prop(28, &props.broadleaf_stump, s.flip, x, y),
         Feature::Rock => b.prop(0, &props.boulder, false, x, y),
-        Feature::Pebbles => b.prop(1, &props.pebbles, false, x, y),
         Feature::Driftwood => b.prop(2, &props.driftwood, x % 2 == 0, x, y),
         Feature::Shell => b.prop(3, &props.shell, y % 2 == 0, x, y),
         Feature::Bush => b.prop(4, &props.bush, false, x, y),
