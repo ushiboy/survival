@@ -184,6 +184,7 @@ pub struct BagSprites {
     pub husk: SpriteId,
     pub rope: SpriteId,
     pub stone_knife: SpriteId,
+    pub opened_coconut: SpriteId,
     /// Upright, turned.
     pub palm_frond: [SpriteId; 2],
     /// Flat, turned.
@@ -206,6 +207,7 @@ impl BagSprites {
     pub fn icon(&self, kind: ItemKind, turned: bool) -> (SpriteId, u8) {
         match kind {
             ItemKind::Coconut => (self.coconut, palettes::OBJ_CRAB),
+            ItemKind::OpenedCoconut => (self.opened_coconut, palettes::OBJ_CRAB),
             ItemKind::Timber => (self.timber, palettes::OBJ_CRAB),
             ItemKind::RawWater => (self.raw_water, palettes::OBJ_FX),
             ItemKind::StoneAxe => (self.stone_axe[turned as usize], palettes::OBJ_FX),
@@ -281,6 +283,7 @@ pub struct SpriteIds {
     pub palm_frond: SpriteId,
     pub thatch: SpriteId,
     pub stone_knife: SpriteId,
+    pub opened_coconut: SpriteId,
     pub shelter_roll: SpriteId,
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
@@ -447,6 +450,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         husk: bank.add(&item_art::icon_husk()),
         rope: bank.add(&item_art::icon_rope()),
         stone_knife: bank.add(&item_art::icon_stone_knife()),
+        opened_coconut: bank.add(&item_art::icon_opened_coconut()),
         palm_frond: {
             let f = item_art::icon_palm_frond();
             [bank.add(&f), bank.add(&f.rotated_cw())]
@@ -507,6 +511,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         palm_frond: bank.add(&palm_frond()),
         thatch: bank.add(&thatch()),
         stone_knife: bank.add(&stone_knife()),
+        opened_coconut: bank.add(&opened_coconut()),
         shelter_roll: bank.add(&shelter_roll()),
         lean_to: bank.add(&lean_to()),
         snore: bank.add(&snore()),

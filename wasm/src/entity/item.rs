@@ -120,6 +120,7 @@ impl Item {
     pub fn draw(&self, list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, night: bool) {
         let (w, gfx, shadow) = match self.kind {
             ItemKind::Coconut => (8, sprites.coconut, sprites.shadow_coconut),
+            ItemKind::OpenedCoconut => (8, [sprites.opened_coconut; 2], sprites.shadow_coconut),
             ItemKind::Timber => (16, [sprites.timber; 2], sprites.shadow_player),
             ItemKind::StoneAxe => (16, [sprites.axe_side; 2], sprites.shadow_player),
             ItemKind::FireDrill => (16, [sprites.fire_drill; 2], sprites.shadow_player),

@@ -645,3 +645,10 @@ pub fn stone_knife() -> PixelArt {
     let rows = ["........", "......o.", ".....oLo", "....oMLo", "...oMLo.", "..omMo..", ".ommo...", "..oo...."];
     PixelArt::parse(&rows, FX_LEGEND)
 }
+
+/// A coconut cut open (item colours), 8x8: on the ground, and in hand
+/// before the first bite.
+pub fn opened_coconut() -> PixelArt {
+    let rows = ["........", "..oooo..", ".oddddo.", "odfFFfdo", "oWdFFdWo", "owwddwwo", ".owwwwo.", "..oooo.."];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}

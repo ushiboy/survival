@@ -605,3 +605,33 @@ pub fn icon_stone_knife() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A coconut cut open, 16x16: half its shell seen from above, a ring of
+/// white flesh inside the dark shell and husk, milk shining in the hollow.
+pub fn icon_opened_coconut() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    // The outside of the half, below the rim.
+    fill_ellipse(&mut a, 8.0, 9.5, 6.2, 5.2, |x, y, nx, ny| {
+        if ny < 0.0 {
+            return None;
+        }
+        Some(ramp(&[i('d'), i('w'), i('W')], sphere_light(nx, ny) * 0.9, x, y, 0.5))
+    });
+    // The cut face: husk, then shell, then flesh round the milky hollow.
+    fill_ellipse(&mut a, 8.0, 8.5, 6.2, 3.6, |_, _, nx, ny| {
+        let r = (nx * nx + ny * ny).sqrt();
+        Some(if r > 0.86 {
+            i('W')
+        } else if r > 0.72 {
+            i('d')
+        } else if r > 0.45 {
+            if nx + ny < 0.0 { i('f') } else { i('F') }
+        } else if nx < -0.1 && ny < -0.1 {
+            i('f')
+        } else {
+            i('F')
+        })
+    });
+    a.outlined(i('o'))
+}

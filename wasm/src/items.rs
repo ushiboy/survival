@@ -3,7 +3,10 @@
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ItemKind {
+    /// A whole coconut in its husk: it has to be cut open to eat.
     Coconut,
+    /// A coconut cut open with a knife: flesh to eat and milk to drink.
+    OpenedCoconut,
     /// A squared length of palm wood.
     Timber,
     /// River water, not yet boiled. Carried in cupped leaves; it can't be
@@ -93,7 +96,7 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
+            ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear => (1, 3),
@@ -104,6 +107,7 @@ impl ItemKind {
     pub fn name(self) -> &'static str {
         match self {
             ItemKind::Coconut => "COCONUT",
+            ItemKind::OpenedCoconut => "OPENED COCONUT",
             ItemKind::Timber => "TIMBER",
             ItemKind::RawWater => "RAW WATER",
             ItemKind::StoneAxe => "STONE AXE",
@@ -133,7 +137,8 @@ impl ItemKind {
     /// crafting screen.
     pub fn description(self) -> &'static str {
         match self {
-            ItemKind::Coconut => "FLESH TO EAT AND MILK TO DRINK.",
+            ItemKind::Coconut => "A WHOLE COCONUT IN ITS HUSK. HARD TO GET INTO.",
+            ItemKind::OpenedCoconut => "CUT OPEN. FLESH TO EAT AND MILK TO DRINK.",
             ItemKind::Timber => "A SQUARED LENGTH OF PALM WOOD.",
             ItemKind::RawWater => "RIVER WATER IN A LEAF. EASES THIRST.",
             ItemKind::StoneAxe => "A SHARP STONE LASHED TO A BRANCH. FELLS TREES.",
@@ -161,7 +166,7 @@ impl ItemKind {
 
     pub fn usage(self) -> Option<Use> {
         match self {
-            ItemKind::Coconut | ItemKind::Crab | ItemKind::GrilledCrab => Some(Use::Eat),
+            ItemKind::OpenedCoconut | ItemKind::Crab | ItemKind::GrilledCrab => Some(Use::Eat),
             ItemKind::RawWater | ItemKind::BoiledWater => Some(Use::Drink),
             ItemKind::FireDrill => Some(Use::Light),
             _ => None,
@@ -176,7 +181,7 @@ impl ItemKind {
         match self {
             ItemKind::RawWater => (0, 16),
             ItemKind::BoiledWater => (0, 24),
-            ItemKind::Coconut => (22, 6),
+            ItemKind::OpenedCoconut => (22, 6),
             ItemKind::Crab => (30, 2),
             ItemKind::GrilledCrab => (48, 4),
             _ => (0, 0),
@@ -202,10 +207,10 @@ impl ItemKind {
     }
 
     /// What's left in hand once it's been eaten or drunk (the pot boiled
-    /// water was carried in, a coconut's husk).
+    /// water was carried in, an opened coconut's husk).
     pub fn leaves_behind(self) -> Option<ItemKind> {
         match self {
-            ItemKind::Coconut => Some(ItemKind::Husk),
+            ItemKind::OpenedCoconut => Some(ItemKind::Husk),
             ItemKind::BoiledWater => Some(ItemKind::BarkContainer),
             _ => None,
         }

@@ -784,7 +784,7 @@ impl Player {
         let (gfx, half_w) = match food {
             ItemKind::Crab => (sprites.crab_caught, 8),
             ItemKind::GrilledCrab => (sprites.crab_grilled, 8),
-            _ if bites == 0 => (sprites.coconut[0], 4),
+            _ if bites == 0 => (sprites.opened_coconut, 4),
             _ => (sprites.coconut_bitten[bites - 1], 4),
         };
         let nut = ObjEntry::new(cx + gx.round() as i32 - half_w, cy + gy.round() as i32 - 5 + tug, gfx, OBJ_CRAB, prio).flipped(flip);

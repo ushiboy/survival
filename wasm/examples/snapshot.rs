@@ -28,6 +28,7 @@ fn main() {
         for name in give.split(',') {
             let kind = match name {
                 "coconut" => ItemKind::Coconut,
+                "opened" => ItemKind::OpenedCoconut,
                 "timber" => ItemKind::Timber,
                 "water" => ItemKind::RawWater,
                 "branch" => ItemKind::Branch,
