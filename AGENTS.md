@@ -19,7 +19,7 @@
 | アイテムを追加・変更・削除した（大きさ、重ねられる数、説明文、使い道、手に入れ方など） | `docs/items/<slug>.md` と [docs/items/README.md](docs/items/README.md) の一覧 |
 | レシピを追加・変更・削除した（材料、道具、焚き火の要否、並び順。材料を変えると思いつく条件も変わる） | `docs/recipes/<slug>.md` と [docs/recipes/README.md](docs/recipes/README.md) の一覧。材料や作るものになっているアイテムのページの「使い道」「手に入れ方」も |
 | ルールや数値を変えた（時間、体力・満腹度・水分、採取の回数、焚き火、夜の明かり、バッグ、操作など） | [docs/README.md](docs/README.md) の該当する節 |
-| 島に置く物、地形、マップを変えた | [docs/README.md](docs/README.md) の「島」 |
+| 島に置く物、地形、マップを変えた | [docs/README.md](docs/README.md) の「島」。設計図（`wasm/src/world/island_plan.txt`）や特別な場所、細部の置き方を変えたら [docs/island.md](docs/island.md) も（「今の設計図」は設計図ファイルの写し） |
 | 「なにかできそう」のヒント（考える仕草など）を足した・変えた | [docs/README.md](docs/README.md) の「ヒントの出し方」 |
 | まだ実装しないコンセプトが決まった、または実装した | [docs/README.md](docs/README.md) の「まだコードにないコンセプト」に足す、または消して本文へ移す |
 

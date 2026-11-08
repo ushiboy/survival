@@ -34,6 +34,12 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 cd wasm && cargo run --release --example stream_check
 ```
 
+島全体の地図（設計図の形の確認用。1マス4ピクセル）:
+
+```bash
+cd wasm && cargo run --release --example island_map -- island.ppm 4
+```
+
 主人公の全ポーズ×服装プリセットの一覧シート:
 
 ```bash

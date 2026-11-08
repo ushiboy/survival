@@ -1,8 +1,22 @@
-//! Procedural generation of the southern beach area of the island.
+//! Builds the island from its plan.
 //!
-//! Layout (north → south): dense jungle, grassland, a wide beach with palms,
-//! the surf line, shallows and then open sea. A cove cuts into the beach and a
-//! small sandbar sits offshore.
+//! The island is the same every game. Its rough shape is drawn by hand in
+//! `island_plan.txt`, one character for each `PLAN_BLOCK`×`PLAN_BLOCK`
+//! cells:
+//!
+//! | char | ground |
+//! |---|---|
+//! | `~` | deep sea |
+//! | `-` | shallows |
+//! | `.` | beach |
+//! | `,` | grassland |
+//! | `#` | jungle |
+//!
+//! Each character sets a height for its block; heights are smoothed between
+//! blocks and roughened with noise, so coasts and the jungle's edge curve
+//! freely instead of following the blocks. Places with a part to play (where
+//! the castaway washes up, the river's course) are set here by hand, and the
+//! details (trees, stones, shells...) are scattered from a fixed seed.
 
 use super::harvest::{BARK_STRIPS, PALM_COCONUTS};
 use crate::items::ItemKind;
@@ -11,10 +25,10 @@ use super::noise::fbm;
 use super::river::River;
 use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
-use std::f32::consts::TAU;
 
-pub const MAP_W: i32 = 64;
-pub const MAP_H: i32 = 48;
+/// The island's plan, and the cells each of its characters stands for.
+const PLAN: &str = include_str!("island_plan.txt");
+pub const PLAN_BLOCK: i32 = 4;
 
 /// Elevation contours (in tiles above the waterline) separating terrains.
 /// The renderer draws transitions along these contours per pixel.
@@ -24,53 +38,102 @@ pub const SAND_BELOW: f32 = 7.0;
 /// transition.
 const PROP_MARGIN: f32 = 1.2;
 const JUNGLE_ABOVE: f32 = 17.0;
-const CRAB_COUNT: usize = 7;
 /// Vines grow within this much elevation below the jungle.
 const VINE_BELT: f32 = 5.0;
-/// Dead branches and loose stones lying about.
+/// Crabs, dead branches and loose stones for each stretch of island the
+/// size of the first area (64×48 cells).
+const CRAB_COUNT: usize = 7;
 const BRANCH_COUNT: usize = 16;
 const STONE_COUNT: usize = 16;
+const AREA_CELLS: i32 = 64 * 48;
+
+/// Where the castaway washes up (a cell on the lower beach; the nearest
+/// clear spot to it is used).
+const LANDING: (i32, i32) = (32, 19);
+/// The river: from beyond the north edge down into the cove (cells).
+const RIVER_SOURCE: (f32, f32) = (27.46, -4.0);
+const RIVER_MOUTH: (f32, f32) = (17.92, 29.14);
+
+/// Steepest the sea floor may fall below the shallows (height per cell),
+/// and the depth below which that is kept to.
+const SEA_SLOPE: f32 = 1.0;
+const SEA_EASED: f32 = DEEP_BELOW + 2.0;
+
+/// Depth at which the noise roughening the land has faded most.
+const SEA_CALM: f32 = -8.0;
+
+/// Height a plan character asks for (tiles above the waterline).
+fn plan_height(c: char) -> f32 {
+    match c {
+        '~' => -8.0,
+        '-' => -2.5,
+        '.' => 3.5,
+        ',' => 12.0,
+        '#' => 24.0,
+        _ => panic!("unknown character {c:?} in the island plan"),
+    }
+}
+
+/// The plan read into block heights.
+struct Plan {
+    w: i32,
+    h: i32,
+    heights: Vec<f32>,
+}
+
+impl Plan {
+    fn parse(text: &str) -> Self {
+        let rows: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        let w = rows[0].chars().count() as i32;
+        assert!(rows.iter().all(|r| r.chars().count() as i32 == w), "island plan rows differ in length");
+        let heights = rows.iter().flat_map(|r| r.chars().map(plan_height)).collect();
+        Self { w, h: rows.len() as i32, heights }
+    }
+
+    fn block(&self, bx: i32, by: i32) -> f32 {
+        let (bx, by) = (bx.clamp(0, self.w - 1), by.clamp(0, self.h - 1));
+        self.heights[(by * self.w + bx) as usize]
+    }
+
+    /// Smooth height at a cell, passing through each block's height at its
+    /// centre (Catmull-Rom between block centres).
+    fn at(&self, x: f32, y: f32) -> f32 {
+        let b = PLAN_BLOCK as f32;
+        let (u, v) = ((x + 0.5) / b - 0.5, (y + 0.5) / b - 0.5);
+        let (i, j) = (u.floor() as i32, v.floor() as i32);
+        let (tu, tv) = (u - i as f32, v - j as f32);
+        let row = |by: i32| catmull(self.block(i - 1, by), self.block(i, by), self.block(i + 1, by), self.block(i + 2, by), tu);
+        catmull(row(j - 1), row(j), row(j + 1), row(j + 2), tv)
+    }
+}
+
+fn catmull(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let (t2, t3) = (t * t, t * t * t);
+    0.5 * (2.0 * p1 + (p2 - p0) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3)
+}
 
 /// Height of the land relative to the shoreline, in tiles (negative = sea).
 struct HeightField {
+    plan: Plan,
     seed: u32,
 }
 
 impl HeightField {
-    fn coast_y(&self, x: f32) -> f32 {
-        let t = x / MAP_W as f32 * TAU;
-        MAP_H as f32 * 0.52 + 3.5 * (t + 0.6).sin() + 2.0 * (t * 2.7 + 1.9).sin()
-    }
-
     fn at(&self, x: i32, y: i32) -> f32 {
         let (fx, fy) = (x as f32, y as f32);
-        let n = fbm(fx * 0.11, fy * 0.11, self.seed, 3);
-        let mut h = (self.coast_y(fx) - fy) + n * 3.0;
-
-        // Cove cutting into the beach.
-        let cove_x = MAP_W as f32 * 0.28;
-        h -= bump(fx, fy, cove_x, self.coast_y(cove_x) - 2.0, 6.0) * 7.0;
-        // Offshore sandbar.
-        let bar_x = MAP_W as f32 * 0.72;
-        h += bump(fx, fy, bar_x, self.coast_y(bar_x) + 9.0, 5.0) * 13.0;
-        h
-    }
-}
-
-impl HeightField {
-    /// The river flows in from beyond the north edge and into the cove.
-    fn river(&self) -> River {
-        let cove_x = MAP_W as f32 * 0.28;
-        let source_x = MAP_W as f32 * 0.38 + hash_unit(3, 4, self.seed ^ 0x5B1C) * 4.0;
-        River::new((source_x, -4.0), (cove_x, self.coast_y(cove_x) + 1.0), self.seed)
+        let base = self.plan.at(fx, fy);
+        // Out at sea the noise fades, so no shallows rise far from land
+        // (and the sea floor slopes as gently as along a real shore).
+        let rough = ((base - SEA_CALM) / (-2.5 - SEA_CALM)).clamp(0.35, 1.0);
+        base + fbm(fx * 0.11, fy * 0.11, self.seed, 3) * 3.0 * rough
     }
 }
 
 /// Marks the river's cells (impassable water) and the cells along it.
 fn lay_river(map: &mut WorldMap, river: &River) {
     let ts = TILE_SIZE as f32;
-    for y in 0..MAP_H {
-        for x in 0..MAP_W {
+    for y in 0..map.height() {
+        for x in 0..map.width() {
             let depth = river.depth_px((x as f32 + 0.5) * ts, (y as f32 + 0.5) * ts);
             // Anything within half a cell's diagonal (+ the bank lip) of the water.
             map.set_riverside(x, y, depth > -24.0);
@@ -95,18 +158,13 @@ fn water_spot(map: &WorldMap, river: &River, heights: &[f32]) -> Option<(i32, i3
             if !map.in_bounds(gx, gy) || !map.terrain(gx, gy).is_land() {
                 continue;
             }
-            let h = heights[(gy * MAP_W + gx) as usize];
+            let h = heights[(gy * map.width() + gx) as usize];
             if (SAND_BELOW + 1.0..JUNGLE_ABOVE - 1.0).contains(&h) {
                 return Some((((bx + 0.5) * ts) as i32, ((by + 0.5) * ts) as i32));
             }
         }
     }
     None
-}
-
-fn bump(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> f32 {
-    let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
-    (1.0 - d / r).max(0.0)
 }
 
 fn classify(h: f32) -> Terrain {
@@ -122,25 +180,31 @@ fn classify(h: f32) -> Terrain {
 }
 
 pub fn generate(seed: u32) -> WorldMap {
-    let field = HeightField { seed };
-    let river = field.river();
-    let mut map = WorldMap::new(MAP_W, MAP_H, Terrain::DeepWater);
-    let mut heights = vec![0.0f32; (MAP_W * MAP_H) as usize];
-    for y in 0..MAP_H {
-        for x in 0..MAP_W {
-            let h = field.at(x, y);
-            heights[(y * MAP_W + x) as usize] = h;
-            map.set_terrain(x, y, classify(h));
+    let plan = Plan::parse(PLAN);
+    let (w, h) = (plan.w * PLAN_BLOCK, plan.h * PLAN_BLOCK);
+    let field = HeightField { plan, seed };
+    let river = River::new(RIVER_SOURCE, RIVER_MOUTH, seed);
+    let mut map = WorldMap::new(w, h, Terrain::DeepWater);
+    let mut heights = vec![0.0f32; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            heights[(y * w + x) as usize] = field.at(x, y);
+        }
+    }
+    ease_sea_floor(&mut heights, w, h);
+    for y in 0..h {
+        for x in 0..w {
+            map.set_terrain(x, y, classify(heights[(y * w + x) as usize]));
         }
     }
     enforce_transitions(&mut map);
     // Cells turned to sand above keep sand-level elevation, so the grass
     // fringe is drawn around them instead of a square edge.
-    for y in 0..MAP_H {
-        for x in 0..MAP_W {
-            let h = &mut heights[(y * MAP_W + x) as usize];
-            if map.terrain(x, y) == Terrain::Sand && *h >= SAND_BELOW {
-                *h = SAND_BELOW - 0.8;
+    for y in 0..h {
+        for x in 0..w {
+            let e = &mut heights[(y * w + x) as usize];
+            if map.terrain(x, y) == Terrain::Sand && *e >= SAND_BELOW {
+                *e = SAND_BELOW - 0.8;
             }
         }
     }
@@ -159,6 +223,40 @@ pub fn generate(seed: u32) -> WorldMap {
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
     map.loot = scatter_loot(&map, seed);
     map
+}
+
+/// Keeps the sea floor from dropping away faster than `SEA_SLOPE` a cell
+/// below the shallows: the shallows and the deep sea are drawn with
+/// different palettes, and a steep drop leaves the shallows' cells too deep
+/// to blend into their deep neighbours, so the edge between them turns
+/// square. (A two-pass sweep, like a distance transform.)
+fn ease_sea_floor(heights: &mut [f32], w: i32, h: i32) {
+    let diag = SEA_SLOPE * std::f32::consts::SQRT_2;
+    let mut sweep = |order: &mut dyn Iterator<Item = (i32, i32)>, back: &[(i32, i32, f32)]| {
+        for (x, y) in order {
+            let i = (y * w + x) as usize;
+            if heights[i] >= SEA_EASED {
+                continue;
+            }
+            for &(dx, dy, step) in back {
+                let (nx, ny) = (x + dx, y + dy);
+                if (0..w).contains(&nx) && (0..h).contains(&ny) {
+                    let floor = (heights[(ny * w + nx) as usize] - step).min(SEA_EASED);
+                    heights[i] = heights[i].max(floor);
+                }
+            }
+        }
+    };
+    let ahead = [(-1, 0, SEA_SLOPE), (0, -1, SEA_SLOPE), (-1, -1, diag), (1, -1, diag)];
+    let behind = [(1, 0, SEA_SLOPE), (0, 1, SEA_SLOPE), (1, 1, diag), (-1, 1, diag)];
+    sweep(&mut (0..h).flat_map(|y| (0..w).map(move |x| (x, y))), &ahead);
+    sweep(&mut (0..h).rev().flat_map(|y| (0..w).rev().map(move |x| (x, y))), &behind);
+}
+
+/// How many of something for an island this size, at `per_area` for each
+/// stretch the size of the first area.
+pub fn for_area(map: &WorldMap, per_area: usize) -> usize {
+    (per_area as i64 * (map.width() * map.height()) as i64 / AREA_CELLS as i64) as usize
 }
 
 /// Guarantees the sea → shallows → sand → grass ordering so every edge has a
@@ -181,29 +279,34 @@ fn enforce_transitions(map: &mut WorldMap) {
     }
 }
 
-/// Lower beach near the middle of the map, with open space around it.
+/// The clear spot on the lower beach nearest the landing.
 fn find_spawn(map: &WorldMap, heights: &[f32]) -> (i32, i32) {
-    let cx = MAP_W / 2;
-    for dx in 0..MAP_W / 2 {
-        for x in [cx + dx, cx - dx] {
-            for y in 0..MAP_H {
-                let h = heights[(y * MAP_W + x) as usize];
-                let clear = (-1..=1).all(|oy| (-1..=1).all(|ox| map.terrain(x + ox, y + oy) == Terrain::Sand));
-                if (1.5..3.5).contains(&h) && clear {
+    let fits = |x: i32, y: i32| {
+        map.in_bounds(x, y) && {
+            let h = heights[(y * map.width() + x) as usize];
+            let clear = (-1..=1).all(|oy| (-1..=1).all(|ox| map.terrain(x + ox, y + oy) == Terrain::Sand));
+            (1.5..3.5).contains(&h) && clear
+        }
+    };
+    for r in 0..map.width().max(map.height()) {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let (x, y) = (LANDING.0 + dx, LANDING.1 + dy);
+                if dx.abs().max(dy.abs()) == r && fits(x, y) {
                     return (x, y);
                 }
             }
         }
     }
-    (cx, MAP_H / 2)
+    LANDING
 }
 
 fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     let (pw, ph) = (PalmPart::W, PalmPart::H);
-    for y in 0..MAP_H - ph + 1 {
-        for x in 0..MAP_W - pw + 1 {
+    for y in 0..map.height() - ph + 1 {
+        for x in 0..map.width() - pw + 1 {
             // Anchor on the trunk base (bottom row), which sits on the upper beach.
-            let h = heights[((y + ph - 1) * MAP_W + x) as usize];
+            let h = heights[((y + ph - 1) * map.width() + x) as usize];
             if !(2.0..SAND_BELOW).contains(&h) || hash_unit(x, y, seed ^ 0xFA1A) > 0.16 {
                 continue;
             }
@@ -212,7 +315,7 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
             let fits = (0..ph).all(|dy| {
                 (0..pw).all(|dx| {
                     let (cx, cy) = (x + dx, y + dy);
-                    let h = heights[(cy * MAP_W + cx) as usize];
+                    let h = heights[(cy * map.width() + cx) as usize];
                     let ground_ok = if dy >= ph - 2 {
                         (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h) && map.terrain(cx, cy) == Terrain::Sand
                     } else {
@@ -243,9 +346,9 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
 /// thickening toward the jungle's edge.
 fn place_broadleafs(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     let (tw, th) = (BroadleafPart::W, BroadleafPart::H);
-    for y in 0..MAP_H - th + 1 {
-        for x in 0..MAP_W - tw + 1 {
-            let h = heights[((y + th - 1) * MAP_W + x + 1) as usize];
+    for y in 0..map.height() - th + 1 {
+        for x in 0..map.width() - tw + 1 {
+            let h = heights[((y + th - 1) * map.width() + x + 1) as usize];
             if h < SAND_BELOW + PROP_MARGIN + 1.0 || h > JUNGLE_ABOVE + 2.0 {
                 continue;
             }
@@ -257,7 +360,7 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: 
             let fits = (0..th).all(|dy| {
                 (0..tw).all(|dx| {
                     let (cx, cy) = (x + dx, y + dy);
-                    let h = heights[(cy * MAP_W + cx) as usize];
+                    let h = heights[(cy * map.width() + cx) as usize];
                     map.terrain(cx, cy) == Terrain::Grass
                         && h > SAND_BELOW + PROP_MARGIN
                         && map.feature(cx, cy) == Feature::None
@@ -283,18 +386,18 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: 
 fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     // A free cell, away from the spawn, the river and terrain edges.
     let open = |map: &WorldMap, x: i32, y: i32| {
-        if !(0..MAP_W).contains(&x) || map.feature(x, y) != Feature::None || near_spawn(x, y) || map.is_riverside(x, y) {
+        if !(0..map.width()).contains(&x) || map.feature(x, y) != Feature::None || near_spawn(x, y) || map.is_riverside(x, y) {
             return false;
         }
-        let h = heights[(y * MAP_W + x) as usize];
+        let h = heights[(y * map.width() + x) as usize];
         h > SAND_BELOW + PROP_MARGIN || (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h)
     };
-    for y in 0..MAP_H {
-        for x in 0..MAP_W {
+    for y in 0..map.height() {
+        for x in 0..map.width() {
             if !open(map, x, y) {
                 continue;
             }
-            let h = heights[(y * MAP_W + x) as usize];
+            let h = heights[(y * map.width() + x) as usize];
             let r = hash_unit(x, y, seed ^ 0xF00D);
             let feature = match map.terrain(x, y) {
                 Terrain::Grass if h > JUNGLE_ABOVE => {
@@ -335,13 +438,13 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dy
 fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
     let mut rng = Rng::new(seed ^ 0x100F);
     let mut out: Vec<(ItemKind, (i32, i32))> = Vec::new();
-    for (kind, count, prefer) in [(ItemKind::Branch, BRANCH_COUNT, Terrain::Grass), (ItemKind::Stone, STONE_COUNT, Terrain::Sand)] {
+    for (kind, count, prefer) in [(ItemKind::Branch, for_area(map, BRANCH_COUNT), Terrain::Grass), (ItemKind::Stone, for_area(map, STONE_COUNT), Terrain::Sand)] {
         let mut placed = 0;
         for _ in 0..4000 {
             if placed >= count {
                 break;
             }
-            let (x, y) = (rng.between(0, MAP_W - 1), rng.between(0, MAP_H - 1));
+            let (x, y) = (rng.between(0, map.width() - 1), rng.between(0, map.height() - 1));
             let t = map.terrain(x, y);
             let liked = t == prefer || (kind == ItemKind::Stone && map.is_riverside(x, y));
             let open = t.is_land() && !map.props(x, y).solid && matches!(map.feature(x, y), Feature::None | Feature::Flower | Feature::Shell);
@@ -361,10 +464,10 @@ fn pick_crab_spawns(map: &WorldMap, seed: u32, spawn: (i32, i32)) -> Vec<(i32, i
     let mut rng = Rng::new(seed ^ 0xC4AB);
     let mut out = Vec::new();
     for _ in 0..2000 {
-        if out.len() >= CRAB_COUNT {
+        if out.len() >= for_area(map, CRAB_COUNT) {
             break;
         }
-        let (x, y) = (rng.between(0, MAP_W - 1), rng.between(0, MAP_H - 1));
+        let (x, y) = (rng.between(0, map.width() - 1), rng.between(0, map.height() - 1));
         let ok = map.terrain(x, y) == Terrain::Sand
             && !map.props(x, y).solid
             && ((x - spawn.0).abs() > 4 || (y - spawn.1).abs() > 4);

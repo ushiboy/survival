@@ -138,6 +138,10 @@ impl RiverField {
     }
 }
 
+/// Depth (below the waterline) down to which the river churns the surf
+/// where it meets the sea; cells all deeper are plain sea.
+const RIVER_CHURN_BELOW: f32 = -1.4;
+
 /// Bank drawn this far (px) from the water's edge.
 const BANK_LIP: f32 = -4.5;
 /// Radius (px) of the trampled patch at the water-drawing spot.
@@ -245,7 +249,7 @@ impl Builder<'_> {
                     let in_river = river.map_or(f32::MIN, |r| r.depth[py * 16 + px]);
                     if in_river > 0.0 && h > -0.6 {
                         0
-                    } else if in_river > 0.0 && h > -1.4 {
+                    } else if in_river > 0.0 && h > RIVER_CHURN_BELOW {
                         // Churn where the current meets the sea.
                         if bayer(ix, iy) < 0.5 { shore::FOAM } else { shore::FOAM_SHADE }
                     } else if in_river > -2.0 && h > 0.0 {
@@ -315,6 +319,11 @@ impl Builder<'_> {
     /// drops to an earthen lip at the waterline. Around the water-drawing
     /// spot the bank is trampled bare, with flat stones at the edge.
     fn river_bank(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        if f.max < RIVER_CHURN_BELOW {
+            // Off the mouth, out at sea: the water as anywhere else (the
+            // river's own water is on BG2).
+            return self.terrain(map, x, y);
+        }
         if f.min < 0.6 {
             // Out on the beach the river runs into the surf.
             return self.coast(f, x, y, Some(r));
@@ -418,6 +427,11 @@ impl Builder<'_> {
         let f = CellField::sample(map, x, y);
         match t {
             Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y, None),
+            // Shallows dipping past the deep sea's edge are drawn with the
+            // deep palette's shelf (the shallows' palette has no deep
+            // colours), so the edge between them follows the depth instead
+            // of the cell.
+            Terrain::ShallowWater if f.min < DEEP_BELOW - 0.4 && f.max < DEEP_BELOW + 1.7 => self.reef(&f, x, y),
             Terrain::ShallowWater if f.min < DEEP_BELOW + 1.7 => self.shallows(&f, x, y),
             Terrain::DeepWater if f.max > DEEP_BELOW - 1.0 => self.reef(&f, x, y),
             Terrain::Sand | Terrain::Grass if f.crosses(SAND_BELOW, 0.35, 0.3) => self.grass_edge(&f, x, y),

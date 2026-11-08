@@ -57,10 +57,11 @@ const COLLAPSE_HOLD: u32 = 60;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
-/// Shells the tide leaves on the beach each morning, at most.
+/// Shells the tide leaves on the beach each morning, at most (for each
+/// stretch of island the size of the first area; see `island::for_area`).
 const SHELLS_PER_DAY: usize = 3;
-/// Fish in the water, and how long (game minutes) before another comes in
-/// for one caught.
+/// Fish in the water (for each stretch the size of the first area), and
+/// how long (game minutes) before another comes in for one caught.
 const FISH_COUNT: usize = 12;
 const FISH_RETURN_MINUTES: u32 = 3 * 60;
 /// How near a fish must be to the water ahead for the castaway to wonder
@@ -223,7 +224,7 @@ impl Game {
         game.camera.follow(game.player.center(), game.map.pixel_size());
         game.stream_ground();
         game.wake_regions();
-        for _ in 0..FISH_COUNT {
+        for _ in 0..island::for_area(&game.map, FISH_COUNT) {
             game.spawn_fish(false);
         }
         game.shell_day = game.clock.day;
@@ -627,7 +628,7 @@ impl Game {
     /// A new day: the tide leaves a few shells on open sand near the water,
     /// until the beach holds as many as it started with.
     fn wash_up_shells(&mut self) {
-        let room = self.shell_cap.saturating_sub(self.shells_on_beach().len()).min(SHELLS_PER_DAY);
+        let room = self.shell_cap.saturating_sub(self.shells_on_beach().len()).min(island::for_area(&self.map, SHELLS_PER_DAY));
         let (w, h) = (self.map.width(), self.map.height());
         let near_water = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| !map.terrain(x + dx, y + dy).is_land()));
         let mut changed = Vec::new();
