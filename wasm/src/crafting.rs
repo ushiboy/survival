@@ -34,6 +34,7 @@ pub const RECIPES: &[Recipe] = &[
     Recipe { makes: ItemKind::Shelter, needs: &[(ItemKind::Branch, 4), (ItemKind::Rope, 2), (ItemKind::Thatch, 2)], tools: &[], at_fire: false },
     Recipe { makes: ItemKind::PackFrame, needs: &[(ItemKind::Branch, 4), (ItemKind::Rope, 2), (ItemKind::Bark, 2)], tools: &[], at_fire: false },
     Recipe { makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
+    Recipe { makes: ItemKind::Ladder, needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 3), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the

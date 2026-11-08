@@ -87,6 +87,7 @@ fn main() {
                 "rod" => ItemKind::FishingRod,
                 "fish" => ItemKind::Fish,
                 "grilledfish" => ItemKind::GrilledFish,
+                "ladder" => ItemKind::Ladder,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

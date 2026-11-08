@@ -762,3 +762,44 @@ pub fn icon_grilled_fish() -> PixelArt {
     }
     a
 }
+
+/// A ladder standing upright, 16x64: two poles lit on the left, branch
+/// rungs across them, and rope lashed round where they cross.
+pub fn icon_ladder() -> PixelArt {
+    ladder_art(16, 64)
+}
+
+/// The ladder lying on the ground, 32x16, rungs running up and down.
+pub fn ladder_lying() -> PixelArt {
+    ladder_art(16, 32).rotated_cw()
+}
+
+/// A ladder `w` wide and `h` tall (upright) in the effects palette.
+fn ladder_art(w: usize, h: usize) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(w, h, 0);
+    let (l, r) = (3, w - 5);
+    // Rungs every 7 px, between the poles.
+    let rungs: Vec<usize> = (5..h - 2).step_by(7).collect();
+    for &y in &rungs {
+        for x in l + 2..r {
+            a.set(x, y, i('W'));
+            a.set(x, y + 1, i('w'));
+        }
+    }
+    // Poles over the rungs' ends.
+    for y in 1..h - 1 {
+        a.set(l, y, i('W'));
+        a.set(l + 1, y, i('w'));
+        a.set(r, y, i('W'));
+        a.set(r + 1, y, i('w'));
+    }
+    // Rope lashings where rungs cross the poles.
+    for &y in &rungs {
+        for x in [l, l + 1, r, r + 1] {
+            a.set(x, y, i('c'));
+            a.set(x, y + 1, if x % 2 == 0 { i('c') } else { i('W') });
+        }
+    }
+    a.outlined(i('o'))
+}

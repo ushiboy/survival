@@ -9,7 +9,7 @@
 
 ゲーム内の説明文:
 
-> A SQUARED LENGTH OF LAUAN, A STRONG HARDWOOD.
+> A SQUARED LENGTH OF LAUAN, A LIGHT TROPICAL HARDWOOD.
 
 ## 手に入れ方
 
@@ -17,4 +17,4 @@
 
 ## 使い道
 
-- 今は使い道なし（硬い木材として使う予定）
+- レシピの材料: [ハシゴ](../recipes/ladder.md)

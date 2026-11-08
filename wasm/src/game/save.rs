@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -39,6 +39,31 @@ const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
 /// dropped. Fruit and bark became changes from the island as made (they
 /// were every tree's): palms picked bare were left out before, so they are
 /// added back as bare.
+/// Version 3 added the ladder: an item, and a feature on the cells it's
+/// stood against (a version 2 save has neither). It also redrew the north
+/// cliff around its low stretch (a wider recess, the edge straight either
+/// side of it, and a clearing in the forest in front): what changed there
+/// in a version 2 save no longer fits the island, so it is dropped.
+fn v2_to_v3(save: &mut Value) {
+    const REDRAWN: (std::ops::Range<i64>, std::ops::Range<i64>) = (54..74, 6..26);
+    let outside = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => !(REDRAWN.0.contains(&x) && REDRAWN.1.contains(&y)),
+        _ => true,
+    };
+    let keep = |list: Option<&mut Value>| {
+        if let Some(Value::Array(entries)) = list {
+            entries.retain(|e| outside(e));
+        }
+    };
+    let island = &mut save["island"];
+    for key in ["features", "fruit", "bark"] {
+        keep(island.get_mut(key));
+    }
+    for key in ["damage", "shakes", "picked"] {
+        keep(island["harvest"].get_mut(key));
+    }
+}
+
 fn v1_to_v2(save: &mut Value) {
     const ROWS: i64 = 24;
     const PX: i64 = ROWS * 16;

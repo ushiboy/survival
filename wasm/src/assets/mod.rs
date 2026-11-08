@@ -60,6 +60,8 @@ pub struct PlayerSprites {
     pub sleeping: SpriteId,
     pub sitting: SpriteId,
     pub kneeling: SpriteId,
+    /// Climbing a ladder, seen from behind: left hand up, right hand up.
+    pub climb: [SpriteId; 2],
 }
 
 pub const VIEWS: [View; 3] = [View::Front, View::Back, View::Side];
@@ -105,6 +107,7 @@ impl PlayerSprites {
             sleeping,
             sitting: bank.add(&sitting[0]),
             kneeling: bank.add(&kneeling[0]),
+            climb: std::array::from_fn(|i| bank.add(&character::render::render(&character::pose::climb(i), outfit).body)),
         }
     }
 
@@ -198,6 +201,8 @@ pub struct BagSprites {
     pub shell_hook: SpriteId,
     /// Upright, turned.
     pub fishing_rod: [SpriteId; 2],
+    /// Upright, turned.
+    pub ladder: [SpriteId; 2],
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
@@ -246,6 +251,7 @@ impl BagSprites {
             ItemKind::FishingRod => (self.fishing_rod[turned as usize], palettes::OBJ_FX),
             ItemKind::Fish => (self.fish, palettes::OBJ_FX),
             ItemKind::GrilledFish => (self.grilled_fish, palettes::OBJ_CRAB),
+            ItemKind::Ladder => (self.ladder[turned as usize], palettes::OBJ_FX),
         }
     }
 }
@@ -267,6 +273,8 @@ pub struct SpriteIds {
     pub axe_diag: SpriteId,
     /// The wooden spear: lying point right, point up, point down.
     pub spear_side: SpriteId,
+    /// A ladder lying on the ground.
+    pub ladder_lying: SpriteId,
     pub spear_up: SpriteId,
     pub spear_down: SpriteId,
     /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
@@ -517,6 +525,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let r = item_art::icon_fishing_rod();
             [bank.add(&r), bank.add(&r.rotated_cw())]
         },
+        ladder: {
+            let l = item_art::icon_ladder();
+            [bank.add(&l), bank.add(&l.rotated_cw())]
+        },
         fish: bank.add(&item_art::icon_fish()),
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         torch: {
@@ -547,6 +559,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         axe_up: bank.add(&axe_up(stone_axe_side())),
         axe_diag: bank.add(&axe_diag(stone_axe_side())),
         spear_side: bank.add(&spear_side()),
+        ladder_lying: bank.add(&item_art::ladder_lying()),
         spear_up: bank.add(&spear_side().transposed().flipped_v()),
         spear_down: bank.add(&spear_side().transposed()),
         swoosh: swooshes().map(|a| bank.add(&a)),

@@ -32,7 +32,8 @@ pub enum ItemKind {
     GrilledCrab,
     /// A strip of bark peeled off a broadleaf tree.
     Bark,
-    /// A squared length of lauan, the reddish hardwood of broadleaf trees.
+    /// A squared length of lauan, the light reddish hardwood of broadleaf
+    /// trees.
     LauanTimber,
     /// A pot of bark stitched together with vine.
     BarkContainer,
@@ -70,6 +71,10 @@ pub enum ItemKind {
     Fish,
     /// A fish cleaned and cooked over a fire.
     GrilledFish,
+    /// Two lauan poles with branch rungs lashed across them with rope:
+    /// held in hand and stood against a cliff low enough for it to reach
+    /// the top (B), where it stays.
+    Ladder,
 }
 
 /// Where a piece of gear goes.
@@ -111,7 +116,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 30] = [
+    pub const ALL: [ItemKind; 31] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -142,6 +147,7 @@ impl ItemKind {
         ItemKind::FishingRod,
         ItemKind::Fish,
         ItemKind::GrilledFish,
+        ItemKind::Ladder,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -151,6 +157,7 @@ impl ItemKind {
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear | ItemKind::FishingRod => (1, 3),
+            ItemKind::Ladder => (1, 4),
             ItemKind::Timber | ItemKind::LauanTimber | ItemKind::Shelter => (2, 2),
         }
     }
@@ -187,6 +194,7 @@ impl ItemKind {
             ItemKind::FishingRod => "FISHING ROD",
             ItemKind::Fish => "FISH",
             ItemKind::GrilledFish => "GRILLED FISH",
+            ItemKind::Ladder => "LADDER",
         }
     }
 
@@ -209,7 +217,7 @@ impl ItemKind {
             ItemKind::GrilledCrab => "CLEANED AND COOKED OVER A FIRE. VERY FILLING, AND HEALS.",
             ItemKind::Leaf => "A BROAD LEAF. FOLDED, IT HOLDS WATER.",
             ItemKind::Bark => "A STRIP OF BARK FROM A BROADLEAF TREE.",
-            ItemKind::LauanTimber => "A SQUARED LENGTH OF LAUAN, A STRONG HARDWOOD.",
+            ItemKind::LauanTimber => "A SQUARED LENGTH OF LAUAN, A LIGHT TROPICAL HARDWOOD.",
             ItemKind::BarkContainer => "A POT OF BARK. WATER CAN BE BOILED IN IT.",
             ItemKind::BoiledWater => "SAFE TO DRINK. EASES THIRST, AND HEALS.",
             ItemKind::PackFrame => "WORN ON THE BACK, IT GIVES THE BAG 12 MORE ROOM.",
@@ -224,6 +232,7 @@ impl ItemKind {
             ItemKind::FishingRod => "A ROD WITH A ROPE LINE AND A SHELL HOOK. CAST IT INTO WATER WHERE FISH SWIM.",
             ItemKind::Fish => "A FRESH FISH. FILLING, BUT BETTER COOKED.",
             ItemKind::GrilledFish => "CLEANED AND COOKED OVER A FIRE. FILLING, AND HEALS.",
+            ItemKind::Ladder => "A LADDER OF LAUAN POLES AND BRANCHES, LASHED WITH ROPE.",
         }
     }
 
@@ -284,7 +293,7 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod => Some(Slot::Hand),
+            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Ladder => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }

@@ -654,3 +654,27 @@ pub fn kneeling() -> Pose {
         closed_eyes: false,
     }
 }
+
+/// Climbing a ladder, seen from behind: one hand reaching up the poles
+/// over the head and the other at the shoulder, the knee on that side
+/// raised to the next rung; `step` 0 has the left hand up, 1 the right.
+pub fn climb(step: usize) -> Pose {
+    let mut p = front_stand(View::Back);
+    let up = step.is_multiple_of(2);
+    let reach = |x: f32, high: bool| {
+        let (ex, ey, hy) = if high { (x - 0.6, 9.6, 5.0) } else { (x + 0.4, 13.6, 11.0) };
+        (ex, ey, hy)
+    };
+    let (lx, ly, lh) = reach(7.9, up);
+    let (rx, ry, rh) = reach(16.1, !up);
+    p.arms = [
+        limb((7.9, 14.8), (lx - 0.8, ly), (8.4, lh), false),
+        limb((16.1, 14.8), (rx + 0.8, ry), (15.6, rh), false),
+    ];
+    // The knee on the side of the lower hand comes up to the next rung.
+    let [l, r] = &mut p.legs;
+    let knee = if up { r } else { l };
+    knee.b.1 -= 2.4;
+    knee.c.1 -= 3.2;
+    p
+}

@@ -529,6 +529,7 @@ impl Game {
             }
             Some(Deed::Strike) => self.strike(),
             Some(Deed::ReelIn) => self.reel_in(),
+            Some(Deed::StandLadder(foot, rows)) => self.stand_ladder(foot, rows),
             None => {}
         }
         if was_asleep && !self.player.is_asleep() {
@@ -683,6 +684,17 @@ impl Game {
             self.drop_frond(anchor);
         }
         self.start_sway(anchor, sway);
+    }
+
+    /// The ladder in hand is stood against the cliff face whose foot is at
+    /// `foot`: it leaves the bag and stays there.
+    fn stand_ladder(&mut self, foot: (i32, i32), rows: i32) {
+        if !self.inventory.bag.take_kind(ItemKind::Ladder) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.stand_ladder(foot, rows);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
     /// Sends the coconut hanging in `slot` of the palm at `anchor` falling.

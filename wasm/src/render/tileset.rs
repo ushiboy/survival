@@ -660,40 +660,39 @@ impl Builder<'_> {
                 bank.add_art(PAL_ROCK, &compose(|px, py| cliff_side_pixel(left, right, vx * 16 + px as i32, vy * 16 + py as i32)))
             });
         }
-        self.get(Key::CliffTop { open, vx, vy }, |tex, bank| {
-            let g = slice(&tex.grass, vx, vy);
-            let r = grass::RAMP;
-            let art = compose(|px, py| {
-                let (wx, wy) = (vx * 16 + px as i32, vy * 16 + py as i32);
-                let b = bayer(wx, wy);
-                let (fx, fy) = (px as f32, py as f32);
-                // Ragged depth of each side's edge.
-                let rag = |k: i32| noise_px(k, 0, 0xED6E) * 2.5;
-                let south = 15.0 - fy - rag(wx);
-                let sides = [
-                    if open[0] { fy - rag(wx + 99) } else { f32::MAX },
-                    if open[1] { 15.0 - fx - rag(wy + 7) } else { f32::MAX },
-                    if open[3] { fx - rag(wy + 51) } else { f32::MAX },
-                ];
-                let side = sides.iter().copied().fold(f32::MAX, f32::min);
-                if open[2] && south < 1.0 {
-                    r[0]
-                } else if open[2] && south < 2.0 {
-                    if b < 0.5 { r[0] } else { grass::SOIL }
-                } else if open[2] && south < 3.0 {
-                    if b < 0.5 { r[1] } else { r[2] }
-                } else if side < 1.0 {
-                    grass::SOIL
-                } else if side < 2.0 {
-                    if b < 0.5 { grass::SOIL } else { r[0] }
-                } else if side < 3.0 {
-                    if b < 0.5 { r[1] } else { g.get(px, py) }
-                } else {
-                    g.get(px, py)
+        self.get(Key::CliffTop { open, vx, vy }, |tex, bank| bank.add_art(PAL_GRASS, &cliff_top_art(tex, open, vx, vy)))
+    }
+
+    /// A ladder stood against a cliff: on the rock face (rock palette, its
+    /// wood colours) down to the foot, and its tops sticking up over the
+    /// cliff's edge (grass palette, in its earth and sand browns).
+    fn ladder(&mut self, map: &WorldMap, x: i32, y: i32, part: u8) -> MetatileId {
+        let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        if part == 0 {
+            let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River);
+            let open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
+            let mut art = cliff_top_art(self.tex, open, vx, vy);
+            for py in LADDER_TOP..16 {
+                for (px, v) in ladder_pixel((py - LADDER_TOP) as i32, LADDER_PALETTE_GRASS) {
+                    art.set(px, py, v);
                 }
-            });
-            bank.add_art(PAL_GRASS, &art)
-        })
+            }
+            return self.unique_art(PAL_GRASS, &art);
+        }
+        let (row, rows) = face_rows(map, x, y);
+        let wet = map.terrain(x, y + 1).holds_water() && row == rows;
+        let art = compose(|px, py| {
+            let fy = (row - 1) * 16 + py as i32;
+            let rock = cliff_pixel(row, rows, false, false, wet, vx * 16 + px as i32, py as i32);
+            // The poles and rungs (with a shadow on the rock to their
+            // right and below), running on from the top's.
+            let at = 16 - LADDER_TOP as i32 + fy;
+            ladder_pixel(at, LADDER_PALETTE_ROCK).find(|&(lx, _)| lx == px).map_or_else(
+                || if ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px) || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px) { rock::STONE[0] } else { rock },
+                |(_, v)| v,
+            )
+        });
+        self.unique_art(PAL_ROCK, &art)
     }
 
     fn prop(&mut self, kind: u8, tile: &PropTile, flip: bool, x: i32, y: i32) -> MetatileId {
@@ -731,6 +730,62 @@ impl Builder<'_> {
             _ => self.interior(t, x, y),
         }
     }
+}
+
+/// The edge of the high ground (grass palette): see `Builder::cliff_top`.
+fn cliff_top_art(tex: &TerrainTextures, open: [bool; 4], vx: i32, vy: i32) -> PixelArt {
+    let g = slice(&tex.grass, vx, vy);
+    let r = grass::RAMP;
+    compose(|px, py| {
+        let (wx, wy) = (vx * 16 + px as i32, vy * 16 + py as i32);
+        let b = bayer(wx, wy);
+        let (fx, fy) = (px as f32, py as f32);
+        // Ragged depth of each side's edge.
+        let rag = |k: i32| noise_px(k, 0, 0xED6E) * 2.5;
+        let south = 15.0 - fy - rag(wx);
+        let sides = [
+            if open[0] { fy - rag(wx + 99) } else { f32::MAX },
+            if open[1] { 15.0 - fx - rag(wy + 7) } else { f32::MAX },
+            if open[3] { fx - rag(wy + 51) } else { f32::MAX },
+        ];
+        let side = sides.iter().copied().fold(f32::MAX, f32::min);
+        if open[2] && south < 1.0 {
+            r[0]
+        } else if open[2] && south < 2.0 {
+            if b < 0.5 { r[0] } else { grass::SOIL }
+        } else if open[2] && south < 3.0 {
+            if b < 0.5 { r[1] } else { r[2] }
+        } else if side < 1.0 {
+            grass::SOIL
+        } else if side < 2.0 {
+            if b < 0.5 { grass::SOIL } else { r[0] }
+        } else if side < 3.0 {
+            if b < 0.5 { r[1] } else { g.get(px, py) }
+        } else {
+            g.get(px, py)
+        }
+    })
+}
+
+/// Row of the cliff's edge cell from which a stood ladder's tops stick up.
+const LADDER_TOP: usize = 9;
+
+/// A ladder's wood in one palette: dark, mid, light, and the rope.
+type LadderColours = [u8; 4];
+const LADDER_PALETTE_ROCK: LadderColours = [rock::WOOD[0], rock::WOOD[1], rock::WOOD[2], rock::WOOD[3]];
+const LADDER_PALETTE_GRASS: LadderColours = [grass::SOIL, grass::SAND[0], grass::SAND[1], grass::SAND[2]];
+
+/// The pixels of a stood ladder on one of its rows (`y` counted from the
+/// tops of its poles down), as (x in the cell, colour): two poles lit on
+/// the left, and every 7 rows a rung lashed across them.
+fn ladder_pixel(y: i32, c: LadderColours) -> impl Iterator<Item = (usize, u8)> {
+    let [dark, mid, light, rope] = c;
+    let rung = y > 2 && y % 7 == 3;
+    let under = y > 2 && y % 7 == 4;
+    let poles = [(3, light), (4, mid), (5, dark), (11, light), (12, mid), (13, dark)];
+    let pole = poles.into_iter().map(move |(x, v)| (x, if rung && x != 5 && x != 13 { rope } else { v }));
+    let bar = (6..11).filter(move |_| rung || under).map(move |x| (x, if rung { light } else { dark }));
+    pole.chain(bar)
 }
 
 /// Where a cliff face cell sits in its face: its row from 1 at the top,
@@ -1179,6 +1234,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Bush => b.prop(4, &props.bush, false, x, y),
         Feature::Vine => b.prop(17, &props.vine, x % 2 == 0, x, y),
         Feature::VineStake => b.prop(18, &props.vine_stake, x % 2 == 0, x, y),
+        Feature::Ladder(part) => b.ladder(map, x, y, part),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::None => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),

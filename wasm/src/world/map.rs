@@ -55,6 +55,19 @@ pub struct WorldMap {
     pub loot: Vec<(ItemKind, (i32, i32))>,
 }
 
+/// How many cells of rock face a ladder spans.
+pub const LADDER_ROWS: i32 = 2;
+
+/// Whether a ladder stood against a cliff would reach the top.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LadderFit {
+    /// It reaches: the foot of the face it stands against, and the face's
+    /// height in cells.
+    Reaches { foot: (i32, i32), rows: i32 },
+    /// Nowhere to stand it (a cliff too tall for it included).
+    No,
+}
+
 impl WorldMap {
     pub fn new(w: i32, h: i32, fill: Terrain) -> Self {
         let n = (w * h) as usize;
@@ -199,6 +212,41 @@ impl WorldMap {
         // The rock is the part of the cell above its slant: the rect
         // reaches it if its corner nearest the rock does.
         (right && bx >= ay) || (left && (TILE_SIZE - 1 - ax) >= ay)
+    }
+
+    /// Whether a ladder stood against the rock face at the cell (x, y) would
+    /// reach the top: the cell must be the foot of a cliff face, dry and
+    /// clear, with the high ground's edge and open ground above it.
+    pub fn ladder_fit(&self, x: i32, y: i32) -> LadderFit {
+        let face = |y: i32| self.terrain(x, y) == Terrain::Cliff && self.feature(x, y) == Feature::None;
+        if !face(y) || self.terrain(x, y + 1) == Terrain::Cliff || self.foot_fill(x, y + 1) != [false, false] || self.is_riverside(x, y) {
+            return LadderFit::No;
+        }
+        let rows = (0..).find(|&k| !face(y - k)).unwrap_or(0);
+        let top = y - rows;
+        let lands = self.terrain(x, top) == Terrain::CliffTop
+            && self.feature(x, top) == Feature::None
+            && self.terrain(x, top - 1) == Terrain::Highland
+            && !self.props(x, top - 1).solid;
+        if lands && rows <= LADDER_ROWS { LadderFit::Reaches { foot: (x, y), rows } } else { LadderFit::No }
+    }
+
+    /// Stands a ladder against the face whose foot is at `foot`, `rows`
+    /// cells tall, up to the edge above. Returns the cells it covers.
+    pub fn stand_ladder(&mut self, foot: (i32, i32), rows: i32) -> Vec<(i32, i32)> {
+        let (x, y) = foot;
+        (0..=rows)
+            .map(|k| {
+                let cell = (x, y - rows + k);
+                self.set_feature(cell.0, cell.1, Feature::Ladder(k as u8));
+                cell
+            })
+            .collect()
+    }
+
+    /// Whether the cell has a ladder stood in it.
+    pub fn is_ladder(&self, x: i32, y: i32) -> bool {
+        matches!(self.feature(x, y), Feature::Ladder(_))
     }
 
     /// How far inside the river's water a world pixel is (px; negative =

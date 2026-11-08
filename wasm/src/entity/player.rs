@@ -10,7 +10,8 @@ use crate::common::math::{Dir, Rect};
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
-use crate::world::WorldMap;
+use crate::world::map::LadderFit;
+use crate::world::{TILE_SIZE, WorldMap};
 use crate::items::{ItemKind, Use};
 use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_broadleaf_trunk, is_bush};
 
@@ -22,6 +23,8 @@ const HITBOX: Rect = Rect::new(3, 18, 10, 6);
 /// Speeds in 8.8 fixed point per frame.
 const SPEED_WALK: i32 = 336; // ~1.3 px
 const SPEED_WALK_DIAG: i32 = 238;
+/// Up and down a ladder: half walking pace.
+const SPEED_CLIMB: i32 = 168;
 /// Running (R held), not possible while wading.
 const SPEED_RUN: i32 = 560; // ~2.2 px
 const SPEED_RUN_DIAG: i32 = 396;
@@ -35,6 +38,8 @@ const CORNER_ASSIST_PX: i32 = 6;
 const STEP_FRAMES_WALK: u32 = 8;
 const STEP_FRAMES_WADE: u32 = 12;
 const STEP_FRAMES_RUN: u32 = 5;
+/// Frames per hand-over-hand step up a ladder.
+const STEP_FRAMES_CLIMB: u32 = 10;
 /// Frames between puffs of dust kicked up by a runner's feet.
 const DUST_EVERY: u32 = 8;
 /// Sprite priority for actors: above BG1/BG2 low tiles, below BG2 high (canopies).
@@ -126,6 +131,16 @@ const COOK_TOTAL: u32 = 162;
 const PULL_YANK: u32 = 14;
 const PULL_TOTAL: u32 = 26;
 
+/// Standing a ladder against a cliff (frames): lift it, and it's set
+/// against the rock on `PITCH_SET`.
+const PITCH_SET: u32 = 12;
+const PITCH_TOTAL: u32 = 24;
+/// Trying to scramble up a rock face too tall to climb bare-handed
+/// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
+/// back; then stopping to think.
+const SCRAMBLE_TRY: u32 = 24;
+const SCRAMBLE_TOTAL: u32 = 2 * SCRAMBLE_TRY;
+
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
 /// blink), sitting up, getting onto one knee, standing and looking around.
 const WAKE_STIR: u32 = 110;
@@ -180,6 +195,12 @@ pub enum Action {
     Cast { t: u32 },
     /// Holding the rod out with the float on the water, waiting for a bite.
     Fishing { t: u32 },
+    /// Grabbing at a low rock face and trying to haul up it, sliding back
+    /// down; it ends in thought.
+    Scramble { t: u32 },
+    /// Standing a ladder against the cliff face whose foot is at `foot`
+    /// (a cell), `rows` cells tall.
+    Pitch { t: u32, foot: (i32, i32), rows: i32 },
     /// Fallen where they stood, health spent; there's no getting up.
     Collapsed,
 }
@@ -235,6 +256,9 @@ pub enum Deed {
     Strike,
     /// The line was drawn in without striking (moving off).
     ReelIn,
+    /// A ladder was stood against the face whose foot is at the cell,
+    /// that many cells tall.
+    StandLadder((i32, i32), i32),
 }
 
 #[derive(Clone, Debug)]
@@ -254,6 +278,8 @@ pub struct Player {
     pub torch: Option<bool>,
     /// Weak with hunger: no running, and walking slower.
     pub weak: bool,
+    /// On a ladder: moving only up and down it, slowly, facing the rock.
+    pub climbing: bool,
     /// Frames left of the "!" over the head after a recipe came to mind.
     eureka: u32,
     walk_timer: u32,
@@ -281,6 +307,7 @@ impl Player {
             sheltered: false,
             torch: None,
             weak: false,
+            climbing: false,
             eureka: 0,
             moving: false,
             running: false,
@@ -412,6 +439,26 @@ impl Player {
             self.action = if again { Action::Shake { t: 0 } } else { Action::Idle };
             return None;
         }
+        if let Action::Scramble { t } = self.action {
+            let t = t + 1;
+            if t >= SCRAMBLE_TOTAL {
+                self.ponder();
+            } else {
+                self.action = Action::Scramble { t };
+            }
+            return None;
+        }
+        if let Action::Pitch { t, foot, rows } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Pitch { t, foot, rows } };
+            return (t == PITCH_SET).then_some(Deed::StandLadder(foot, rows));
+        }
+        // On a ladder there's nothing to do but climb it.
+        self.climbing = self.on_ladder(map);
+        if self.climbing {
+            self.climb(input, map);
+            return None;
+        }
         if !self.wading && input.pressed(Buttons::Y) {
             // Lie down where you stand and sleep.
             self.action = Action::Sleep { t: 0 };
@@ -430,6 +477,16 @@ impl Player {
                 // The line goes out only over water.
                 ItemKind::FishingRod if !is_water(map, self.cast_point()) => return None,
                 ItemKind::FishingRod => Action::Cast { t: 0 },
+                // A ladder is stood against the rock face ahead, where it
+                // reaches the top.
+                ItemKind::Ladder => {
+                    let (rx, ry) = self.reach_point();
+                    let fit = if self.facing == Dir::Up { map.ladder_fit(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)) } else { LadderFit::No };
+                    match fit {
+                        LadderFit::Reaches { foot, rows } => Action::Pitch { t: 0, foot, rows },
+                        LadderFit::No => return None,
+                    }
+                }
                 _ => Action::Chop { t: 0 },
             };
             self.moving = false;
@@ -485,6 +542,15 @@ impl Player {
             let (rx, ry) = self.reach_point();
             if map.is_drinking_water(rx, ry) && !has_leaf {
                 self.ponder();
+                return None;
+            }
+            // A rock face a ladder would reach: try to scramble up it
+            // bare-handed (there's no ladder in hand), and fail.
+            let face = (rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE));
+            if self.facing == Dir::Up && tool != Some(ItemKind::Ladder) && matches!(map.ladder_fit(face.0, face.1), LadderFit::Reaches { .. }) {
+                self.action = Action::Scramble { t: 0 };
+                self.moving = false;
+                self.walk_timer = 0;
                 return None;
             }
             if map.is_drinking_water(rx, ry) {
@@ -616,6 +682,27 @@ impl Player {
         self.body.move_by(ax * speed, ay * speed, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
 
         // Keep walking in place against walls, like classic action RPGs.
+        self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
+    }
+
+    /// Whether the feet are on a ladder.
+    fn on_ladder(&self, map: &WorldMap) -> bool {
+        let (fx, fy) = self.body.feet();
+        map.is_ladder(fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
+    }
+
+    /// Climbs up or down the ladder underfoot, facing the rock, drawn in
+    /// to the middle of it.
+    fn climb(&mut self, input: &InputState, map: &WorldMap) {
+        let (_, ay) = input.axis();
+        self.moving = ay != 0;
+        self.running = false;
+        self.wading = false;
+        self.facing = Dir::Up;
+        let (fx, _) = self.body.feet();
+        let middle = fx.div_euclid(TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+        let dx = (middle - fx).signum() * 256;
+        self.body.move_by(dx, ay * SPEED_CLIMB, 0, &|r| map.is_solid_rect(r));
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
     }
 
@@ -919,6 +1006,41 @@ impl Player {
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
+            return;
+        }
+
+        if let Action::Scramble { t } = self.action {
+            // Hands up on the rock, hauling up (hand over hand) and
+            // sliding back down, twice.
+            let k = t % SCRAMBLE_TRY;
+            let lift = match k {
+                0..=3 => 0,
+                4..=13 => ((k - 3) / 2).min(4) as i32,
+                14..=17 => 4 - ((k - 13) as i32),
+                _ => 0,
+            };
+            let step = ((k / 5) % 2) as usize;
+            list.actor(depth, ObjEntry::new(cx, cy - lift, sprites.player.climb[step], OBJ_PLAYER, prio));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Pitch { t, .. } = self.action {
+            // Lifting the ladder, then leaning in to set it against the rock.
+            let stage = (t >= PITCH_SET) as usize;
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.shake[view][stage], OBJ_PLAYER, prio).flipped(flip));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if self.climbing {
+            // Hand over hand, facing the rock; no shadow on the face.
+            let step = if self.moving { (self.walk_timer / STEP_FRAMES_CLIMB) as usize % 2 } else { 0 };
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.climb[step], OBJ_PLAYER, prio));
             return;
         }
 

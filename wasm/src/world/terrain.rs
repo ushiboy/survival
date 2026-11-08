@@ -131,6 +131,10 @@ pub enum Feature {
     Vine,
     /// What's left once the vine is taken: the bare stake it climbed.
     VineStake,
+    /// A ladder stood against a cliff: `0` on the cliff's edge at its top,
+    /// then `1`, `2`, ... down the rock face. It can be climbed up and
+    /// down, so these cells aren't solid.
+    Ladder(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,7 +156,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         _ => false,
     };
     TileProps {
-        solid: feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff(),
+        solid: !matches!(feature, Feature::Ladder(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff()),
         wading: terrain == Terrain::ShallowWater,
     }
 }

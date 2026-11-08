@@ -83,10 +83,18 @@ const SEA_CURRENT_REACH: f32 = 11.5;
 
 /// Cells a cliff face drops below the high ground's edge, and the low
 /// stretch of the north cliff (a place a ladder could reach the top),
-/// from its left cell, cells wide.
+/// from its left cell, cells wide. The low stretch is a recess in the
+/// cliff: its outer cells' feet slant in from the full-height rock beside
+/// them (see `fill_cliff_feet`), leaving its middle cell to stand a
+/// ladder in.
 const CLIFF_HEIGHT: i32 = 3;
-const LOW_CLIFF: (i32, i32) = (62, 2);
+const LOW_CLIFF: (i32, i32) = (62, 3);
 const LOW_CLIFF_HEIGHT: i32 = 2;
+/// How far either side of the low stretch the cliff's edge is drawn
+/// straight (cells), so the recess stands out from the rock around it.
+const LOW_CLIFF_STRAIGHT: i32 = 3;
+/// Radius (cells) of the clearing in the forest in front of the recess.
+const LOW_CLIFF_CLEARING: f32 = 5.5;
 
 /// Steepest the sea floor may fall below the shallows (height per cell),
 /// and the depth below which that is kept to.
@@ -241,6 +249,16 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
             }
         }
     }
+    // Around the low stretch the edge runs straight, at the row it has
+    // over the stretch's first cell.
+    let around = LOW_CLIFF.0 - LOW_CLIFF_STRAIGHT..LOW_CLIFF.0 + LOW_CLIFF.1 + LOW_CLIFF_STRAIGHT;
+    if let Some(edge) = (0..h / 2).find(|&y| high[idx(LOW_CLIFF.0, y)] && !high[idx(LOW_CLIFF.0, y + 1)]) {
+        for x in around {
+            for y in 0..h / 2 {
+                high[idx(x, y)] = y <= edge;
+            }
+        }
+    }
     let is_high = |x: i32, y: i32| !map.in_bounds(x, y) || high[idx(x, y)];
     let mut terrain = Vec::new();
     for y in 0..h {
@@ -367,7 +385,11 @@ pub fn generate(seed: u32) -> WorldMap {
 
     let spawn_cell = find_spawn(&map, &heights);
     map.spawn = (spawn_cell.0 * TILE_SIZE, spawn_cell.1 * TILE_SIZE);
-    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3;
+    // Nothing grows close to the spawn, and the forest opens out in front
+    // of the recess in the cliff, drawing the eye to it.
+    let clearing = map.spots.ladder.map(|(x, y)| (x as f32, y as f32 + 2.0));
+    let in_clearing = |x: i32, y: i32| clearing.is_some_and(|(cx, cy)| (x as f32 - cx).hypot(y as f32 - cy) < LOW_CLIFF_CLEARING);
+    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y);
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
     place_palms(&mut map, &heights, seed, &near_spawn);
@@ -427,7 +449,8 @@ fn nearest_on_river(river: &River, p: (f32, f32)) -> (i32, i32) {
 
 /// The cell at the foot of the low stretch of the north cliff.
 fn low_cliff_foot(map: &WorldMap) -> Option<(i32, i32)> {
-    let x = LOW_CLIFF.0;
+    // The middle of the recess.
+    let x = LOW_CLIFF.0 + LOW_CLIFF.1 / 2;
     (0..map.height() / 2).find(|&y| map.terrain(x, y) == Terrain::Cliff && map.terrain(x, y + 1) != Terrain::Cliff).map(|y| (x, y + 1))
 }
 
