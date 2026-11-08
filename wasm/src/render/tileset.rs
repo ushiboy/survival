@@ -810,8 +810,22 @@ fn crumble_amount((left, right): (f32, f32), wx: i32) -> f32 {
 /// How far down the top cell of a crumbled face the bare earth of the cut
 /// reaches, `wx` px along the face (px from the cell's top).
 fn crumble_depth(cut: (f32, f32), wx: i32) -> f32 {
-    crumble_amount(cut, wx) * (CRUMBLE_DEPTH + (noise_px(wx / 2, 0, 0xC2B1) - 0.5) * 3.0)
+    crumble_depth_beside(cut, wx, 0)
 }
+
+/// `crumble_depth` `dx` px along from `wx`, carrying the cell's slant on
+/// past its sides (none beyond a slanting end).
+fn crumble_depth_beside((left, right): (f32, f32), wx: i32, dx: i32) -> f32 {
+    let t = ((wx.rem_euclid(16) + dx) as f32 + 0.5) / 16.0;
+    let a = (left + (right - left) * t).clamp(0.0, 1.0);
+    a * (CRUMBLE_DEPTH + (noise_px((wx + dx).div_euclid(2), 0, 0xC2B1) - 0.5) * 3.0)
+}
+
+/// How wide (px) the side of the high ground shows along each slanting
+/// end of the cut.
+const CRUMBLE_WALL: i32 = 3;
+/// How far (px) the shadow of the cut's left side falls across the grass.
+const CRUMBLE_SHADOW: i32 = 12;
 
 /// One pixel of the top cell of a crumbled cliff face (rock palette):
 /// transparent where the grass has sunk into the cut (drawn on BG2, see
@@ -825,6 +839,16 @@ fn crumbled_pixel(cut: (f32, f32), wx: i32, py: i32, rock: u8) -> u8 {
     let y = py as f32 + 0.5;
     let b = bayer(wx, py);
     if y < depth {
+        // Along a slanting end, the side of the higher ground beside the
+        // cut shows as a strip of rock: in shadow on the left (facing away
+        // from the light), lit on the right.
+        let outside = |dx: i32| crumble_depth_beside(cut, wx, dx) <= y;
+        if (1..=CRUMBLE_WALL).any(|k| outside(-k)) {
+            return rock::STONE[0];
+        }
+        if let Some(k) = (1..=CRUMBLE_WALL).find(|&k| outside(k)) {
+            return if k == 1 { rock::STONE[4] } else if k == 2 || b < 0.5 { rock::STONE[3] } else { rock::STONE[2] };
+        }
         return 0;
     }
     // Roots hanging out of the bank, some to a fair length.
@@ -851,7 +875,17 @@ fn crumble_edge(art: &mut PixelArt, g: &PixelArt, cut: (f32, f32), x0: i32) {
             // grass hasn't replaced them, toward the cut's ends, they're
             // softened so the lip fades into the cut.
             let up = 16.0 - (py as f32 + 0.5);
-            if up < 6.0 * a {
+            // At the cut's left end the left side's shadow falls here (its
+            // edge slanting on up from the shadow on the grass below): the
+            // lip stays dark instead of giving way to grass.
+            let edge = 15.0 - 1.25 * up + bayer(x0 + px as i32, py as i32) * 3.0;
+            let in_shadow = cut.0 < cut.1 && (px as f32) < edge;
+            if in_shadow && up < 6.0 {
+                let v = art.get(px, py);
+                if up < 6.0 * a || v == grass::RAMP[1] || v == grass::SOIL {
+                    art.set(px, py, if bayer(x0 + px as i32, py as i32) < 0.75 { grass::RAMP[0] } else { grass::RAMP[1] });
+                }
+            } else if up < 6.0 * a {
                 art.set(px, py, g.get(px, py));
             } else if up < 6.0 && a > 0.15 {
                 let v = art.get(px, py);
@@ -878,6 +912,27 @@ fn crumbled_grass(tex: &TerrainTextures, cut: (f32, f32), vx: i32, vy: i32) -> P
         let depth = crumble_depth(cut, wx);
         let up = depth - (py as f32 + 0.5);
         let b = bayer(wx, py as i32);
+        // The shadow the left side of the cut casts on the grass beside it.
+        let y = py as f32 + 0.5;
+        let shadowed = |k: i32| crumble_depth_beside(cut, wx, -k) <= y;
+        if up > 0.0 {
+            // How far from the side (px): darkest against it, fading out.
+            if let Some(k) = (1..=CRUMBLE_WALL + CRUMBLE_SHADOW).find(|&k| shadowed(k)) {
+                let k = k - CRUMBLE_WALL;
+                let v = if k <= 3 {
+                    r[0]
+                } else if k <= 6 {
+                    if b < 0.6 { r[0] } else { r[1] }
+                } else if k <= 9 {
+                    if b < 0.5 { r[1] } else { r[2] }
+                } else if b < 0.3 {
+                    r[1]
+                } else {
+                    g.get(px, py)
+                };
+                return v;
+            }
+        }
         // Along the cut's slanting ends the edge is lighter, so it eases
         // into the lip either side instead of drawing a dark line to it.
         let slant = crumble_amount(cut, wx) < 0.95;
