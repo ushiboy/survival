@@ -70,6 +70,33 @@ pub struct Harvest {
     picked: HashMap<(i32, i32), u32>,
 }
 
+/// What `Harvest` keeps, as lists (for saving).
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct HarvestState {
+    pub damage: Vec<((i32, i32), u8)>,
+    pub shakes: Vec<((i32, i32), u8)>,
+    pub picked: Vec<((i32, i32), u32)>,
+}
+
+impl Harvest {
+    pub fn state(&self) -> HarvestState {
+        fn list<V: Copy>(m: &HashMap<(i32, i32), V>) -> Vec<((i32, i32), V)> {
+            let mut v: Vec<_> = m.iter().map(|(&k, &n)| (k, n)).collect();
+            v.sort_by_key(|&(k, _)| k);
+            v
+        }
+        HarvestState { damage: list(&self.damage), shakes: list(&self.shakes), picked: list(&self.picked) }
+    }
+
+    pub fn from_state(s: &HarvestState) -> Self {
+        Self {
+            damage: s.damage.iter().copied().collect(),
+            shakes: s.shakes.iter().copied().collect(),
+            picked: s.picked.iter().copied().collect(),
+        }
+    }
+}
+
 /// The palm whose trunk base is at the world pixel, as (anchor, part).
 fn trunk_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), PalmPart)> {
     let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));

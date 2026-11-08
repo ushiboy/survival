@@ -11,10 +11,14 @@
 //! `SNAP_WATER=n` with that much food and water, and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
-//! draws every frame as the browser does (the title screen is skipped
+//! draws every frame as the browser does; `SNAP_RELOAD=1` saves the game at
+//! the end and draws it carried on from that save instead, checking it
+//! saves the same again; `SNAP_SAVE_OUT=path` writes the save there, and
+//! `SNAP_SAVE_IN=path` starts with that save kept, CONTINUE offered (the
+//! title screen is skipped
 //! unless `SNAP_TITLE=1`), and reports the ground blocks
 //! held at the end.
-use survival_core::game::Game;
+use survival_core::game::{Game, SaveOp};
 use survival_core::items::ItemKind;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
 
@@ -24,7 +28,10 @@ fn main() {
     let script = args.get(2).cloned().unwrap_or_else(|| "0:30".into());
     let skips: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    let mut game = Game::new(1);
+    // SNAP_SAVE_IN=path starts at the title with that save kept (CONTINUE
+    // offered).
+    let kept = std::env::var("SNAP_SAVE_IN").ok().map(|p| std::fs::read_to_string(p).expect("read save"));
+    let mut game = Game::with_save(1, kept.as_deref());
     // SNAP_TITLE=1 starts at the title screen; otherwise it's skipped.
     if std::env::var("SNAP_TITLE").is_err() {
         game.skip_title();
@@ -100,19 +107,42 @@ fn main() {
     // SNAP_EVERY_FRAME=1 draws every frame, as the browser does (so the
     // ground streams in and out as it would there).
     let every_frame = std::env::var("SNAP_EVERY_FRAME").is_ok();
+    let mut saves: Vec<&str> = Vec::new();
     for step in script.split(',') {
         let (buttons, frames) = step.split_once(':').expect("step must be buttons:frames");
         let buttons = u16::from_str_radix(buttons, 16).expect("buttons must be hex");
         for _ in 0..frames.parse::<u32>().expect("frames must be a number") {
             game.step(buttons);
+            match game.take_save_op() {
+                Some(SaveOp::Write(_)) => saves.push("saved"),
+                Some(SaveOp::Erase) => saves.push("erased"),
+                None => {}
+            }
             if every_frame {
                 game.render();
             }
         }
     }
     eprintln!("player tile {:?}", game.player_tile());
+    if !saves.is_empty() {
+        eprintln!("saved game: {}", saves.join(", "));
+    }
     if every_frame {
         eprintln!("ground blocks held {}", game.ground_blocks());
+    }
+    // SNAP_RELOAD=1 saves the game at the end, carries on from that save in
+    // a new game (drawn instead), and checks the reloaded game saves the
+    // same again. SNAP_SAVE_OUT=path also writes the save there.
+    if std::env::var("SNAP_RELOAD").is_ok() || std::env::var("SNAP_SAVE_OUT").is_ok() {
+        let json = game.debug_save_json();
+        if let Ok(path) = std::env::var("SNAP_SAVE_OUT") {
+            std::fs::write(&path, &json).expect("write save");
+        }
+        if std::env::var("SNAP_RELOAD").is_ok() {
+            game = Game::debug_continue(&json).expect("the save loads");
+            let again = game.debug_save_json();
+            eprintln!("save {} bytes; reloaded game saves the same: {}", json.len(), again == json);
+        }
     }
     game.render();
     let mut data = format!("P6\n{SCREEN_W} {SCREEN_H}\n255\n").into_bytes();

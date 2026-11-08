@@ -21,6 +21,7 @@
 | ルールや数値を変えた（時間、体力・満腹度・水分、採取の回数、焚き火、夜の明かり、バッグ、操作など） | [docs/README.md](docs/README.md) の該当する節 |
 | 島に置く物、地形、マップを変えた | [docs/README.md](docs/README.md) の「島」。設計図（`wasm/src/world/island_plan.txt`）や特別な場所、細部の置き方を変えたら [docs/island.md](docs/island.md) も（「今の設計図」は設計図ファイルの写し） |
 | 「なにかできそう」のヒント（考える仕草など）を足した・変えた | [docs/README.md](docs/README.md) の「ヒントの出し方」 |
+| セーブデータに入れるものを変えた（足す・消す・名前や意味を変える。アイテムやレシピの名前を変える・消す、島の設計図の既存部分を描き変えるも含む） | `wasm/src/game/save.rs` の `SAVE_VERSION` を上げて `MIGRATIONS` に変換を足し、[docs/save.md](docs/save.md) の「保存するもの」「版の一覧」を更新 |
 | まだ実装しないコンセプトが決まった、または実装した | [docs/README.md](docs/README.md) の「まだコードにないコンセプト」に足す、または消して本文へ移す |
 
 - 数値はコードの定数から書き写します。docs とコードがずれていたら、コードが正しいものとして docs を直してください。

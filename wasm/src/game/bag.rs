@@ -13,7 +13,7 @@ pub const BASE_ROWS: i32 = 4;
 
 /// An item (or a stack of them) lying in the bag with its top-left cell at
 /// (`x`, `y`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Placed {
     pub kind: ItemKind,
     pub x: i32,
@@ -56,7 +56,7 @@ pub fn footprint(kind: ItemKind, turned: bool) -> (i32, i32) {
     if turned { (h, w) } else { (w, h) }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bag {
     items: Vec<Placed>,
     rows: i32,

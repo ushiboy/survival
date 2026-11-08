@@ -71,6 +71,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         draw_craft_page(bg3, tiles, list, sprites, bag, &inventory.recipes, menu);
         return;
     }
+    if menu.page() == Page::Save {
+        draw_save_page(bg3, tiles, menu);
+        return;
+    }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
     let room = format!("{used:02}/{}", BAG_W * bag.rows());
     text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), GRID_ROW + bag.rows() as usize * 2, &room);
@@ -168,6 +172,21 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     draw_help(bg3, tiles, menu);
 }
 
+/// The save page: one choice, SAVE, and word of the last save.
+fn draw_save_page(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
+    if menu.mode == Mode::Saving {
+        text(bg3, tiles, GRID_COL, GRID_ROW, ">");
+    }
+    text(bg3, tiles, GRID_COL + 1, GRID_ROW, "SAVE");
+    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 2, "KEEP HOW THINGS STAND NOW.", HUD_DIM);
+    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 3, "IT IS ALSO SAVED EACH TIME", HUD_DIM);
+    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 4, "YOU WAKE.", HUD_DIM);
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
 fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
     let help = match menu.mode {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
@@ -176,6 +195,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Recipe { .. } | Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
+        Mode::Saving => "A SAVE   B CLOSE",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
 }

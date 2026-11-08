@@ -22,7 +22,7 @@ impl Terrain {
 
 /// Which cell of a 3x4 palm tree a map cell holds. Only the trunk base
 /// (bottom centre) is solid; everything else can be walked behind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PalmPart {
     pub dx: u8,
     pub dy: u8,
@@ -51,7 +51,7 @@ impl PalmPart {
 
 /// Which cell of a 3x4 broadleaf tree (a lauan) a map cell holds: a round
 /// crown over a straight trunk. As with palms only the trunk base is solid.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BroadleafPart {
     pub dx: u8,
     pub dy: u8,
@@ -74,7 +74,7 @@ impl BroadleafPart {
 
 /// One cell of a driftwood log lying on the beach, two cells long:
 /// `dx` 0 is the left cell. Mirrored logs have their roots on the right.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DriftwoodPart {
     pub dx: u8,
     pub flip: bool,
@@ -90,13 +90,13 @@ impl DriftwoodPart {
 }
 
 /// A palm stump (left in the old trunk-base cell).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct StumpPart {
     pub flip: bool,
 }
 
 /// Objects placed on top of terrain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Feature {
     None,
     Palm(PalmPart),

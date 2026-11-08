@@ -6,6 +6,7 @@ pub mod bag;
 pub mod fishing;
 pub mod menu;
 pub mod regions;
+pub mod save;
 pub mod state;
 
 use crate::assets::{Assets, SpriteIds};
@@ -38,6 +39,7 @@ use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, island};
 use menu::{BagMenu, Outcome};
 use regions::Regions;
+use save::{SAVE_VERSION, SaveData};
 use state::{GameClock, Inventory, Rest, Vitals};
 
 const START_HOUR: u32 = 7;
@@ -147,8 +149,15 @@ pub struct Game {
     regions: Regions,
     /// The island's seed (to start again from).
     seed: u32,
-    /// The title screen, while it shows: the menu item chosen.
-    title: Option<usize>,
+    /// The title screen, while it shows.
+    title: Option<TitleState>,
+    /// The saved game (as last loaded or written), if there is one.
+    saved: Option<SaveData>,
+    /// What the page must do with the saved game.
+    outbox: Option<SaveOp>,
+    /// The page keeps a saved game, even one that can't be read here (from
+    /// a newer version, say): beginning anew asks first.
+    save_kept: bool,
     /// Frames since the castaway collapsed, once they have.
     collapsed: Option<u32>,
     gulls: Vec<Gull>,
@@ -169,30 +178,66 @@ pub struct Game {
 
 impl Game {
     pub fn new(seed: u32) -> Self {
+        Self::build(seed, None)
+    }
+
+    /// A new game at the title screen, with `save` (the page's saved game,
+    /// as JSON) to offer to CONTINUE if it can be read.
+    pub fn with_save(seed: u32, save: Option<&str>) -> Self {
+        let mut game = Self::new(seed);
+        game.saved = save.and_then(|text| SaveData::from_json(text).ok());
+        game.save_kept = save.is_some();
+        game.title = Some(TitleState::opening(game.saved.is_some()));
+        game
+    }
+
+    /// The island made from `seed`, as a new game or (with `save`) as it was
+    /// saved.
+    fn build(seed: u32, save: Option<&SaveData>) -> Self {
         let mut assets = Assets::load();
-        let map = island::generate(seed);
-        let items = map.loot.iter().map(|&(kind, (x, y))| Item::lying(kind, (x as f32, y as f32))).collect();
+        let mut map = island::generate(seed);
+        if let Some(s) = save {
+            for &((x, y), f) in &s.island.features {
+                map.set_feature(x, y, f);
+            }
+            map.restore_trees(&s.island.fruit, &s.island.bark);
+        }
+        let items = match save {
+            Some(s) => s.island.items.iter().map(|l| Item::lying(l.kind, (l.at.0 as f32, l.at.1 as f32)).with_count(l.count)).collect(),
+            None => map.loot.iter().map(|&(kind, (x, y))| Item::lying(kind, (x as f32, y as f32))).collect(),
+        };
         let (tileset, visual) = Tileset::new(&map, &mut assets);
-        let regions = Regions::new(&map, GameClock::new(1, START_HOUR).total_minutes());
-        // The story opens with the castaway washed up on the beach.
-        let player = Player::washed_up(map.spawn.0, map.spawn.1);
-        let crabs = map
-            .crab_spawns
-            .iter()
-            .enumerate()
-            .map(|(i, &(x, y))| Crab::new(x, y, seed.wrapping_add(i as u32 * 31)))
-            .collect();
+        let start = GameClock::new(1, START_HOUR);
+        let clock = save.map_or(start.clone(), |s| s.clock.to_clock());
+        let mut regions = Regions::new(&map, start.total_minutes());
+        let player = match save {
+            Some(s) => {
+                let mut p = Player::new(s.castaway.at.0, s.castaway.at.1);
+                p.facing = s.castaway.facing;
+                p
+            }
+            // The story opens with the castaway washed up on the beach.
+            None => Player::washed_up(map.spawn.0, map.spawn.1),
+        };
+        let crab_at: Vec<(i32, i32)> = match save {
+            Some(s) => s.island.crabs.clone(),
+            None => map.crab_spawns.clone(),
+        };
+        let crabs = crab_at.iter().enumerate().map(|(i, &(x, y))| Crab::new(x, y, seed.wrapping_add(i as u32 * 31))).collect();
         let (sx, sy) = (map.spawn.0 as f32, map.spawn.1 as f32);
         let gulls = vec![
             Gull::new((sx + 40.0, sy - 30.0), (120.0, 60.0), 0.006, 0.0),
             Gull::new((sx - 80.0, sy + 10.0), (90.0, 70.0), -0.008, 2.0),
         ];
+        if let Some(s) = save {
+            regions.restore(&s.island.asleep_since, clock.total_minutes());
+        }
         let mut game = Self {
             assets,
             map,
             tileset,
             visual,
-            harvest: Harvest::default(),
+            harvest: save.map_or_else(Harvest::default, |s| Harvest::from_state(&s.island.harvest)),
             particles: Particles::new(seed ^ 0xFA57),
             items,
             rng: Rng::new(seed ^ 0xC0C0),
@@ -203,18 +248,21 @@ impl Game {
             crabs,
             fish: Vec::new(),
             line: None,
-            fish_due: Vec::new(),
-            fires: Vec::new(),
+            fish_due: save.map_or_else(Vec::new, |s| s.island.fish_due.clone()),
+            fires: save.map_or_else(Vec::new, |s| s.island.fires.clone()),
             shell_day: 0,
             shell_cap: 0,
             regions,
             seed,
-            title: Some(0),
+            title: save.is_none().then(|| TitleState::opening(false)),
+            saved: None,
+            outbox: None,
+            save_kept: false,
             collapsed: None,
             gulls,
             camera: Camera::new(0),
-            clock: GameClock::new(1, START_HOUR),
-            vitals: Vitals::new(),
+            clock,
+            vitals: save.map_or_else(Vitals::new, |s| s.vitals.clone()),
             inventory: Inventory::default(),
             input: InputState::default(),
             paused: false,
@@ -225,38 +273,157 @@ impl Game {
             frame: FrameState::default(),
             ppu: Ppu::new(),
         };
+        match save {
+            Some(s) => {
+                let inv = &mut game.inventory;
+                inv.bag = s.inventory.bag.clone();
+                inv.torch = s.inventory.torch;
+                inv.recipes = s.inventory.recipes.clone();
+                inv.gear = s.inventory.gear;
+                let outfit = s.castaway.outfit();
+                if outfit != game.inventory.outfit {
+                    game.equip(outfit);
+                }
+                game.fish = s.island.fish.iter().enumerate().map(|(i, &at)| Fish::new(at, seed ^ (i as u32).wrapping_mul(0x9E37))).collect();
+                game.shell_day = s.island.shell_day;
+                game.shell_cap = s.island.shell_cap;
+                let now = game.clock.total_minutes();
+                game.player.torch = game.inventory.torch_lit().then(|| game.inventory.torch_dying(now));
+            }
+            None => {
+                for _ in 0..island::for_area(&game.map, FISH_COUNT) {
+                    game.spawn_fish(false);
+                }
+                game.shell_day = game.clock.day;
+                game.shell_cap = game.shells_on_beach().len();
+            }
+        }
         game.camera.follow(game.player.center(), game.map.pixel_size());
         game.stream_ground();
         game.wake_regions();
-        for _ in 0..island::for_area(&game.map, FISH_COUNT) {
-            game.spawn_fish(false);
-        }
-        game.shell_day = game.clock.day;
-        game.shell_cap = game.shells_on_beach().len();
         game
+    }
+
+    /// The game as it stands, to be saved.
+    fn save_data(&self) -> SaveData {
+        let made = island::generate(self.seed);
+        let mut features = Vec::new();
+        for y in 0..self.map.height() {
+            for x in 0..self.map.width() {
+                let f = self.map.feature(x, y);
+                if f != made.feature(x, y) {
+                    features.push(((x, y), f));
+                }
+            }
+        }
+        let inv = &self.inventory;
+        SaveData {
+            version: SAVE_VERSION,
+            seed: self.seed,
+            clock: save::Clock::of(&self.clock),
+            vitals: self.vitals.clone(),
+            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit) },
+            inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
+            island: save::IslandState {
+                features,
+                fruit: self.map.fruit_entries(),
+                bark: self.map.bark_entries(),
+                harvest: self.harvest.state(),
+                items: self.items.iter().map(|i| save::Lying { kind: i.kind, count: i.count, at: i.ground() }).collect(),
+                fires: self.fires.clone(),
+                crabs: self.crabs.iter().map(|c| c.body.px()).collect(),
+                fish: self.fish.iter().map(|f| f.pos()).collect(),
+                fish_due: self.fish_due.clone(),
+                shell_day: self.shell_day,
+                shell_cap: self.shell_cap,
+                asleep_since: self.regions.asleep_since(),
+            },
+        }
+    }
+
+    /// Saves the game: the page is handed it to keep.
+    fn save(&mut self) {
+        let data = self.save_data();
+        self.outbox = Some(SaveOp::Write(data.to_json()));
+        self.saved = Some(data);
+        self.save_kept = true;
+    }
+
+    /// Erases the saved game (the castaway has collapsed).
+    fn erase_save(&mut self) {
+        self.saved = None;
+        self.save_kept = false;
+        self.outbox = Some(SaveOp::Erase);
+    }
+
+    /// The page takes what is to be done with the saved game this frame, if
+    /// anything.
+    pub fn take_save_op(&mut self) -> Option<SaveOp> {
+        self.outbox.take()
+    }
+
+    /// The title's items: START, and CONTINUE below it when there is a
+    /// saved game.
+    /// One frame of the title: moving the cursor and choosing. Beginning
+    /// anew with a game saved asks first (it will be overwritten when the
+    /// new game is saved).
+    fn title_step(&mut self, mut title: TitleState) {
+        let (up, down) = (self.input.pressed(Buttons::UP), self.input.pressed(Buttons::DOWN));
+        let (left, right) = (self.input.pressed(Buttons::LEFT), self.input.pressed(Buttons::RIGHT));
+        let ok = self.input.pressed(Buttons::START) || self.input.pressed(Buttons::A);
+        if let Some(yes) = title.confirm {
+            let yes = if left || right || up || down { !yes } else { yes };
+            title.confirm = Some(yes);
+            if self.input.pressed(Buttons::B) {
+                title.confirm = None;
+            } else if ok {
+                if yes {
+                    self.title = None;
+                    return;
+                }
+                title.confirm = None;
+            }
+            self.title = Some(title);
+            return;
+        }
+        let items = title_items(self.saved.is_some());
+        let n = items.len();
+        if up {
+            title.choice = (title.choice + n - 1) % n;
+        } else if down {
+            title.choice = (title.choice + 1) % n;
+        }
+        title.choice = title.choice.min(n - 1);
+        self.title = Some(title);
+        if ok {
+            match items[title.choice] {
+                TitleItem::Start if self.save_kept => self.title = Some(TitleState { confirm: Some(false), ..title }),
+                TitleItem::Start => self.title = None,
+                TitleItem::Continue => self.continue_saved(),
+            }
+        }
+    }
+
+    /// Carries on from the saved game.
+    fn continue_saved(&mut self) {
+        let Some(data) = self.saved.take() else { return };
+        let ppu = std::mem::take(&mut self.ppu);
+        let input = std::mem::take(&mut self.input);
+        *self = Game::build(data.seed, Some(&data));
+        self.ppu = ppu;
+        self.input = input;
+        self.saved = Some(data);
+        self.save_kept = true;
     }
 
     /// Advances the simulation by one frame (1/60 s).
     pub fn step(&mut self, buttons: u16) {
         self.input.update(buttons);
-        if let Some(choice) = self.title {
+        if let Some(title) = self.title {
             // The title: the world waits (the sea still shimmers) until an
             // item is chosen.
             self.frame_count = self.frame_count.wrapping_add(1);
-            let n = title_screen::MENU.len();
-            let choice = if self.input.pressed(Buttons::UP) {
-                (choice + n - 1) % n
-            } else if self.input.pressed(Buttons::DOWN) {
-                (choice + 1) % n
-            } else {
-                choice
-            };
-            self.title = Some(choice);
-            if self.input.pressed(Buttons::START) || self.input.pressed(Buttons::A) {
-                match title_screen::MENU[choice] {
-                    TitleItem::Start => self.title = None,
-                }
-            }
+            self.title_step(title);
             return;
         }
         if let Some(t) = self.collapsed {
@@ -337,6 +504,7 @@ impl Game {
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
             fish_near: !self.inventory.bag.has(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
         };
+        let was_asleep = self.player.is_asleep();
         match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
@@ -361,6 +529,10 @@ impl Game {
             Some(Deed::Strike) => self.strike(),
             Some(Deed::ReelIn) => self.reel_in(),
             None => {}
+        }
+        if was_asleep && !self.player.is_asleep() {
+            // Each waking is saved.
+            self.save();
         }
         self.tend_line();
         let now = self.clock.total_minutes();
@@ -781,6 +953,12 @@ impl Game {
             }
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
+            Outcome::Save => {
+                self.save();
+                if let Some(menu) = &mut self.menu {
+                    menu.notice = Some("SAVED.");
+                }
+            }
         }
     }
 
@@ -806,6 +984,8 @@ impl Game {
         self.line = None;
         self.player.collapse();
         self.collapsed = Some(0);
+        // There's no going back: the saved game goes with them.
+        self.erase_save();
     }
 
     /// Starts a new game on the same island.
@@ -1013,7 +1193,10 @@ impl Game {
         }
 
         match self.title {
-            Some(choice) => title_screen::draw(&mut f.bg3, &self.assets.hud, choice, (self.frame_count / 20) % 3 != 0),
+            Some(title) => {
+                let items = title_items(self.saved.is_some());
+                title_screen::draw(&mut f.bg3, &self.assets.hud, &items, title.choice, title.confirm, !(self.frame_count / 20).is_multiple_of(3))
+            }
             None => hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night),
         }
 
@@ -1050,6 +1233,19 @@ impl Game {
         list.flush(&mut f.oam);
 
         self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
+    }
+
+    /// Dev tools: the game as it stands, as a save (JSON).
+    pub fn debug_save_json(&self) -> String {
+        self.save_data().to_json()
+    }
+
+    /// Dev tools: a game carried on from a save (JSON), past the title.
+    pub fn debug_continue(json: &str) -> Result<Self, save::LoadError> {
+        let data = SaveData::from_json(json)?;
+        let mut game = Self::build(data.seed, Some(&data));
+        game.saved = Some(data);
+        Ok(game)
     }
 
     /// Dev tools: leaves the title screen, as if START were chosen.
@@ -1177,6 +1373,39 @@ impl Game {
         }
         let vram = &self.assets.vram;
         ids.len() * METATILE_BYTES + vram.hud_tiles.vram_bytes() + vram.sprites.vram_bytes()
+    }
+}
+
+/// The title's items: START, and CONTINUE below it when there is a saved
+/// game.
+fn title_items(saved: bool) -> Vec<TitleItem> {
+    let mut items = vec![TitleItem::Start];
+    if saved {
+        items.push(TitleItem::Continue);
+    }
+    items
+}
+
+/// What the page is to do with the saved game.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SaveOp {
+    /// Keep this (JSON), replacing any saved before.
+    Write(String),
+    Erase,
+}
+
+/// The title screen's state: the item chosen, and while asking whether to
+/// begin anew over a saved game, whether YES is chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TitleState {
+    choice: usize,
+    confirm: Option<bool>,
+}
+
+impl TitleState {
+    /// As the title opens: on CONTINUE if there's a saved game.
+    fn opening(saved: bool) -> Self {
+        Self { choice: saved as usize, confirm: None }
     }
 }
 

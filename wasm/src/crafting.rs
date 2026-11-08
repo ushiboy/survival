@@ -40,7 +40,8 @@ pub const RECIPES: &[Recipe] = &[
 /// first time one of each of its materials is carried at once (tools and
 /// the fire aren't needed for that: finding out they're missing is a hint
 /// in itself), and stays known. One not yet looked at is fresh.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "KnownRecipes", from = "KnownRecipes")]
 pub struct RecipeBook {
     known: Vec<bool>,
     fresh: Vec<bool>,
@@ -49,6 +50,29 @@ pub struct RecipeBook {
 impl Default for RecipeBook {
     fn default() -> Self {
         Self { known: vec![false; RECIPES.len()], fresh: vec![false; RECIPES.len()] }
+    }
+}
+
+/// How a recipe book is saved: the recipes known and those not yet looked
+/// at, by what each makes (so adding recipes or reordering them leaves a
+/// save as it was).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct KnownRecipes {
+    known: Vec<ItemKind>,
+    fresh: Vec<ItemKind>,
+}
+
+impl From<RecipeBook> for KnownRecipes {
+    fn from(b: RecipeBook) -> Self {
+        let pick = |flags: &[bool]| RECIPES.iter().zip(flags).filter(|&(_, &on)| on).map(|(r, _)| r.makes).collect();
+        Self { known: pick(&b.known), fresh: pick(&b.fresh) }
+    }
+}
+
+impl From<KnownRecipes> for RecipeBook {
+    fn from(k: KnownRecipes) -> Self {
+        let flags = |kinds: &[ItemKind]| RECIPES.iter().map(|r| kinds.contains(&r.makes)).collect();
+        Self { known: flags(&k.known), fresh: flags(&k.fresh) }
     }
 }
 

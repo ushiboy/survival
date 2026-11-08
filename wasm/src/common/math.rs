@@ -17,7 +17,7 @@ pub const fn fx_to_px(fx: i32) -> i32 {
     fx >> FX_SHIFT
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Dir {
     Up,
     Down,

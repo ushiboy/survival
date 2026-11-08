@@ -9,7 +9,7 @@ use crate::assets::character::Outfit;
 pub const FRAMES_PER_MINUTE: u32 = 20;
 const MINUTES_PER_DAY: u32 = 24 * 60;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct GameClock {
     pub day: u32,
     /// Minute of the day, 0..1440.
@@ -70,7 +70,7 @@ pub enum Rest {
 /// Health wears down while awake (tiredness), and faster with nothing to
 /// eat or drink; sleep brings it back. Every rate is given as minutes for a
 /// sixty-fourth of the gauge, so a bigger gauge keeps the same days.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Vitals {
     pub hp: u32,
     pub max_hp: u32,
@@ -236,7 +236,7 @@ pub struct Inventory {
 /// What's held and worn. The tool in hand is one carried in the bag (it
 /// still takes room there); a pack on the back is out of the bag and adds
 /// rows to it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Gear {
     pub hand: Option<ItemKind>,
     pub back: Option<ItemKind>,

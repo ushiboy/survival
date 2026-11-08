@@ -1,7 +1,7 @@
 //! Kinds of things the castaway can carry, and how much room each takes in
 //! the bag (in grid cells).
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
     /// A whole coconut in its husk: it has to be cut open to eat.
     Coconut,

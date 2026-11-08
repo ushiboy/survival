@@ -46,9 +46,30 @@ export interface GameCore {
   dispose(): void;
 }
 
+/** Where the one saved game is kept in the browser. */
+const SAVE_KEY = 'castaway-island.save';
+
+function readSave(): string | undefined {
+  try {
+    return localStorage.getItem(SAVE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keeps (or, given an empty string, erases) the saved game. */
+function writeSave(op: string): void {
+  try {
+    if (op === '') localStorage.removeItem(SAVE_KEY);
+    else localStorage.setItem(SAVE_KEY, op);
+  } catch (e) {
+    console.warn('could not keep the saved game', e);
+  }
+}
+
 export async function loadGameCore(seed: number): Promise<GameCore> {
   const wasm = await init();
-  const handle = new GameHandle(seed);
+  const handle = new GameHandle(seed, readSave());
   const width = screen_width();
   const height = screen_height();
 
@@ -58,7 +79,11 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
   return {
     width,
     height,
-    step: (buttons) => handle.step(buttons),
+    step(buttons) {
+      handle.step(buttons);
+      const op = handle.take_save_op();
+      if (op !== undefined) writeSave(op);
+    },
     render: () => handle.render(),
     frame() {
       // Re-create the view if wasm memory grew (the old buffer is detached).

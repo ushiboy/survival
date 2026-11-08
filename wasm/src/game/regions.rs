@@ -33,6 +33,24 @@ impl Regions {
         Self { count, state: vec![State::Asleep(now); (count.0 * count.1) as usize] }
     }
 
+    /// Since when each chunk has slept (`None` if awake), row by row (for
+    /// saving).
+    pub fn asleep_since(&self) -> Vec<Option<u32>> {
+        self.state.iter().map(|s| match *s {
+            State::Awake => None,
+            State::Asleep(t) => Some(t),
+        }).collect()
+    }
+
+    /// Puts the chunks to sleep as saved, those awake then as of `now` (they
+    /// wake again straight away, having slept no time). A save for another
+    /// size of island leaves things as they are.
+    pub fn restore(&mut self, since: &[Option<u32>], now: u32) {
+        if since.len() == self.state.len() {
+            self.state = since.iter().map(|s| State::Asleep(s.unwrap_or(now))).collect();
+        }
+    }
+
     fn slot(&self, id: ChunkId) -> Option<usize> {
         let ok = (0..self.count.0).contains(&id.cx) && (0..self.count.1).contains(&id.cy);
         ok.then(|| (id.cy * self.count.0 + id.cx) as usize)

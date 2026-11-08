@@ -190,6 +190,26 @@ impl WorldMap {
         self.bark.insert(anchor, n);
     }
 
+    /// Fruit on every tree that has any (for saving), by anchor.
+    pub fn fruit_entries(&self) -> Vec<((i32, i32), u8)> {
+        let mut v: Vec<_> = self.fruit.iter().map(|(&k, &n)| (k, n)).collect();
+        v.sort();
+        v
+    }
+
+    /// Bark left on every broadleaf tree (for saving), by anchor.
+    pub fn bark_entries(&self) -> Vec<((i32, i32), u8)> {
+        let mut v: Vec<_> = self.bark.iter().map(|(&k, &n)| (k, n)).collect();
+        v.sort();
+        v
+    }
+
+    /// Replaces the fruit and bark on the trees (when loading a save).
+    pub fn restore_trees(&mut self, fruit: &[((i32, i32), u8)], bark: &[((i32, i32), u8)]) {
+        self.fruit = fruit.iter().copied().filter(|&(_, n)| n > 0).collect();
+        self.bark = bark.iter().copied().collect();
+    }
+
     /// Out-of-bounds cells are solid so nothing can leave the map.
     pub fn props(&self, x: i32, y: i32) -> TileProps {
         if !self.in_bounds(x, y) {

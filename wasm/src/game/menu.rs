@@ -71,16 +71,18 @@ pub enum Page {
     Items,
     Craft,
     Gear,
+    Save,
 }
 
 impl Page {
-    pub const ALL: [Page; 3] = [Page::Items, Page::Craft, Page::Gear];
+    pub const ALL: [Page; 4] = [Page::Items, Page::Craft, Page::Gear, Page::Save];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::Items => "ITEMS",
             Page::Craft => "CRAFT",
             Page::Gear => "GEAR",
+            Page::Save => "SAVE",
         }
     }
 }
@@ -140,6 +142,8 @@ pub enum Mode {
     Gear { slot: usize },
     /// Choosing from `gear_choices` for a slot.
     GearPick { slot: usize, choice: usize },
+    /// On the save page, about to save.
+    Saving,
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -155,6 +159,8 @@ pub enum Outcome {
     /// The recipe (index into `RECIPES`) is to be cooked over the fire;
     /// its materials are still in the bag.
     Cook(usize),
+    /// The game is to be saved (the bag stays open).
+    Save,
 }
 
 #[derive(Clone, Debug)]
@@ -214,6 +220,7 @@ impl BagMenu {
             Mode::Tabs(page) => page,
             Mode::Crafting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
+            Mode::Saving => Page::Save,
             _ => Page::Items,
         }
     }
@@ -224,6 +231,7 @@ impl BagMenu {
             Page::Items => Mode::Browse,
             Page::Craft => Mode::Crafting { choice: 0 },
             Page::Gear => Mode::Gear { slot: 0 },
+            Page::Save => Mode::Saving,
         };
     }
 
@@ -233,6 +241,16 @@ impl BagMenu {
             return Outcome::Close;
         }
         match self.mode {
+            Mode::Saving => {
+                if matches!(step, Some((0, dy)) if dy < 0) {
+                    self.mode = Mode::Tabs(Page::Save);
+                } else if input.pressed(Buttons::B) {
+                    return Outcome::Close;
+                } else if input.pressed(Buttons::A) {
+                    return Outcome::Save;
+                }
+                Outcome::Stay
+            }
             Mode::Tabs(page) => {
                 let i = Page::ALL.iter().position(|&p| p == page).unwrap_or(0) as i32;
                 match step {

@@ -42,15 +42,27 @@ pub struct GameHandle {
 
 #[wasm_bindgen]
 impl GameHandle {
+    /// A new game at the title screen. `save` is the saved game the page
+    /// keeps (JSON), offered as CONTINUE if it can be read.
     #[wasm_bindgen(constructor)]
-    pub fn new(seed: u32) -> GameHandle {
+    pub fn new(seed: u32, save: Option<String>) -> GameHandle {
         console_error_panic_hook::set_once();
-        GameHandle { game: game::Game::new(seed) }
+        GameHandle { game: game::Game::with_save(seed, save.as_deref()) }
     }
 
     /// Advance one frame with the given SNES joypad word.
     pub fn step(&mut self, buttons: u16) {
         self.game.step(buttons);
+    }
+
+    /// What to do with the saved game after this frame, if anything: the
+    /// JSON to keep (replacing what was kept), or an empty string to erase
+    /// it.
+    pub fn take_save_op(&mut self) -> Option<String> {
+        self.game.take_save_op().map(|op| match op {
+            game::SaveOp::Write(json) => json,
+            game::SaveOp::Erase => String::new(),
+        })
     }
 
     pub fn render(&mut self) {

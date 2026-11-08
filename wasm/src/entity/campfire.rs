@@ -14,7 +14,7 @@ const DYING_MINUTES: u32 = 2 * 60;
 /// Frames per flame animation step.
 const FLAME_FRAME: u32 = 5;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Campfire {
     /// Where it sits on the ground (world px, centre of the ring).
     pub x: i32,
