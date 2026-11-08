@@ -10,6 +10,20 @@ pub const TILE_SIZE: i32 = 16;
 /// How far (px) from the water-drawing spot the river can be reached.
 const DRAW_WATER_RANGE: f32 = 30.0;
 
+/// Fruit or bark left on trees, by the tree's top-left cell.
+pub type TreeCounts = Vec<((i32, i32), u8)>;
+
+/// Places on the island with a part to play later (cells).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Spots {
+    /// The middle of the river where it runs narrow.
+    pub bridge: Option<(i32, i32)>,
+    /// The foot of the low stretch of the north cliff.
+    pub ladder: Option<(i32, i32)>,
+    /// The middle of the pool under the falls.
+    pub falls: Option<(i32, i32)>,
+}
+
 #[derive(Clone, Debug)]
 pub struct WorldMap {
     w: i32,
@@ -22,8 +36,13 @@ pub struct WorldMap {
     pub river: Option<River>,
     /// Cells the river's water or banks reach into.
     riverside: Vec<bool>,
+    /// Ground cells at an inner corner of a slanting cliff's foot whose top
+    /// left (bit 0) or top right (bit 1) half is rock, carried down from
+    /// the faces beside and above them: solid there, as drawn.
+    foot: Vec<u8>,
     /// Bank of the upper river where water can be drawn (world px).
     pub water_spot: Option<(i32, i32)>,
+    pub spots: Spots,
     /// Fruit still hanging on each tree, keyed by the tree's top-left cell.
     fruit: HashMap<(i32, i32), u8>,
     /// Strips of bark left on each broadleaf tree (by top-left cell).
@@ -47,7 +66,9 @@ impl WorldMap {
             elevation: vec![0.0; n],
             river: None,
             riverside: vec![false; n],
+            foot: vec![0; n],
             water_spot: None,
+            spots: Spots::default(),
             fruit: HashMap::new(),
             bark: HashMap::new(),
             spawn: (0, 0),
@@ -151,6 +172,35 @@ impl WorldMap {
         }
     }
 
+    /// Which top corners of a cell are filled with the rock of a cliff's
+    /// slanting foot: `[left, right]` (the top-left half of the cell from
+    /// its top-right to bottom-left corner, or the top-right half).
+    pub fn foot_fill(&self, x: i32, y: i32) -> [bool; 2] {
+        let bits = if self.in_bounds(x, y) { self.foot[self.idx(x, y)] } else { 0 };
+        [bits & 1 != 0, bits & 2 != 0]
+    }
+
+    pub fn set_foot_fill(&mut self, x: i32, y: i32, fill: [bool; 2]) {
+        if self.in_bounds(x, y) {
+            let i = self.idx(x, y);
+            self.foot[i] = fill[0] as u8 | (fill[1] as u8) << 1;
+        }
+    }
+
+    /// Whether any part of `r` that lies in the cell overlaps its foot rock.
+    fn hits_foot(&self, x: i32, y: i32, r: Rect) -> bool {
+        let [left, right] = self.foot_fill(x, y);
+        if !left && !right {
+            return false;
+        }
+        let (x0, y0) = (x * TILE_SIZE, y * TILE_SIZE);
+        let (ax, bx) = (r.x.max(x0) - x0, (r.right() - 1).min(x0 + TILE_SIZE - 1) - x0);
+        let ay = r.y.max(y0) - y0;
+        // The rock is the part of the cell above its slant: the rect
+        // reaches it if its corner nearest the rock does.
+        (right && bx >= ay) || (left && (TILE_SIZE - 1 - ax) >= ay)
+    }
+
     /// How far inside the river's water a world pixel is (px; negative =
     /// outside).
     pub fn river_depth_px(&self, px: f32, py: f32) -> f32 {
@@ -190,24 +240,39 @@ impl WorldMap {
         self.bark.insert(anchor, n);
     }
 
-    /// Fruit on every tree that has any (for saving), by anchor.
-    pub fn fruit_entries(&self) -> Vec<((i32, i32), u8)> {
-        let mut v: Vec<_> = self.fruit.iter().map(|(&k, &n)| (k, n)).collect();
+    /// The top-left cells of the trees that have had fruit.
+    pub fn palm_anchors(&self) -> Vec<(i32, i32)> {
+        let mut v: Vec<_> = self.fruit.keys().copied().collect();
         v.sort();
         v
     }
 
-    /// Bark left on every broadleaf tree (for saving), by anchor.
-    pub fn bark_entries(&self) -> Vec<((i32, i32), u8)> {
-        let mut v: Vec<_> = self.bark.iter().map(|(&k, &n)| (k, n)).collect();
-        v.sort();
-        v
+    /// Fruit and bark that differ from `made` (the island as it was made),
+    /// by the tree's anchor: what a save has to keep.
+    pub fn tree_changes(&self, made: &WorldMap) -> (TreeCounts, TreeCounts) {
+        fn changed(now: &HashMap<(i32, i32), u8>, then: &HashMap<(i32, i32), u8>) -> TreeCounts {
+            let mut v: Vec<_> = now
+                .keys()
+                .chain(then.keys())
+                .copied()
+                .filter(|a| now.get(a).copied().unwrap_or(0) != then.get(a).copied().unwrap_or(0))
+                .map(|a| (a, now.get(&a).copied().unwrap_or(0)))
+                .collect();
+            v.sort();
+            v.dedup();
+            v
+        }
+        (changed(&self.fruit, &made.fruit), changed(&self.bark, &made.bark))
     }
 
-    /// Replaces the fruit and bark on the trees (when loading a save).
+    /// Sets the fruit and bark of the trees a save changed (when loading).
     pub fn restore_trees(&mut self, fruit: &[((i32, i32), u8)], bark: &[((i32, i32), u8)]) {
-        self.fruit = fruit.iter().copied().filter(|&(_, n)| n > 0).collect();
-        self.bark = bark.iter().copied().collect();
+        for &(a, n) in fruit {
+            self.set_fruit(a, n);
+        }
+        for &(a, n) in bark {
+            self.set_bark(a, n);
+        }
     }
 
     /// Out-of-bounds cells are solid so nothing can leave the map.
@@ -219,7 +284,11 @@ impl WorldMap {
     }
 
     pub fn props_at_px(&self, px: i32, py: i32) -> TileProps {
-        self.props(px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE))
+        let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+        if self.hits_foot(x, y, Rect::new(px, py, 1, 1)) {
+            return TileProps::SOLID;
+        }
+        self.props(x, y)
     }
 
     /// True if any cell overlapped by `r` satisfies `pred`.
@@ -239,6 +308,6 @@ impl WorldMap {
     }
 
     pub fn is_solid_rect(&self, r: Rect) -> bool {
-        self.any_cell(r, |x, y| self.props(x, y).solid)
+        self.any_cell(r, |x, y| self.props(x, y).solid || self.hits_foot(x, y, r))
     }
 }

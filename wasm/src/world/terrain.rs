@@ -6,6 +6,12 @@ pub enum Terrain {
     Grass,
     /// The river: fast fresh water, too deep to wade.
     River,
+    /// High ground above a cliff (the plateau toward the island's centre).
+    Highland,
+    /// The edge of the high ground, where it drops away: no footing.
+    CliffTop,
+    /// The rock face of a cliff, below the high ground's edge.
+    Cliff,
 }
 
 impl Terrain {
@@ -16,7 +22,17 @@ impl Terrain {
 
     /// Dry ground.
     pub fn is_land(self) -> bool {
-        matches!(self, Terrain::Sand | Terrain::Grass)
+        matches!(self, Terrain::Sand | Terrain::Grass | Terrain::Highland)
+    }
+
+    /// Water of any kind: the sea or the river.
+    pub fn holds_water(self) -> bool {
+        self.is_water() || self == Terrain::River
+    }
+
+    /// Part of a cliff: its edge or its face.
+    pub fn is_cliff(self) -> bool {
+        matches!(self, Terrain::CliffTop | Terrain::Cliff)
     }
 }
 
@@ -136,7 +152,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         _ => false,
     };
     TileProps {
-        solid: feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River),
+        solid: feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff(),
         wading: terrain == Terrain::ShallowWater,
     }
 }

@@ -316,6 +316,7 @@ impl Game {
                 }
             }
         }
+        let (fruit, bark) = self.map.tree_changes(&made);
         let inv = &self.inventory;
         SaveData {
             version: SAVE_VERSION,
@@ -326,8 +327,8 @@ impl Game {
             inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
             island: save::IslandState {
                 features,
-                fruit: self.map.fruit_entries(),
-                bark: self.map.bark_entries(),
+                fruit,
+                bark,
                 harvest: self.harvest.state(),
                 items: self.items.iter().map(|i| save::Lying { kind: i.kind, count: i.count, at: i.ground() }).collect(),
                 fires: self.fires.clone(),
@@ -827,7 +828,7 @@ impl Game {
     fn wash_up_shells(&mut self) {
         let room = self.shell_cap.saturating_sub(self.shells_on_beach().len()).min(island::for_area(&self.map, SHELLS_PER_DAY));
         let (w, h) = (self.map.width(), self.map.height());
-        let near_water = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| !map.terrain(x + dx, y + dy).is_land()));
+        let near_water = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| map.terrain(x + dx, y + dy).holds_water()));
         let mut changed = Vec::new();
         for _ in 0..400 {
             if changed.len() >= room {

@@ -70,7 +70,7 @@ impl Crab {
         };
         if speed > 0 {
             // Crabs keep to dry sand.
-            let blocked = |r: Rect| map.any_cell(r, |x, y| map.props(x, y).solid || map.terrain(x, y) != Terrain::Sand);
+            let blocked = |r: Rect| map.is_solid_rect(r) || map.any_cell(r, |x, y| map.terrain(x, y) != Terrain::Sand);
             let moved = self.body.move_by(self.dir.0 * speed, self.dir.1 * speed / 2, 0, &blocked);
             if !moved {
                 self.dir.0 = -self.dir.0;

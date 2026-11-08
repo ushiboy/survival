@@ -8,9 +8,8 @@
 
 use std::collections::HashMap;
 
-use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_SAND, PAL_SHORE, deep, grass, shore};
+use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_ROCK, PAL_SAND, PAL_SHORE, deep, grass, rock, sand, shore};
 use crate::common::rng::hash_unit;
-use crate::world::river::River;
 use crate::assets::paint::{bayer, noise_px};
 use crate::assets::props::{Ground, PropTile, composite};
 use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
@@ -108,6 +107,8 @@ impl CellField {
 /// the water (px, negative on land) and its flow coordinates (px).
 struct RiverField {
     depth: [f32; 256],
+    /// Depth in the channel alone (the pool under the falls left out).
+    channel: [f32; 256],
     along: [f32; 256],
     across: [f32; 256],
     max: f32,
@@ -118,13 +119,15 @@ impl RiverField {
     fn sample(map: &WorldMap, cx: i32, cy: i32) -> Option<Self> {
         let river = map.river.as_ref().filter(|_| map.is_riverside(cx, cy))?;
         let ts = TILE_SIZE as f32;
-        let mut r = Self { depth: [0.0; 256], along: [0.0; 256], across: [0.0; 256], max: f32::MIN };
+        let mut r = Self { depth: [0.0; 256], channel: [0.0; 256], along: [0.0; 256], across: [0.0; 256], max: f32::MIN };
         for i in 0..256 {
             let (wx, wy) = ((cx * TILE_SIZE) as f32 + (i % 16) as f32 + 0.5, (cy * TILE_SIZE) as f32 + (i / 16) as f32 + 0.5);
             let p = river.at_px(wx, wy);
             // A slight wobble so the banks don't look ruled.
             let wobble = value_noise(wx / 6.0, wy / 6.0, 91) * 1.4;
-            r.depth[i] = (River::half_width(p.t) - p.dist) * ts + wobble;
+            let pool = river.pool_depth(wx / ts - 0.5, wy / ts - 0.5);
+            r.channel[i] = p.depth() * ts + wobble;
+            r.depth[i] = p.depth().max(pool) * ts + wobble;
             r.along[i] = p.along * ts;
             r.across[i] = p.across * ts;
             r.max = r.max.max(r.depth[i]);
@@ -141,6 +144,9 @@ impl RiverField {
 /// Depth (below the waterline) down to which the river churns the surf
 /// where it meets the sea; cells all deeper are plain sea.
 const RIVER_CHURN_BELOW: f32 = -1.4;
+/// Depth below which the river's water turns to the dark sea of the current
+/// (fully so by `RIVER_CHURN_BELOW`).
+const SEA_CURRENT_FROM: f32 = -0.4;
 
 /// Bank drawn this far (px) from the water's edge.
 const BANK_LIP: f32 = -4.5;
@@ -185,6 +191,14 @@ fn shallow_depth(v: u8, h: f32, x: i32, y: i32) -> u8 {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Key {
     Interior(Terrain, i32, i32),
+    /// A cliff face: row from the top, rows in all, open to the left and
+    /// right, water at its foot, and the column.
+    Cliff { row: i32, rows: i32, left: bool, right: bool, wet: bool, vx: i32 },
+    /// The edge of the high ground: which sides drop away (N, E, S, W).
+    CliffTop { open: [bool; 4], vx: i32, vy: i32 },
+    /// The side of the high ground seen from above, dropping away to the
+    /// left or right.
+    CliffSide { left: bool, right: bool, vx: i32, vy: i32 },
     Prop { kind: u8, flip: bool, vx: i32, vy: i32 },
 }
 
@@ -224,7 +238,8 @@ impl Builder<'_> {
             Terrain::DeepWater => bank.add_art(PAL_DEEP, &slice(&tex.deep, vx, vy)),
             Terrain::ShallowWater => bank.add_art(PAL_SHORE, &slice(&tex.shallow, vx, vy)),
             Terrain::Sand => bank.add_art(PAL_SAND, &slice(&tex.sand, vx, vy)),
-            Terrain::Grass => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
+            Terrain::Grass | Terrain::Highland | Terrain::CliffTop => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
+            Terrain::Cliff => bank.add_art(PAL_ROCK, &PixelArt::filled(16, 16, rock::STONE[2])),
             // Transparent: the river is drawn on BG2.
             Terrain::River => bank.add_art(PAL_DEEP, &PixelArt::filled(16, 16, 0)),
         })
@@ -250,10 +265,25 @@ impl Builder<'_> {
                     if in_river > 0.0 && h > -0.6 {
                         0
                     } else if in_river > 0.0 && h > RIVER_CHURN_BELOW {
-                        // Churn where the current meets the sea.
-                        if bayer(ix, iy) < 0.5 { shore::FOAM } else { shore::FOAM_SHADE }
-                    } else if in_river > -2.0 && h > 0.0 {
-                        shore::WET_DARK
+                        // Churn where the current meets the sea, broken up.
+                        let wx = x * 16 + ix;
+                        let wy = y * 16 + iy;
+                        // Between the foam, the dark current (BG2) shows.
+                        let n = noise_px(wx / 2, wy / 2, 0xC4A2);
+                        if n < 0.3 {
+                            shore::FOAM
+                        } else if n < 0.45 {
+                            shore::FOAM_SHADE
+                        } else {
+                            0
+                        }
+                    } else if in_river > 0.0 {
+                        // The current runs on out to sea on BG2.
+                        0
+                    } else if h > 0.0 && river_wet(in_river, x * 16 + ix, y * 16 + iy) > -WET_BANK {
+                        // Sand soaked by the river, darkest at the water.
+                        let wet = river_wet(in_river, x * 16 + ix, y * 16 + iy);
+                        if wet > -4.0 || (wet > -WET_BANK + 2.0 && bayer(ix, iy) < 0.5) { shore::WET_DARK } else { shore::WET }
                     } else if d < -1.5 {
                         sand.get(px, py)
                     } else if d < front {
@@ -284,19 +314,7 @@ impl Builder<'_> {
     /// Deep water rising toward the shallows.
     fn reef(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
         let base = slice(&self.tex.deep, x, y);
-        let art = compose(|px, py| {
-            let h = f.at(px, py);
-            let b = bayer(px as i32, py as i32);
-            if h > DEEP_BELOW + 0.4 {
-                deep::SHELF[1]
-            } else if h > DEEP_BELOW - 0.4 {
-                deep::SHELF[0]
-            } else if h > DEEP_BELOW - 1.0 && b < 0.5 {
-                deep::SHELF[0]
-            } else {
-                base.get(px, py)
-            }
-        });
+        let art = compose(|px, py| reef_px(base.get(px, py), f.at(px, py), px as i32, py as i32));
         self.unique_art(PAL_DEEP, &art)
     }
 
@@ -320,17 +338,27 @@ impl Builder<'_> {
     /// spot the bank is trampled bare, with flat stones at the edge.
     fn river_bank(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> MetatileId {
         if f.max < RIVER_CHURN_BELOW {
-            // Off the mouth, out at sea: the water as anywhere else (the
-            // river's own water is on BG2).
-            return self.terrain(map, x, y);
+            // Off the mouth, out at sea: the water as anywhere else, with
+            // the current running through it where it is too strong to
+            // wade.
+            let t = map.terrain(x, y);
+            return if t == Terrain::River || (t == Terrain::DeepWater && r.max > 0.0) { self.current(map, f, r, x, y) } else { self.terrain(map, x, y) };
         }
         if f.min < 0.6 {
             // Out on the beach the river runs into the surf.
             return self.coast(f, x, y, Some(r));
         }
+        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
+        let grassy = |px: usize, py: usize| {
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0
+        };
+        let far_from_spot = spot.is_none_or(|(sx, sy)| (sx - (x * 16 + 8) as f32).abs().max((sy - (y * 16 + 8) as f32).abs()) > 40.0);
+        if far_from_spot && (0..16).all(|py| (0..16).all(|px| !grassy(px, py))) {
+            return self.sandy_bank(r, x, y);
+        }
         let (g, s) = self.grass_and_sand(x, y);
         let ramp = grass::RAMP;
-        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
         let art = compose(|px, py| {
             let i = py * 16 + px;
             let d = r.depth[i];
@@ -338,7 +366,7 @@ impl Builder<'_> {
                 return 0;
             }
             let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
-            let grassy = (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0;
+            let grassy = grassy(px, py);
             let trodden = spot.map_or(f32::MAX, |(sx, sy)| ((wx as f32 - sx).powi(2) + (wy as f32 - sy).powi(2)).sqrt());
             let b = bayer(wx, wy);
             let edge = LANDING_RADIUS + noise_px(wx / 2, wy / 2, 0x7A0D) * 4.0;
@@ -367,6 +395,9 @@ impl Builder<'_> {
             }
             if d > -1.5 {
                 if grassy { grass::SOIL } else { grass::SAND[0] }
+            } else if !grassy && river_wet(d, wx, wy) > -WET_BANK {
+                // Sand soaked by the river.
+                if river_wet(d, wx, wy) > -2.5 || b < 0.5 { grass::SAND[0] } else { grass::SAND[1] }
             } else if grassy && d > -3.0 {
                 // The turf overhangs the cut bank in a dark edge.
                 if b < 0.5 { ramp[0] } else { ramp[1] }
@@ -379,10 +410,124 @@ impl Builder<'_> {
         self.unique_art(PAL_GRASS, &art)
     }
 
+    /// Beach along the river, inland of the surf (sand palette): a cut lip
+    /// at the water, sand darkened by the wet in a ragged band, and
+    /// pebbles the river has washed down.
+    fn sandy_bank(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let tex = slice(&self.tex.sand, x, y);
+        let art = compose(|px, py| {
+            let d = r.depth[py * 16 + px];
+            if d > 0.0 {
+                return 0;
+            }
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            let b = bayer(wx, wy);
+            if let Some(shade) = pebble(d, wx, wy) {
+                return sand::PEBBLE[shade];
+            }
+            let wet = river_wet(d, wx, wy);
+            if d > -1.5 {
+                if b < 0.5 { sand::DEBRIS } else { sand::RAMP[0] }
+            } else if wet > -3.0 {
+                if b < 0.5 { sand::DEBRIS } else { sand::WET }
+            } else if wet > -5.0 {
+                if b < 0.25 { sand::DEBRIS } else { sand::WET }
+            } else if wet > -WET_BANK + 1.5 {
+                sand::WET
+            } else if wet > -WET_BANK {
+                if b < 0.5 { sand::WET } else { tex.get(px, py) }
+            } else {
+                tex.get(px, py)
+            }
+        });
+        self.unique_art(PAL_SAND, &art)
+    }
+
+    /// Ground at an inner corner of the foot of a slanting cliff (see
+    /// `WorldMap::foot_fill`): the rock of the face beside it carried down to a
+    /// slanting foot. The rock is drawn on BG2 (rock palette) under a hole
+    /// cut in the ground on BG1, which also takes a thin shadow along the
+    /// slant. `None` where nothing is filled.
+    fn cliff_foot(&mut self, map: &WorldMap, x: i32, y: i32) -> Option<(MetatileId, MetatileId)> {
+        let [fill_left, fill_right] = map.foot_fill(x, y);
+        if !fill_left && !fill_right {
+            return None;
+        }
+        let t = map.terrain(x, y);
+        let f = CellField::sample(map, x, y);
+        let (palette, ground) = if f.crosses(SAND_BELOW, 0.35, 0.3) {
+            let (g, s) = self.grass_and_sand(x, y);
+            (PAL_GRASS, compose(|px, py| grass_or_sand(&f, &g, &s, x, y, px, py)))
+        } else if t == Terrain::Sand {
+            (PAL_SAND, slice(&self.tex.sand, x, y))
+        } else {
+            (PAL_GRASS, slice(&self.tex.grass, x, y))
+        };
+        // How far into the rock a pixel is, across the slant (px; negative
+        // on the ground), and the face whose rock it carries on.
+        // The slant wavers a pixel either way along its length, so it
+        // isn't ruled straight.
+        let (x0, y0) = (x * 16, y * 16);
+        let waver = |along: i32| (noise_px(along.div_euclid(3), 0, 0x51A7) * 2.99) as i32 - 1;
+        let into = |px: i32, py: i32| {
+            let r = if fill_right { px - py + waver(x0 + px + y0 + py) } else { i32::MIN };
+            let l = if fill_left { (15 - px) - py + waver(y0 + py - x0 - px) } else { i32::MIN };
+            r.max(l)
+        };
+        let beside = |px: i32, py: i32| if fill_right && (!fill_left || px - py >= (15 - px) - py) { 1 } else { -1 };
+        let vx = x.rem_euclid(4);
+        let soil = compose(|px, py| {
+            let (ix, iy) = (px as i32, py as i32);
+            let d = into(ix, iy);
+            if d >= 0 {
+                return 0;
+            }
+            let v = ground.get(px, py);
+            if d == -1 {
+                // A thin shadow along the foot.
+                match palette {
+                    PAL_SAND => sand::SHADOW[0],
+                    _ if v == grass::SAND[0] || v == grass::SAND[1] || v == grass::SAND[2] => grass::SAND[0],
+                    _ => grass::RAMP[0],
+                }
+            } else {
+                v
+            }
+        });
+        let rock = compose(|px, py| {
+            let (ix, iy) = (px as i32, py as i32);
+            let d = into(ix, iy);
+            if d < 0 {
+                return 0;
+            }
+            let (row, rows) = face_rows(map, x + beside(ix, iy), y);
+            let v = cliff_pixel(row, rows, false, false, false, vx * 16 + ix, iy);
+            // Rubble along the slanting foot, as along the face's foot.
+            if d < 2 {
+                let n = noise_px(vx * 16 + ix, iy, 0xF007);
+                if n < 0.3 { rock::STONE[3] } else { rock::STONE[1] }
+            } else {
+                v
+            }
+        });
+        Some((self.unique_art(palette, &soil), self.unique_art(PAL_ROCK, &rock)))
+    }
+
     /// River water (BG2, under BG1's transparent water pixels): dark under
     /// the banks, deeper in the middle, with streaks of current whose
     /// colours cycle so they race downstream.
-    fn river_water(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
+    fn river_water(&mut self, map: &WorldMap, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        if map.terrain(x, y) == Terrain::Cliff {
+            return self.falls(r, x, y);
+        }
+        // How far below the foot of the falls each row is (px), if close.
+        let below_falls = |py: usize| {
+            (1..=2).find(|&k| map.terrain(x, y - k) == Terrain::Cliff).map(|k| (k - 1) * 16 + py as i32)
+        };
+        // Out past the beach the current is sea water: as dark as the deep
+        // sea, so it reads as too deep to wade.
+        let f = CellField::sample(map, x, y);
+        let sea = (f.min < SEA_CURRENT_FROM).then(|| slice(&self.tex.deep, x, y));
         let art = compose(|px, py| {
             let i = py * 16 + px;
             let d = r.depth[i];
@@ -390,6 +535,22 @@ impl Builder<'_> {
             let b = bayer(wx, wy);
             if d <= 0.0 {
                 return 0;
+            }
+            if let Some(tex) = &sea {
+                // Fades in from the river over a stretch of the shallows.
+                let into = (SEA_CURRENT_FROM - f.at(px, py)) / (SEA_CURRENT_FROM - RIVER_CHURN_BELOW);
+                if b < into {
+                    return sea_current_px(r, i, tex.get(px, py), f.at(px, py), wx, wy);
+                }
+            }
+            // White water where the falls crash into the pool.
+            if let Some(fall) = below_falls(py).filter(|_| r.channel[i] > -6.0) {
+                let reach = 10.0 + noise_px(wx / 2, wy, 0xFA11) * 8.0 - (r.channel[i].min(0.0)).abs();
+                if (fall as f32) < reach {
+                    return if b < 0.6 { deep::CREST } else { deep::RIVER_FLOW[2] };
+                } else if (fall as f32) < reach + 4.0 && b < 0.3 {
+                    return deep::CREST;
+                }
             }
             if d < 1.5 || (d < 3.0 && b < 0.5) {
                 return deep::RIVER_SHADE;
@@ -409,6 +570,132 @@ impl Builder<'_> {
         self.unique_art(PAL_DEEP, &art)
     }
 
+
+    /// The waterfall (BG2, behind the cliff face's open middle): streaks
+    /// of falling water whose colours cycle down the face, bright crests
+    /// here and there, dark at the edges.
+    fn falls(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let art = compose(|px, py| {
+            let i = py * 16 + px;
+            let d = r.channel[i];
+            if d <= 0.0 {
+                return 0;
+            }
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            if d < 1.5 {
+                return deep::RIVER_SHADE;
+            }
+            let lane = (r.across[i] / 1.5).floor() as i32;
+            let kind = hash_unit(lane, 0, 0xFA1D);
+            if kind < 0.12 && hash_unit(lane, wy.div_euclid(12), 0xFA1E) < 0.7 {
+                return deep::CREST;
+            }
+            if kind < 0.75 {
+                // Each lane starts its run of colours at its own place.
+                let at = r.along[i] / 2.0 + hash_unit(lane, 1, 0xFA1F) * 3.0;
+                deep::RIVER_FLOW[at.floor().rem_euclid(3.0) as usize]
+            } else if bayer(wx, wy) < 0.5 {
+                deep::RIVER_BODY
+            } else {
+                deep::RIVER_FLOW[0]
+            }
+        });
+        self.unique_art(PAL_DEEP, &art)
+    }
+
+    /// The sea where the river's current runs out from the mouth: the
+    /// water around it as anywhere else, cut away where the current runs
+    /// so its deep, dark water (BG2) shows through.
+    fn current(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let deep = map.terrain(x, y) == Terrain::DeepWater || (f.min < DEEP_BELOW - 0.4 && f.max < DEEP_BELOW + 1.7);
+        let tex = if deep { slice(&self.tex.deep, x, y) } else { slice(&self.tex.shallow, x, y) };
+        let art = compose(|px, py| {
+            let h = f.at(px, py);
+            if r.depth[py * 16 + px] > 0.0 {
+                0
+            } else if deep {
+                reef_px(tex.get(px, py), h, px as i32, py as i32)
+            } else {
+                shallow_depth(tex.get(px, py), h, x * 16 + px as i32, y * 16 + py as i32)
+            }
+        });
+        self.unique_art(if deep { PAL_DEEP } else { PAL_SHORE }, &art)
+    }
+
+    /// A cliff's rock face: blocks of stone in courses, lit from the
+    /// top-left, in shadow under the edge above, with rubble (or surf) at
+    /// the foot. Where the falls come down the face is left open for the
+    /// water behind it on BG2.
+    fn cliff_face(&mut self, map: &WorldMap, x: i32, y: i32, river: Option<&RiverField>) -> MetatileId {
+        let (row, rows) = face_rows(map, x, y);
+        // A side opens onto lower ground, unless the rock is carried on
+        // into the corner there (see `WorldMap::foot_fill`).
+        let open = |dx: i32| {
+            !matches!(map.terrain(x + dx, y), Terrain::Cliff | Terrain::CliffTop | Terrain::Highland)
+                && !map.foot_fill(x + dx, y)[if dx < 0 { 1 } else { 0 }]
+        };
+        let wet = map.terrain(x, y + 1).holds_water() && row == rows;
+        let (left, right) = (open(-1), open(1));
+        let vx = x.rem_euclid(4);
+        let draw = move |px: usize, py: usize| cliff_pixel(row, rows, left, right, wet, vx * 16 + px as i32, py as i32);
+        match river.filter(|r| r.channel.iter().any(|&d| d > 0.0)) {
+            Some(r) => {
+                let art = compose(|px, py| if r.channel[py * 16 + px] > 0.0 { 0 } else { draw(px, py) });
+                self.unique_art(PAL_ROCK, &art)
+            }
+            None => self.get(Key::Cliff { row, rows, left, right, wet, vx }, |_, bank| bank.add_art(PAL_ROCK, &compose(draw))),
+        }
+    }
+
+    /// The edge of the high ground: grass running to a dark, overhanging
+    /// lip where it drops to a cliff face, and to a bare earthen bank on the
+    /// other sides that drop away.
+    fn cliff_top(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River);
+        let open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
+        let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        if !open[2] && (open[1] || open[3]) {
+            let (left, right) = (open[3], open[1]);
+            return self.get(Key::CliffSide { left, right, vx, vy }, |_, bank| {
+                bank.add_art(PAL_ROCK, &compose(|px, py| cliff_side_pixel(left, right, vx * 16 + px as i32, vy * 16 + py as i32)))
+            });
+        }
+        self.get(Key::CliffTop { open, vx, vy }, |tex, bank| {
+            let g = slice(&tex.grass, vx, vy);
+            let r = grass::RAMP;
+            let art = compose(|px, py| {
+                let (wx, wy) = (vx * 16 + px as i32, vy * 16 + py as i32);
+                let b = bayer(wx, wy);
+                let (fx, fy) = (px as f32, py as f32);
+                // Ragged depth of each side's edge.
+                let rag = |k: i32| noise_px(k, 0, 0xED6E) * 2.5;
+                let south = 15.0 - fy - rag(wx);
+                let sides = [
+                    if open[0] { fy - rag(wx + 99) } else { f32::MAX },
+                    if open[1] { 15.0 - fx - rag(wy + 7) } else { f32::MAX },
+                    if open[3] { fx - rag(wy + 51) } else { f32::MAX },
+                ];
+                let side = sides.iter().copied().fold(f32::MAX, f32::min);
+                if open[2] && south < 1.0 {
+                    r[0]
+                } else if open[2] && south < 2.0 {
+                    if b < 0.5 { r[0] } else { grass::SOIL }
+                } else if open[2] && south < 3.0 {
+                    if b < 0.5 { r[1] } else { r[2] }
+                } else if side < 1.0 {
+                    grass::SOIL
+                } else if side < 2.0 {
+                    if b < 0.5 { grass::SOIL } else { r[0] }
+                } else if side < 3.0 {
+                    if b < 0.5 { r[1] } else { g.get(px, py) }
+                } else {
+                    g.get(px, py)
+                }
+            });
+            bank.add_art(PAL_GRASS, &art)
+        })
+    }
+
     fn prop(&mut self, kind: u8, tile: &PropTile, flip: bool, x: i32, y: i32) -> MetatileId {
         let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
         self.get(Key::Prop { kind, flip, vx, vy }, |tex, bank| {
@@ -424,6 +711,12 @@ impl Builder<'_> {
     /// Ground tile for a cell without props.
     fn terrain(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
         let t = map.terrain(x, y);
+        match t {
+            Terrain::Cliff => return self.cliff_face(map, x, y, None),
+            Terrain::CliffTop => return self.cliff_top(map, x, y),
+            Terrain::Highland => return self.interior(Terrain::Grass, x, y),
+            _ => {}
+        }
         let f = CellField::sample(map, x, y);
         match t {
             Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y, None),
@@ -438,6 +731,76 @@ impl Builder<'_> {
             _ => self.interior(t, x, y),
         }
     }
+}
+
+/// Where a cliff face cell sits in its face: its row from 1 at the top,
+/// and how many rows the face has.
+fn face_rows(map: &WorldMap, x: i32, y: i32) -> (i32, i32) {
+    let row = (1..).find(|&k| map.terrain(x, y - k) != Terrain::Cliff).unwrap_or(1);
+    (row, row + (1..).find(|&k| map.terrain(x, y + k) != Terrain::Cliff).unwrap_or(1) - 1)
+}
+
+/// How far from the river (px) the sand along it is soaked.
+const WET_BANK: f32 = 9.0;
+
+/// Depth into the river (px; negative on the bank) with the wet edge's
+/// raggedness added.
+fn river_wet(d: f32, wx: i32, wy: i32) -> f32 {
+    d + (noise_px(wx / 3, wy / 3, 0x3E7D) - 0.5) * 3.0
+}
+
+/// A pebble washed down by the river on its sandy bank, if one is at this
+/// pixel: its shade (0 dark rim, 1 body, 2 lit from the top-left).
+fn pebble(d: f32, wx: i32, wy: i32) -> Option<usize> {
+    const GRID: i32 = 6;
+    if !(-12.0..-1.5).contains(&d) {
+        return None;
+    }
+    let (gx, gy) = (wx.div_euclid(GRID), wy.div_euclid(GRID));
+    // Fewer the further from the water.
+    if hash_unit(gx, gy, 0x9EB1) > 0.5 * (1.0 + d / 14.0) {
+        return None;
+    }
+    let cx = (gx * GRID) as f32 + 3.0 + (hash_unit(gx, gy, 0x9EB2) - 0.5) * 1.5;
+    let cy = (gy * GRID) as f32 + 3.0 + (hash_unit(gx, gy, 0x9EB3) - 0.5) * 1.5;
+    let radius = 1.4 + hash_unit(gx, gy, 0x9EB4) * 1.0;
+    let (dx, dy) = (wx as f32 + 0.5 - cx, (wy as f32 + 0.5 - cy) * 1.25);
+    let sd = (dx * dx + dy * dy).sqrt();
+    if sd > radius {
+        return None;
+    }
+    Some(if sd > radius - 0.7 || dx + dy > 0.8 { 0 } else if dx + dy < -0.6 { 2 } else { 1 })
+}
+
+/// One pixel of deep water rising toward the shallows (deep palette).
+fn reef_px(base: u8, h: f32, x: i32, y: i32) -> u8 {
+    if h > DEEP_BELOW + 0.4 {
+        deep::SHELF[1]
+    } else if h > DEEP_BELOW - 0.4 || (h > DEEP_BELOW - 1.0 && bayer(x, y) < 0.5) {
+        deep::SHELF[0]
+    } else {
+        base
+    }
+}
+
+/// One pixel of the current out at sea (deep palette): deep water at the
+/// shelf's colour along its edges, where it meets the shallows, with
+/// streaks of the river's colours racing out along the flow.
+fn sea_current_px(r: &RiverField, i: usize, base: u8, h: f32, wx: i32, wy: i32) -> u8 {
+    // Out in the deep its edge melts into the sea.
+    let d = if h < DEEP_BELOW { f32::MAX } else { r.depth[i] };
+    if d < 1.5 || (d < 3.0 && bayer(wx, wy) < 0.5) {
+        return deep::SHELF[0];
+    }
+    let lane = (r.across[i] / 2.0).floor() as i32;
+    let along = r.along[i] + hash_unit(lane, 0, 0xC0E1) * 40.0;
+    let dash = (along / 16.0).floor() as i32;
+    // The streaks thin out over the deep, where the current loses itself.
+    let fade = ((h - DEEP_BELOW + 1.5) / 1.5).clamp(0.0, 1.0);
+    if d > 3.5 && hash_unit(lane, dash, 0xC0E2) < 0.2 * fade && along.rem_euclid(16.0) < 7.0 {
+        return deep::RIVER_FLOW[(r.along[i] / 2.0).floor().rem_euclid(3.0) as usize];
+    }
+    base
 }
 
 /// One pixel of land where grass gives way to sand (grass palette).
@@ -455,6 +818,124 @@ fn grass_or_sand(f: &CellField, g: &PixelArt, s: &PixelArt, x: i32, y: i32, px: 
     } else {
         g.get(px, py)
     }
+}
+
+/// Size (px) of the grid the rocks of a cliff face are scattered on; the
+/// face repeats every 64 px along, so the grid's columns wrap at
+/// `64 / ROCK_W`.
+const ROCK_W: i32 = 8;
+const ROCK_H: i32 = 7;
+
+/// The rock a point of a cliff face belongs to: the nearest of the stones
+/// scattered one to a grid square (a Voronoi pattern), by its grid square.
+fn rock_at(x: i32, y: i32) -> (i32, i32) {
+    let (gx, gy) = (x.div_euclid(ROCK_W), y.div_euclid(ROCK_H));
+    let mut best = (i32::MAX, (0, 0));
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            let (cx, cy) = (gx + ox, gy + oy);
+            let col = cx.rem_euclid(64 / ROCK_W);
+            let sx = cx * ROCK_W + (hash_unit(col, cy, 0xC11F) * ROCK_W as f32) as i32;
+            let sy = cy * ROCK_H + (hash_unit(col, cy, 0xC120) * ROCK_H as f32) as i32;
+            // Stretched across, so the rocks lie in rough ledges.
+            let d = (x - sx).pow(2) + (y - sy).pow(2) * 2;
+            if d < best.0 {
+                best = (d, (col, cy));
+            }
+        }
+    }
+    best.1
+}
+
+/// One pixel of the side of the high ground seen from above (rock
+/// palette): the rocks of its face, with grass hanging over the top edge on
+/// the high side and a dark drop on the open side.
+fn cliff_side_pixel(left: bool, right: bool, wx: i32, wy: i32) -> u8 {
+    let s = rock::STONE;
+    let (x, y) = (wx.rem_euclid(64), wy.rem_euclid(64));
+    // The rocks lie the other way round: in columns down the side.
+    let here = rock_at(y, x);
+    let b = bayer(wx, wy);
+    let px = x.rem_euclid(16);
+    let crack = rock_at(y, x + 1) != here || rock_at(y + 1, x) != here;
+    let lit = rock_at(y, x - 1) != here || rock_at(y - 1, x) != here;
+    let tone = hash_unit(here.0, here.1, 0xC123);
+    // Distance (px) in from the open side, and from the high side.
+    let from_open = if left { px } else { 15 - px };
+    let from_high = if left && right { 16 } else { 15 - from_open };
+    if left && right && (px == 0 || px == 15) || (!(left && right) && from_open == 0) {
+        s[0]
+    } else if from_high < 2 + (noise_px(wx, wy / 2, 0x3056) * 2.0) as i32 {
+        // Grass hanging over the edge.
+        if b < 0.5 { rock::MOSS } else { s[1] }
+    } else if crack {
+        s[0]
+    } else if lit {
+        if tone < 0.5 { s[4] } else { s[3] }
+    } else if from_open < 3 {
+        s[1]
+    } else if b < 0.2 + tone * 0.6 {
+        s[3]
+    } else {
+        s[2]
+    }
+}
+
+/// One pixel of a cliff face (rock palette). `row` counts from 1 at the
+/// top of a face `rows` cells tall; `wx` runs along the face (px, repeating
+/// every 64), `py` down the cell.
+fn cliff_pixel(row: i32, rows: i32, left: bool, right: bool, wet: bool, wx: i32, py: i32) -> u8 {
+    let s = rock::STONE;
+    let fy = (row - 1) * 16 + py;
+    let wx = wx.rem_euclid(64);
+    let here = rock_at(wx, fy);
+    let b = bayer(wx, fy);
+    // Lit from the top-left: a bright rim where a rock begins above or to
+    // the left, dark cracks where the next begins below or to the right.
+    let crack = rock_at(wx + 1, fy) != here || rock_at(wx, fy + 1) != here;
+    let lit = rock_at(wx - 1, fy) != here || rock_at(wx, fy - 1) != here;
+    let tone = hash_unit(here.0, here.1, 0xC122);
+    let mut v = if crack {
+        s[0]
+    } else if lit {
+        if tone < 0.5 { s[4] } else { s[3] }
+    } else if rock_at(wx + 2, fy) != here || rock_at(wx, fy + 2) != here {
+        s[1]
+    } else if b < 0.2 + tone * 0.6 {
+        s[3]
+    } else {
+        s[2]
+    };
+    // Moss on the upper rocks' ledges.
+    if lit && fy < 20 && hash_unit(here.0, here.1, 0x3055) < 0.45 {
+        v = rock::MOSS;
+    }
+    // In shadow right under the edge, and darker toward the foot.
+    let depth = rows * 16;
+    if fy < 2 || (fy < 4 && b < 0.5) {
+        v = s[0];
+    } else if fy > depth - 6 && b < 0.5 && v != s[0] {
+        v = s[1];
+    }
+    // Rubble or surf along the foot.
+    if row == rows && py >= 14 {
+        let n = noise_px(wx, py, 0xF007);
+        v = if wet {
+            if n < 0.5 { s[5] } else if n < 0.75 { s[4] } else { v }
+        } else if n < 0.3 {
+            s[3]
+        } else {
+            s[1]
+        };
+    }
+    // The face's own edges where it ends beside lower ground.
+    let px = wx.rem_euclid(16);
+    if (left && px == 0) || (right && px == 15) {
+        v = s[0];
+    } else if (left && px == 1) || (right && px == 14) {
+        v = s[1];
+    }
+    v
 }
 
 /// How far around the screen (px) ground must be ready before it is drawn,
@@ -699,13 +1180,20 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Vine => b.prop(17, &props.vine, x % 2 == 0, x, y),
         Feature::VineStake => b.prop(18, &props.vine_stake, x % 2 == 0, x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
-        Feature::None => match &river {
-            Some(r) => b.river_bank(map, &CellField::sample(map, x, y), r, x, y),
-            None => b.terrain(map, x, y),
+        Feature::None => match (&river, map.terrain(x, y)) {
+            (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),
+            (Some(r), _) => b.river_bank(map, &CellField::sample(map, x, y), r, x, y),
+            (None, _) => match b.cliff_foot(map, x, y) {
+                Some((ground, scree)) => {
+                    overhead = BgCell::new(scree);
+                    ground
+                }
+                None => b.terrain(map, x, y),
+            },
         },
     };
     if let Some(r) = river.filter(|r| r.max > 0.0 && overhead.is_empty()) {
-        overhead = BgCell { tile: b.river_water(&r, x, y), hflip: false, high: false };
+        overhead = BgCell { tile: b.river_water(map, &r, x, y), hflip: false, high: false };
     }
     (BgCell::new(tile), overhead)
 }

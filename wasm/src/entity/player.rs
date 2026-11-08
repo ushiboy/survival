@@ -1228,5 +1228,5 @@ fn facing_for(current: Dir, ax: i32, ay: i32) -> Dir {
 /// Whether there's water (sea or river) at the world pixel.
 fn is_water(map: &WorldMap, (x, y): (i32, i32)) -> bool {
     let (cx, cy) = (x.div_euclid(crate::world::TILE_SIZE), y.div_euclid(crate::world::TILE_SIZE));
-    (0..map.width()).contains(&cx) && (0..map.height()).contains(&cy) && !map.terrain(cx, cy).is_land()
+    (0..map.width()).contains(&cx) && (0..map.height()).contains(&cy) && map.terrain(cx, cy).holds_water()
 }

@@ -27,11 +27,78 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+
+/// Version 2: the map grew 24 cells north (for the forest and the cliff
+/// above it), so everything moves down; the top 16 rows of the old map
+/// were redrawn (the jungle there became forest), so changes kept there are
+/// dropped. Fruit and bark became changes from the island as made (they
+/// were every tree's): palms picked bare were left out before, so they are
+/// added back as bare.
+fn v1_to_v2(save: &mut Value) {
+    const ROWS: i64 = 24;
+    const PX: i64 = ROWS * 16;
+    const REDRAWN: i64 = 16;
+    const OLD_SIZE: (i64, i64) = (96, 48);
+    let shift = |v: &mut Value, by: i64| {
+        if let Some(y) = v.get_mut(1).and_then(|y| y.as_i64().map(|n| (y, n))) {
+            *y.0 = Value::from(y.1 + by);
+        }
+    };
+    // `[[x, y], ...]` lists keyed by cell: moved down, dropped where redrawn.
+    let cells = |list: Option<&mut Value>| {
+        if let Some(Value::Array(entries)) = list {
+            entries.retain(|e| e[0][1].as_i64().is_some_and(|y| y >= REDRAWN));
+            for e in entries.iter_mut() {
+                shift(&mut e[0], ROWS);
+            }
+        }
+    };
+    let island = &mut save["island"];
+    for key in ["features", "fruit", "bark"] {
+        cells(island.get_mut(key));
+    }
+    for key in ["damage", "shakes", "picked"] {
+        cells(island["harvest"].get_mut(key));
+    }
+    // Palms picked bare (in the old map) are no longer left out.
+    let seed = save["seed"].as_u64().unwrap_or(0) as u32;
+    let made = crate::world::island::generate(seed);
+    let island = &mut save["island"];
+    if let Some(Value::Array(fruit)) = island.get_mut("fruit") {
+        let kept: Vec<(i64, i64)> = fruit.iter().filter_map(|e| Some((e[0][0].as_i64()?, e[0][1].as_i64()?))).collect();
+        for (x, y) in made.palm_anchors() {
+            let (x, y) = (x as i64, y as i64);
+            let old = (0..OLD_SIZE.0).contains(&x) && (ROWS + REDRAWN..ROWS + OLD_SIZE.1).contains(&y);
+            if old && made.fruit((x as i32, y as i32)) > 0 && !kept.contains(&(x, y)) {
+                fruit.push(serde_json::json!([[x, y], 0]));
+            }
+        }
+    }
+    // Things lying about and moving: their pixels move down.
+    for key in ["crabs", "fish"] {
+        if let Some(Value::Array(list)) = island.get_mut(key) {
+            list.iter_mut().for_each(|p| shift(p, PX));
+        }
+    }
+    if let Some(Value::Array(items)) = island.get_mut("items") {
+        items.iter_mut().for_each(|i| shift(&mut i["at"], PX));
+    }
+    if let Some(Value::Array(fires)) = island.get_mut("fires") {
+        for f in fires {
+            if let Some(y) = f["y"].as_i64() {
+                f["y"] = Value::from(y + PX);
+            }
+        }
+    }
+    // The chunks are laid out afresh.
+    island["asleep_since"] = Value::Array(Vec::new());
+    shift(&mut save["castaway"]["at"], PX);
+}
 
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
