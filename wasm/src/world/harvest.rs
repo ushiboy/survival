@@ -44,9 +44,12 @@ pub enum Strike {
     LogSplit { anchor: (i32, i32), changed: Vec<(i32, i32)> },
     /// Damaged a palm; `anchor` is its top-left cell.
     TreeHit { anchor: (i32, i32), hp_left: u8 },
-    /// Felled a palm; the listed cells changed and need redrawing. The
-    /// coconuts it still carried (`fruit`) come down with it.
-    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, timber: ItemKind, wood: u32, fruit: u8 },
+    /// Felled a tree; the listed cells changed and need redrawing. It falls
+    /// apart into `wood` lengths of `timber`. What a palm still carried
+    /// comes down with it: its coconuts (`fruit`) and fronds off its crown
+    /// (`fronds`). A broadleaf's bark not yet stripped (`bark` strips) can
+    /// be peeled off the fallen trunk.
+    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, timber: ItemKind, wood: u32, fruit: u8, fronds: bool, bark: u8 },
 }
 
 /// What shaking a trunk did.
@@ -238,7 +241,7 @@ impl Harvest {
                 changed.push((x, y));
             }
         }
-        Strike::TreeFelled { anchor, changed, timber: ItemKind::Timber, wood: PALM_WOOD, fruit }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::Timber, wood: PALM_WOOD, fruit, fronds: true, bark: 0 }
     }
 
     fn chop_broadleaf(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {
@@ -248,6 +251,9 @@ impl Harvest {
             return Strike::TreeHit { anchor, hp_left: BROADLEAF_HP - *hits };
         }
         self.damage.remove(&anchor);
+        // The bark left on the trunk comes away with it.
+        let bark = map.bark(anchor);
+        map.set_bark(anchor, 0);
         let mut changed = Vec::new();
         for dy in 0..BroadleafPart::H {
             for dx in 0..BroadleafPart::W {
@@ -258,7 +264,7 @@ impl Harvest {
                 changed.push((x, y));
             }
         }
-        Strike::TreeFelled { anchor, changed, timber: ItemKind::LauanTimber, wood: BROADLEAF_WOOD, fruit: 0 }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::LauanTimber, wood: BROADLEAF_WOOD, fruit: 0, fronds: false, bark }
     }
 
     /// Resolves one shake of the trunk at a world pixel. Every few shakes a

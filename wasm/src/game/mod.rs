@@ -591,7 +591,7 @@ impl Game {
                 self.particles.leaves(canopy, ground, 2);
                 self.start_sway(anchor, TREE_SHAKE_FRAMES);
             }
-            Strike::TreeFelled { anchor, changed, timber, wood, fruit } => {
+            Strike::TreeFelled { anchor, changed, timber, wood, fruit, fronds, bark } => {
                 self.hitstop = HITSTOP_FELL;
                 self.camera_shake = CAMERA_SHAKE_FRAMES;
                 self.tree_shake = None;
@@ -610,9 +610,13 @@ impl Game {
                 for slot in 0..fruit {
                     self.drop_coconut(anchor, slot, flip);
                 }
-                // And a few fronds off the crown.
-                for _ in 0..FELLED_FRONDS {
+                // And a palm's fronds off the crown, or a broadleaf's bark
+                // peeled off the fallen trunk.
+                for _ in 0..if fronds { FELLED_FRONDS } else { 0 } {
                     self.drop_frond(anchor);
+                }
+                for _ in 0..bark {
+                    self.drop_item(ItemKind::Bark, anchor, from);
                 }
             }
             Strike::LogHit { .. } => {
