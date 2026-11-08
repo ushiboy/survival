@@ -28,6 +28,7 @@ use crate::crafting::{RECIPES, Recipe};
 use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
 use crate::render::end_screen;
+use crate::render::title_screen::{self, TitleItem};
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::light_canvas;
 use crate::render::lighting::{self, Lighting};
@@ -146,6 +147,8 @@ pub struct Game {
     regions: Regions,
     /// The island's seed (to start again from).
     seed: u32,
+    /// The title screen, while it shows: the menu item chosen.
+    title: Option<usize>,
     /// Frames since the castaway collapsed, once they have.
     collapsed: Option<u32>,
     gulls: Vec<Gull>,
@@ -206,6 +209,7 @@ impl Game {
             shell_cap: 0,
             regions,
             seed,
+            title: Some(0),
             collapsed: None,
             gulls,
             camera: Camera::new(0),
@@ -235,11 +239,32 @@ impl Game {
     /// Advances the simulation by one frame (1/60 s).
     pub fn step(&mut self, buttons: u16) {
         self.input.update(buttons);
+        if let Some(choice) = self.title {
+            // The title: the world waits (the sea still shimmers) until an
+            // item is chosen.
+            self.frame_count = self.frame_count.wrapping_add(1);
+            let n = title_screen::MENU.len();
+            let choice = if self.input.pressed(Buttons::UP) {
+                (choice + n - 1) % n
+            } else if self.input.pressed(Buttons::DOWN) {
+                (choice + 1) % n
+            } else {
+                choice
+            };
+            self.title = Some(choice);
+            if self.input.pressed(Buttons::START) || self.input.pressed(Buttons::A) {
+                match title_screen::MENU[choice] {
+                    TitleItem::Start => self.title = None,
+                }
+            }
+            return;
+        }
         if let Some(t) = self.collapsed {
             // The end: the screen fades, then START begins again.
             self.frame_count = self.frame_count.wrapping_add(1);
             self.collapsed = Some(t + 1);
             if t >= COLLAPSE_FADE + COLLAPSE_HOLD && self.input.pressed(Buttons::START) {
+                // Back to the title, to begin again.
                 self.start_over();
             }
             return;
@@ -987,7 +1012,10 @@ impl Game {
             f.math = MATH_TRANSLUCENT;
         }
 
-        hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night);
+        match self.title {
+            Some(choice) => title_screen::draw(&mut f.bg3, &self.assets.hud, choice, (self.frame_count / 20) % 3 != 0),
+            None => hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night),
+        }
 
         // Sprites.
         let shadows = !night;
@@ -1024,8 +1052,14 @@ impl Game {
         self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
     }
 
+    /// Dev tools: leaves the title screen, as if START were chosen.
+    pub fn skip_title(&mut self) {
+        self.title = None;
+    }
+
     /// Dev tools: puts the castaway, awake, with their feet in a cell.
     pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
+        self.skip_title();
         self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
         self.camera.follow(self.player.center(), self.map.pixel_size());
     }

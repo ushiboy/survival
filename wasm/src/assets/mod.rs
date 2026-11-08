@@ -345,6 +345,8 @@ pub struct FireSprites {
 #[derive(Clone, Debug)]
 pub struct HudTiles {
     glyphs: Vec<(char, HudTileId)>,
+    /// Letters of the title, at twice the size.
+    title_glyphs: Vec<(char, [HudTileId; 4])>,
     pub heart: HudTileId,
     pub food: HudTileId,
     pub water: HudTileId,
@@ -373,6 +375,12 @@ impl HudTiles {
 
     pub fn glyph(&self, c: char) -> HudTileId {
         self.glyphs.iter().find(|(g, _)| *g == c).map(|(_, t)| *t).unwrap_or(Self::BLANK)
+    }
+
+    /// A title letter's four tiles (top-left, top-right, bottom-left,
+    /// bottom-right); blank for a space or a letter not in the title.
+    pub fn title_glyph(&self, c: char) -> [HudTileId; 4] {
+        self.title_glyphs.iter().find(|(g, _)| *g == c).map(|(_, t)| *t).unwrap_or([Self::BLANK; 4])
     }
 }
 
@@ -594,15 +602,27 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
     }
 }
 
+/// The game's name, as the title screen shows it.
+pub const TITLE: &str = "CASTAWAY ISLAND";
+
 fn load_hud(vram: &mut Vram) -> HudTiles {
     let bank = &mut vram.hud_tiles;
     let blank = bank.add(&PixelArt::filled(8, 8, 0));
     debug_assert_eq!(blank, HudTiles::BLANK);
     let glyphs = hud_art::glyphs().into_iter().map(|(c, a)| (c, bank.add(&a))).collect();
+    let mut title_glyphs: Vec<(char, [HudTileId; 4])> = Vec::new();
+    for c in TITLE.chars().filter(|c| *c != ' ') {
+        if title_glyphs.iter().any(|(g, _)| *g == c) {
+            continue;
+        }
+        let art = hud_art::title_glyph(c).expect("title letter missing from the font");
+        title_glyphs.push((c, [(0, 0), (8, 0), (0, 8), (8, 8)].map(|(x, y)| bank.add(&art.sub(x, y, 8, 8)))));
+    }
     let mask = hud_art::light_mask();
     let gauge = std::array::from_fn(|i| bank.add(&hud_art::gauge_segment(i)));
     HudTiles {
         glyphs,
+        title_glyphs,
         heart: bank.add(&hud_art::icon_heart()),
         food: bank.add(&hud_art::icon_food()),
         water: bank.add(&hud_art::icon_water()),

@@ -5,7 +5,7 @@ const CONTROLS: Array<[string, string]> = [
   ['X', 'V — バッグ'],
   ['Y', 'C — 眠る／バッグ内で回す'],
   ['R', 'E — 走る'],
-  ['START', 'Enter — ポーズ'],
+  ['START', 'Enter — 開始／ポーズ'],
 ];
 
 export function ControlsHelp() {

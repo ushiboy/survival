@@ -11,7 +11,8 @@
 //! `SNAP_WATER=n` with that much food and water, and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
-//! draws every frame as the browser does, and reports the ground blocks
+//! draws every frame as the browser does (the title screen is skipped
+//! unless `SNAP_TITLE=1`), and reports the ground blocks
 //! held at the end.
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
@@ -24,6 +25,10 @@ fn main() {
     let skips: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     let mut game = Game::new(1);
+    // SNAP_TITLE=1 starts at the title screen; otherwise it's skipped.
+    if std::env::var("SNAP_TITLE").is_err() {
+        game.skip_title();
+    }
     // SNAP_AT=x,y starts the castaway awake in that cell.
     if let Ok(at) = std::env::var("SNAP_AT") {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");

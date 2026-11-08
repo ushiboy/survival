@@ -8,3 +8,4 @@ pub mod light_canvas;
 pub mod lighting;
 pub mod sprites;
 pub mod tileset;
+pub mod title_screen;

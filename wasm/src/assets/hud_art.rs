@@ -71,6 +71,25 @@ pub fn glyphs() -> Vec<(char, PixelArt)> {
         .collect()
 }
 
+/// The title's letters: the font at twice the size, 16×16 (four tiles
+/// each), with a highlight along the top and the outline kept one pixel.
+pub fn title_glyph(c: char) -> Option<PixelArt> {
+    let (_, rows) = GLYPHS.iter().find(|(g, _)| *g == c)?;
+    let mut a = PixelArt::filled(16, 16, 0);
+    for (y, row) in rows.iter().enumerate() {
+        for (x, ch) in row.chars().enumerate() {
+            if ch != '#' {
+                continue;
+            }
+            for (dy, dx) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                let py = y * 2 + dy;
+                a.set(x * 2 + dx + 3, py + 2, if py < 5 { 3 } else { 2 });
+            }
+        }
+    }
+    Some(a.outlined(1))
+}
+
 fn art(rows: [&str; 8]) -> PixelArt {
     PixelArt::parse(&rows, &[('1', 1), ('2', 2), ('3', 3)])
 }
