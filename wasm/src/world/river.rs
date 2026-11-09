@@ -176,9 +176,15 @@ impl River {
     }
 
     pub fn nearest(&self, x: f32, y: f32) -> RiverPoint {
+        self.nearest_of(0..self.path.len() - 1, x, y)
+    }
+
+    /// The nearest point on the segments `segments` (indices of their
+    /// first points, in order).
+    fn nearest_of(&self, segments: impl IntoIterator<Item = usize>, x: f32, y: f32) -> RiverPoint {
         let mut best = RiverPoint { dist: f32::MAX, across: 0.0, along: 0.0, half: 0.0 };
-        for (i, w) in self.path.windows(2).enumerate() {
-            let ((ax, ay), (bx, by)) = (w[0], w[1]);
+        for i in segments {
+            let ((ax, ay), (bx, by)) = (self.path[i], self.path[i + 1]);
             let (dx, dy) = (bx - ax, by - ay);
             let len2 = dx * dx + dy * dy;
             let u = (((x - ax) * dx + (y - ay) * dy) / len2).clamp(0.0, 1.0);
@@ -194,6 +200,31 @@ impl River {
             }
         }
         best
+    }
+
+    /// The river as seen from within the box `(x0, y0)`-`(x1, y1)` (cells):
+    /// only the segments that could be nearest to some point in it, so
+    /// many lookups there (every pixel of a cell) are quick. They give the
+    /// same answers as `nearest`.
+    pub fn around(&self, (x0, y0): (f32, f32), (x1, y1): (f32, f32)) -> RiverNear<'_> {
+        let seg = |i: usize, x: f32, y: f32| self.nearest_of([i], x, y).dist;
+        let corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+        // A segment's distance from a point is convex, so over the box it
+        // is greatest at a corner; the nearest segment to any point in the
+        // box is no further than the least of those greatest distances.
+        let reach = (0..self.path.len() - 1)
+            .map(|i| corners.iter().map(|&(x, y)| seg(i, x, y)).fold(0.0, f32::max))
+            .fold(f32::MAX, f32::min);
+        // Keep each segment whose bounding box comes within that of the box.
+        let segments = (0..self.path.len() - 1)
+            .filter(|&i| {
+                let ((ax, ay), (bx, by)) = (self.path[i], self.path[i + 1]);
+                let gx = (ax.min(bx) - x1).max(x0 - ax.max(bx)).max(0.0);
+                let gy = (ay.min(by) - y1).max(y0 - ay.max(by)).max(0.0);
+                (gx * gx + gy * gy).sqrt() <= reach + 1e-3
+            })
+            .collect();
+        RiverNear { river: self, segments }
     }
 
     /// How far inside the pool a point is (cells; negative = outside).
@@ -218,5 +249,19 @@ impl River {
         let ts = TILE_SIZE as f32;
         let (x, y) = (wx / ts - 0.5, wy / ts - 0.5);
         self.nearest(x, y).depth().max(self.pool_depth(x, y)) * ts
+    }
+}
+
+/// The river's segments near a box (see `River::around`).
+pub struct RiverNear<'a> {
+    river: &'a River,
+    segments: Vec<usize>,
+}
+
+impl RiverNear<'_> {
+    /// `River::at_px`, for a world pixel inside the box.
+    pub fn at_px(&self, wx: f32, wy: f32) -> RiverPoint {
+        let ts = TILE_SIZE as f32;
+        self.river.nearest_of(self.segments.iter().copied(), wx / ts - 0.5, wy / ts - 0.5)
     }
 }

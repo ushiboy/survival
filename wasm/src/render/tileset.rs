@@ -121,9 +121,12 @@ impl RiverField {
         let river = map.river.as_ref().filter(|_| map.is_riverside(cx, cy))?;
         let ts = TILE_SIZE as f32;
         let mut r = Self { depth: [0.0; 256], channel: [0.0; 256], along: [0.0; 256], across: [0.0; 256], max: f32::MIN };
+        // Every pixel centre, in the cells the river's path is laid out in.
+        let (x, y) = (cx as f32, cy as f32);
+        let near = river.around((x - 0.5, y - 0.5), (x + 0.5, y + 0.5));
         for i in 0..256 {
             let (wx, wy) = ((cx * TILE_SIZE) as f32 + (i % 16) as f32 + 0.5, (cy * TILE_SIZE) as f32 + (i / 16) as f32 + 0.5);
-            let p = river.at_px(wx, wy);
+            let p = near.at_px(wx, wy);
             // A slight wobble so the banks don't look ruled.
             let wobble = value_noise(wx / 6.0, wy / 6.0, 91) * 1.4;
             let pool = river.pool_depth(wx / ts - 0.5, wy / ts - 0.5);
@@ -1268,8 +1271,12 @@ fn cliff_pixel(row: i32, rows: i32, left: bool, right: bool, wet: bool, wx: i32,
 const NEEDED_MARGIN: i32 = 16;
 const PREFETCH_MARGIN: i32 = CHUNK_PX / 2;
 const KEEP_MARGIN: i32 = CHUNK_PX;
-/// Rows of a chunk built per frame while building ahead.
-const PREFETCH_ROWS: i32 = 4;
+/// How much building ahead is done per frame, in plain cells: about 4 rows
+/// of a chunk. Cells by the river cost `RIVER_CELL_COST` each (their water
+/// and banks are worked out pixel by pixel), so fewer rows go in a frame
+/// there; at least one row always does.
+const PREFETCH_BUDGET: i32 = 4 * CHUNK_CELLS;
+const RIVER_CELL_COST: i32 = 8;
 
 /// How far a chunk's tiles have been built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1364,8 +1371,30 @@ impl Tileset {
         let ahead = chunks_touching(grow(PREFETCH_MARGIN), self.chunks)
             .find(|&id| self.slot(id).is_some_and(|i| self.built[i] != Built::Yes));
         if let Some(id) = ahead {
-            self.build_rows(map, assets, visual, id, PREFETCH_ROWS);
+            let rows = self.rows_in_budget(map, id);
+            self.build_rows(map, assets, visual, id, rows);
         }
+    }
+
+    /// How many of a chunk's rows still to build fit in a frame's building
+    /// ahead (`PREFETCH_BUDGET`).
+    fn rows_in_budget(&self, map: &WorldMap, id: ChunkId) -> i32 {
+        let done = match self.slot(id).map(|i| self.built[i]) {
+            Some(Built::Rows(r)) => r,
+            _ => 0,
+        };
+        let (x0, y0) = id.origin();
+        let cost = |y: i32| (x0..x0 + CHUNK_CELLS).map(|x| if map.is_riverside(x, y) { RIVER_CELL_COST } else { 1 }).sum::<i32>();
+        let mut spent = 0;
+        let mut rows = 0;
+        for y in y0 + done..y0 + CHUNK_CELLS {
+            spent += cost(y);
+            if rows > 0 && spent > PREFETCH_BUDGET {
+                break;
+            }
+            rows += 1;
+        }
+        rows.max(1)
     }
 
     /// Builds up to `rows` more rows of a chunk.
