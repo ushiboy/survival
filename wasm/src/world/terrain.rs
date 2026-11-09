@@ -88,6 +88,25 @@ impl BroadleafPart {
     }
 }
 
+/// Which cell of a 3x4 pine (a conifer of the high ground) a map cell
+/// holds: tiers of needles narrowing to a point over a straight trunk. As
+/// with the other trees only the trunk base is solid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct PinePart {
+    pub dx: u8,
+    pub dy: u8,
+    pub flip: bool,
+}
+
+impl PinePart {
+    pub const W: i32 = 3;
+    pub const H: i32 = 4;
+
+    pub fn is_trunk_base(&self) -> bool {
+        self.dx as i32 == Self::W / 2 && self.dy as i32 == Self::H - 1
+    }
+}
+
 /// One cell of a driftwood log lying on the beach, two cells long:
 /// `dx` 0 is the left cell. Mirrored logs have their roots on the right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -135,6 +154,10 @@ pub enum Feature {
     /// then `1`, `2`, ... down the rock face. It can be climbed up and
     /// down, so these cells aren't solid.
     Ladder(u8),
+    Pine(PinePart),
+    /// A pine cone lying on the ground, fallen from a pine; picked up like
+    /// a shell.
+    PineCone,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,6 +175,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
     let feature_solid = match feature {
         Feature::Palm(p) => p.is_trunk_base(),
         Feature::Broadleaf(p) => p.is_trunk_base(),
+        Feature::Pine(p) => p.is_trunk_base(),
         Feature::BroadleafStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };

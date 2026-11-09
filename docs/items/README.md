@@ -25,6 +25,7 @@
 | [茅葺き（THATCH）](thatch.md) | 素材 | 2×1 | クラフト |
 | [貝殻（SEA SHELL）](sea-shell.md) | 素材 | 1×1 | 砂浜の貝殻を A で拾う。毎朝いくつか打ち上がる |
 | [貝の釣り針（SHELL HOOK）](shell-hook.md) | 素材 | 1×1 | クラフト |
+| [松ぼっくり（PINE CONE）](pine-cone.md) | 素材（燃料） | 1×1 | 崖のくぼみの足元に落ちているものを拾う |
 
 ## 道具
 

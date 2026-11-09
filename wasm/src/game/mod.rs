@@ -20,6 +20,7 @@ use crate::common::rng::Rng;
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
 use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, Situation};
+use bag::Bag;
 use fishing::{Float, Line};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::palette::Cgram;
@@ -765,8 +766,8 @@ impl Game {
         [self.player.body.feet(), self.player.reach_point()]
             .into_iter()
             .map(|(x, y)| (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)))
-            .find(|&(x, y)| self.map.feature(x, y) == Feature::Shell)
-            .map(Pickup::Shell)
+            .find(|&(x, y)| ground_pickup(self.map.feature(x, y)).is_some())
+            .map(Pickup::Ground)
     }
 
     /// Puts a fish somewhere it can swim; `unseen` keeps it off screen.
@@ -866,7 +867,7 @@ impl Game {
     fn pickup_point(&self, target: Pickup) -> (i32, i32) {
         match target {
             Pickup::Item(i) => self.items[i].ground(),
-            Pickup::Shell((x, y)) => (x * TILE_SIZE + 8, y * TILE_SIZE + 11),
+            Pickup::Ground((x, y)) => (x * TILE_SIZE + 8, y * TILE_SIZE + 11),
         }
     }
 
@@ -878,11 +879,18 @@ impl Game {
         };
         let i = match target {
             Pickup::Item(i) => i,
-            Pickup::Shell((x, y)) => {
+            Pickup::Ground((x, y)) => {
+                let Some(kind) = ground_pickup(self.map.feature(x, y)) else { return };
                 self.map.set_feature(x, y, Feature::None);
                 self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[(x, y)]);
                 self.particles.sparks((x * TILE_SIZE + 8, y * TILE_SIZE + 7), 1);
-                self.take(ItemKind::SeaShell, 1);
+                self.take(kind, 1);
+                // The pine cone at the foot of the cliff's recess, rolled
+                // down from the pine above: the castaway looks up and
+                // round, and (with no ladder) tries to climb.
+                if kind == ItemKind::PineCone && self.map.spots.ladder == Some((x, y)) {
+                    self.player.notice_after_pickup(!self.inventory.bag.has(ItemKind::Ladder));
+                }
                 return;
             }
         };
@@ -1047,8 +1055,8 @@ impl Game {
     /// Where a fire would be lit (in front of the castaway's feet), or why
     /// one can't be: no fuel, or no bare dry ground there.
     fn fire_spot(&self) -> Result<(i32, i32), &'static str> {
-        if !self.inventory.bag.has(ItemKind::Branch) {
-            return Err("NEEDS A BRANCH TO BURN");
+        if fuel(&self.inventory.bag).is_none() {
+            return Err("NOTHING TO BURN");
         }
         let (x, y) = self.player.fire_spot();
         let dry = self.map.terrain(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)).is_land();
@@ -1061,10 +1069,10 @@ impl Game {
         Ok((x, y))
     }
 
-    /// The drill has caught: a branch goes on as fuel and the fire burns
-    /// for a day.
+    /// The drill has caught: a pine cone (or, without one, a branch) goes
+    /// on as fuel and the fire burns for a day.
     fn light_fire(&mut self, spot: (i32, i32)) {
-        if !self.inventory.bag.take_kind(ItemKind::Branch) {
+        if !fuel(&self.inventory.bag).is_some_and(|kind| self.inventory.bag.take_kind(kind)) {
             return;
         }
         self.fires.push(Campfire::new(spot, self.clock.total_minutes()));
@@ -1433,8 +1441,24 @@ impl TitleState {
 enum Pickup {
     /// An item lying on the ground (index into the items).
     Item(usize),
-    /// A shell on the sand (its cell).
-    Shell((i32, i32)),
+    /// Something lying in a cell as a map feature: a shell on the sand, a
+    /// pine cone (its cell).
+    Ground((i32, i32)),
+}
+
+/// What a fire would burn: pine cones first (they're good for nothing
+/// else), then branches (which make things).
+fn fuel(bag: &Bag) -> Option<ItemKind> {
+    [ItemKind::PineCone, ItemKind::Branch].into_iter().find(|&k| bag.has(k))
+}
+
+/// The item a feature lying on the ground gives when picked up.
+fn ground_pickup(feature: Feature) -> Option<ItemKind> {
+    match feature {
+        Feature::Shell => Some(ItemKind::SeaShell),
+        Feature::PineCone => Some(ItemKind::PineCone),
+        _ => None,
+    }
 }
 
 /// Canopy box (x, y, w, h) and the ground row leaves fall to, for the palm

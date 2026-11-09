@@ -803,3 +803,40 @@ fn ladder_art(w: usize, h: usize) -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A pine cone, 16x16: an egg of brown woody scales in rows, overlapping
+/// downward, lit from the top-left, with its stalk at the top.
+pub fn icon_pine_cone() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    let (cx, cy, rx, ry) = (8.0f32, 8.5f32, 4.6f32, 6.0f32);
+    for y in 0..16 {
+        for x in 0..16 {
+            let (nx, ny) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+            // Narrower toward the stalk than at the base.
+            let nx = nx * (1.0 + (-ny).max(0.0) * 0.35);
+            if nx * nx + ny * ny > 1.0 {
+                continue;
+            }
+            // Scales in staggered rows: each a lit tip over a dark seam.
+            let row = (y + 1) / 3;
+            let col = (x + row % 2 * 2) / 4;
+            let in_scale = (y + 1) % 3;
+            let lit = nx < 0.1 && ny < 0.4;
+            let v = if in_scale == 0 || (x + row % 2 * 2) % 4 == 0 {
+                'd'
+            } else if in_scale == 1 && (lit || col % 2 == 0) {
+                'h'
+            } else if lit {
+                'W'
+            } else {
+                'w'
+            };
+            a.set(x, y, i(v));
+        }
+    }
+    // The stalk.
+    a.set(8, 1, i('d'));
+    a.set(8, 2, i('d'));
+    a.outlined(i('o'))
+}

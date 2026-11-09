@@ -653,3 +653,90 @@ pub fn broadleaf() -> BroadleafArt {
         stump: PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: stump_tile },
     }
 }
+
+// ---------------------------------------------------------------- pine (48x64)
+
+/// Pine (a conifer of the high ground) art, 3x4 cells, laid out like the
+/// broadleaf's: `upper` (48x48: the tiers of needles and the trunk among
+/// them) goes on BG2 above sprites; `base` is the trunk's foot over its
+/// shadow, `shade` the tiers' shadow on the row above it.
+pub struct PineArt {
+    pub upper: PixelArt,
+    pub base: [PropTile; 3],
+    pub shade: [PropTile; 3],
+}
+
+pub fn pine() -> PineArt {
+    let (cx, base_y) = (24.0f32, 61.0f32);
+    let bark = foliage::BARK;
+    let leaf = foliage::LEAF;
+    let mut full = PixelArt::filled(48, 64, 0);
+    // A straight trunk, flaring a little at the foot.
+    for y in 20..=base_y as i32 {
+        let hw = 2.3 + if y > 57 { (y - 57) as f32 * 0.6 } else { 0.0 };
+        for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
+            let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
+            if (0.0..=1.0).contains(&u) {
+                let i = if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 };
+                let i = if noise_px(x, y / 3, 0x914E) < 0.2 { i - 1 } else { i };
+                full.put(x, y, bark[i]);
+            }
+        }
+    }
+    let full = full.outlined(bark[0]);
+    // Tiers of needles, each a drooping skirt wider than the one above,
+    // lit from the left, darker toward its hem and under the tier above.
+    let mut crown = PixelArt::filled(48, 48, 0);
+    let tiers = [(0.0f32, 15.0f32, 7.0f32), (7.0, 24.0, 11.5), (15.0, 34.0, 16.0), (23.0, 45.0, 20.5)];
+    for (k, &(top, hem, w)) in tiers.iter().enumerate() {
+        for y in top as i32..=hem as i32 {
+            let f = (y as f32 + 0.5 - top) / (hem - top);
+            // Ragged sprays of needles along the sides and the hem.
+            let rag = (noise_px(y, k as i32, 0x9117) - 0.5) * 2.5;
+            let hw = w * f.powf(0.85) + rag * f;
+            for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
+                let nx = (x as f32 + 0.5 - cx) / hw.max(1.0);
+                if nx.abs() > 1.0 {
+                    continue;
+                }
+                // The hem hangs lower at the tips than in the middle.
+                if f > 0.82 && noise_px(x, y + k as i32 * 7, 0x9118) < (f - 0.82) * 4.0 * (1.0 - nx.abs() * 0.5) {
+                    continue;
+                }
+                let t = 0.62 - nx * 0.32 - f * 0.28 + (noise_px(x, y, 0x9119) - 0.5) * 0.2;
+                crown.put(x, y, ramp(&leaf[1..5], t, x, y, 0.7));
+            }
+        }
+    }
+    let crown = crown.outlined(leaf[0]);
+    let mut whole = full.clone();
+    whole.overlay(&crown, 0, 0);
+
+    let split = |art: &PixelArt, palette: u8| -> [PropTile; 3] {
+        std::array::from_fn(|i| PropTile { palette, ground: Ground::Grass, overlay: art.sub(i * 16, 0, 16, 16) })
+    };
+    let mut base = PixelArt::filled(48, 16, 0);
+    shadow_ellipse(&mut base, 26.0, 13.5, 8.0, 2.4);
+    base.overlay(&whole.sub(0, 48, 48, 16), 0, 0);
+    // The tiers' shadow, cast down-right over the row above the foot.
+    let mut shade = PixelArt::filled(48, 16, 0);
+    shadow_ellipse(&mut shade, 27.0, 7.0, 19.0, 6.0);
+    PineArt { upper: whole.sub(0, 0, 48, 48), base: split(&base, PAL_FOLIAGE), shade: split(&shade, PAL_GRASS) }
+}
+
+/// A pine cone fallen in the grass: a short brown egg of scales, lit from
+/// the top-left, over a little shadow.
+pub fn pine_cone() -> PropTile {
+    let bark = foliage::BARK;
+    let mut a = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut a, 8.5, 12.5, 4.0, 1.4);
+    let mut c = PixelArt::filled(16, 16, 0);
+    fill_ellipse(&mut c, 8.0, 9.5, 2.6, 3.4, |x, y, nx, ny| {
+        // Rows of scales: a dark seam under each.
+        let seam = (y + (x % 2)) % 2 == 0 && ny > -0.6;
+        let lit = sphere_light(nx, ny);
+        Some(if seam { bark[1] } else if lit > 0.6 { bark[3] } else { bark[2] })
+    });
+    a.overlay(&c.outlined(bark[0]), 0, 0);
+    PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: a }
+}

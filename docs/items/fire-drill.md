@@ -9,7 +9,7 @@
 
 ゲーム内の説明文:
 
-> A BOW AND SPINDLE. BURNS A BRANCH TO LIGHT A FIRE.
+> A BOW AND SPINDLE. BURNS FUEL TO LIGHT A FIRE.
 
 ## 手に入れ方
 
@@ -17,7 +17,7 @@
 
 ## 使い道
 
-- バッグで LIGHT FIRE を選ぶと、[枯れ枝](branch.md)を1本燃やして目の前に焚き火を起こす。火起こし器は減らない
+- バッグで LIGHT FIRE を選ぶと、燃料を1つ燃やして目の前に焚き火を起こす。燃料は[松ぼっくり](pine-cone.md)があればそれを1個、なければ[枯れ枝](branch.md)を1本。火起こし器は減らない
 
 ## メモ
 

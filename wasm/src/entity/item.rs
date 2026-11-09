@@ -143,6 +143,7 @@ impl Item {
             ItemKind::Shelter => (16, [sprites.shelter_roll; 2], sprites.shadow_player),
             ItemKind::SeaShell => (8, [sprites.sea_shell; 2], sprites.shadow_coconut),
             ItemKind::ShellHook => (8, [sprites.shell_hook; 2], sprites.shadow_coconut),
+            ItemKind::PineCone => (8, [sprites.pine_cone; 2], sprites.shadow_coconut),
             ItemKind::FishingRod => (32, [sprites.rod_side; 2], sprites.shadow_lying),
             ItemKind::Ladder => (32, [sprites.ladder_lying; 2], sprites.shadow_lying),
             ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),

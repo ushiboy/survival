@@ -205,6 +205,7 @@ pub struct BagSprites {
     pub ladder: [SpriteId; 2],
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
+    pub pine_cone: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -252,6 +253,7 @@ impl BagSprites {
             ItemKind::Fish => (self.fish, palettes::OBJ_FX),
             ItemKind::GrilledFish => (self.grilled_fish, palettes::OBJ_CRAB),
             ItemKind::Ladder => (self.ladder[turned as usize], palettes::OBJ_FX),
+            ItemKind::PineCone => (self.pine_cone, palettes::OBJ_CRAB),
         }
     }
 }
@@ -332,6 +334,7 @@ pub struct SpriteIds {
     pub grilled_fish: SpriteId,
     pub sea_shell: SpriteId,
     pub shell_hook: SpriteId,
+    pub pine_cone: SpriteId,
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
@@ -415,6 +418,12 @@ pub struct PropSet {
     pub broadleaf_shade: [PropTile; 3],
     pub broadleaf_base: [[PropTile; 3]; 2],
     pub broadleaf_stump: PropTile,
+    /// A pine's tiers and upper trunk (BG2), 3x3 cells in row-major order;
+    /// their shadow and the trunk's foot on the grass (BG1).
+    pub pine_upper: [MetatileId; 9],
+    pub pine_shade: [PropTile; 3],
+    pub pine_base: [PropTile; 3],
+    pub pine_cone: PropTile,
 }
 
 /// Furthest a canopy shifts (px) when the tree sways.
@@ -459,11 +468,16 @@ fn load_props(vram: &mut Vram) -> PropSet {
         }
     });
     let tree = props::broadleaf();
+    let pine = props::pine();
     PropSet {
         broadleaf_upper: std::array::from_fn(|c| vram.metatiles.add_art(PAL_FOLIAGE, &tree.upper.sub(c % 3 * 16, c / 3 * 16, 16, 16))),
         broadleaf_shade: tree.shade,
         broadleaf_base: tree.base,
         broadleaf_stump: tree.stump,
+        pine_upper: std::array::from_fn(|c| vram.metatiles.add_art(PAL_FOLIAGE, &pine.upper.sub(c % 3 * 16, c / 3 * 16, 16, 16))),
+        pine_shade: pine.shade,
+        pine_base: pine.base,
+        pine_cone: props::pine_cone(),
         boulder: props::boulder(),
         driftwood: props::driftwood(),
         shell: props::shell(),
@@ -521,6 +535,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         shelter: bank.add(&item_art::icon_shelter()),
         sea_shell: bank.add(&item_art::icon_sea_shell()),
         shell_hook: bank.add(&item_art::icon_shell_hook()),
+        pine_cone: bank.add(&item_art::icon_pine_cone()),
         fishing_rod: {
             let r = item_art::icon_fishing_rod();
             [bank.add(&r), bank.add(&r.rotated_cw())]
@@ -605,6 +620,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         sea_shell: bank.add(&item_art::icon_sea_shell()),
         shell_hook: bank.add(&item_art::icon_shell_hook()),
+        pine_cone: bank.add(&item_art::icon_pine_cone()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

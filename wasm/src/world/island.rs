@@ -27,7 +27,7 @@ use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, Terrain};
+use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 
 /// The island's plan, and the cells each of its characters stands for.
@@ -396,14 +396,60 @@ pub fn generate(seed: u32) -> WorldMap {
     let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y);
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
+    place_pine(&mut map);
     place_palms(&mut map, &heights, seed, &near_spawn);
     place_broadleafs(&mut map, &heights, &forest, seed, &near_spawn);
     place_scatter(&mut map, &heights, &forest, seed, &near_spawn);
+    drop_pine_cones(&mut map);
     fill_cliff_feet(&mut map);
     map.set_elevation(heights);
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
     map.loot = scatter_loot(&map, seed);
     map
+}
+
+/// Where the pine above the cliff's recess stands, from the recess's middle
+/// (cells): just right of it, its foot on the row behind the edge, so its
+/// tiers show over the cliff from below.
+const PINE_FROM_RECESS: (i32, i32) = (1, -1);
+
+/// The pine on the high ground above the recess in the north cliff (see
+/// `LOW_CLIFF`): a sign from below of what grows up there. It goes in
+/// before the other trees, which keep clear of it.
+fn place_pine(map: &mut WorldMap) {
+    let Some((x, foot)) = map.spots.ladder else { return };
+    // The edge either side of the recess, a row above its lowered edge.
+    let edge = foot - LOW_CLIFF_HEIGHT - 2;
+    let (bx, by) = (x + PINE_FROM_RECESS.0, edge + PINE_FROM_RECESS.1);
+    let (ax, ay) = (bx - PinePart::W / 2, by - PinePart::H + 1);
+    let fits = (0..PinePart::H).all(|dy| (0..PinePart::W).all(|dx| map.terrain(ax + dx, ay + dy) == Terrain::Highland));
+    if !fits {
+        return;
+    }
+    for dy in 0..PinePart::H {
+        for dx in 0..PinePart::W {
+            map.set_feature(ax + dx, ay + dy, Feature::Pine(PinePart { dx: dx as u8, dy: dy as u8, flip: false }));
+        }
+    }
+}
+
+/// Pine cones fallen from the pine above the recess: a few on the high
+/// ground under it, and one that rolled down the crumbled edge to lie at
+/// the foot of the recess's middle, the only one below the cliff: picking
+/// it up, the castaway looks up and thinks of climbing (see
+/// `Spots::ladder`).
+fn drop_pine_cones(map: &mut WorldMap) {
+    let Some((x, foot)) = map.spots.ladder else { return };
+    let edge = foot - LOW_CLIFF_HEIGHT - 2;
+    let above = [(-1, -1), (-2, -2), (3, -1)].map(|(dx, dy)| (x + dx, edge + dy));
+    for (cx, cy) in above {
+        if map.terrain(cx, cy) == Terrain::Highland && map.feature(cx, cy) == Feature::None {
+            map.set_feature(cx, cy, Feature::PineCone);
+        }
+    }
+    if map.terrain(x, foot) == Terrain::Grass && map.feature(x, foot) == Feature::None {
+        map.set_feature(x, foot, Feature::PineCone);
+    }
 }
 
 /// Fills the inner corners of the stairs a slanting cliff makes: a bare
@@ -610,8 +656,9 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
                         && !map.is_riverside(cx, cy)
                 })
             });
-            let crowded =
-                (-1..=th).any(|dy| (-1..=tw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_) | Feature::Broadleaf(_))));
+            let crowded = (-1..=th).any(|dy| {
+                (-1..=tw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_)))
+            });
             if fits && !crowded {
                 let flip = roll(x, y, seed ^ 0xB41F) < 0.5;
                 map.set_bark((x, y), BARK_STRIPS);

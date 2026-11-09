@@ -139,6 +139,14 @@ const PITCH_TOTAL: u32 = 24;
 /// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
 /// back; then stopping to think.
 const SCRAMBLE_TRY: u32 = 24;
+/// Noticing something (frames): looking up until `NOTICE_LEFT`, left until
+/// `NOTICE_RIGHT`, right until `NOTICE_BACK`, up again until
+/// `NOTICE_LOOKED`; then at most `NOTICE_APPROACH` walking up to the rock.
+const NOTICE_LEFT: u32 = 30;
+const NOTICE_RIGHT: u32 = 60;
+const NOTICE_BACK: u32 = 90;
+const NOTICE_LOOKED: u32 = 110;
+const NOTICE_APPROACH: u32 = 60;
 const SCRAMBLE_TOTAL: u32 = 2 * SCRAMBLE_TRY;
 
 /// Waking up on the beach (frames): lying still, stirring (eyes open and a
@@ -201,6 +209,11 @@ pub enum Action {
     /// Standing a ladder against the cliff face whose foot is at `foot`
     /// (a cell), `rows` cells tall.
     Pitch { t: u32, foot: (i32, i32), rows: i32 },
+    /// Something found has caught the eye (the pine cone fallen at the
+    /// foot of the cliff's recess): looking up, then round about as on
+    /// first coming to; then, if `climb`, stepping up to the rock to try
+    /// scrambling up it.
+    Notice { t: u32, climb: bool },
     /// Fallen where they stood, health spent; there's no getting up.
     Collapsed,
 }
@@ -283,6 +296,9 @@ pub struct Player {
     /// Frames left of the "!" over the head after a recipe came to mind.
     eureka: u32,
     walk_timer: u32,
+    /// What's been picked up has caught the eye: once risen, `Notice`
+    /// (trying to climb, if true).
+    noticing: Option<bool>,
 }
 
 impl Player {
@@ -308,6 +324,7 @@ impl Player {
             torch: None,
             weak: false,
             climbing: false,
+            noticing: None,
             eureka: 0,
             moving: false,
             running: false,
@@ -383,8 +400,18 @@ impl Player {
         }
         if let Action::PickUp { t } = self.action {
             let t = t + 1;
-            self.action = if t >= PICK_TOTAL { Action::Idle } else { Action::PickUp { t } };
+            self.action = if t < PICK_TOTAL {
+                Action::PickUp { t }
+            } else if let Some(climb) = self.noticing.take() {
+                Action::Notice { t: 0, climb }
+            } else {
+                Action::Idle
+            };
             return (t == PICK_GRAB).then_some(Deed::PickUp);
+        }
+        if let Action::Notice { t, climb } = self.action {
+            self.notice(t + 1, climb, map);
+            return None;
         }
         if let Action::Pull { t } = self.action {
             let t = t + 1;
@@ -726,6 +753,54 @@ impl Player {
         if self.is_asleep() {
             self.action = Action::WakeUp { t: WAKE_SIT, end: WAKE_FROM_SLEEP_END };
         }
+    }
+
+    /// Once risen from picking it up, looks up and round at what's been
+    /// noticed (and tries to climb, if `climb`).
+    pub fn notice_after_pickup(&mut self, climb: bool) {
+        self.noticing = Some(climb);
+    }
+
+    /// A frame of `Action::Notice`: looking up at the cliff, left and right
+    /// round about, up again; then walking up to the rock until it's in
+    /// reach, and trying to scramble up it.
+    fn notice(&mut self, t: u32, climb: bool, map: &WorldMap) {
+        self.moving = false;
+        self.running = false;
+        if t < NOTICE_LOOKED {
+            self.facing = match t {
+                0..NOTICE_LEFT => Dir::Up,
+                NOTICE_LEFT..NOTICE_RIGHT => Dir::Left,
+                NOTICE_RIGHT..NOTICE_BACK => Dir::Right,
+                _ => Dir::Up,
+            };
+            self.walk_timer = 0;
+            self.action = Action::Notice { t, climb };
+            return;
+        }
+        self.facing = Dir::Up;
+        if !climb {
+            self.action = Action::Idle;
+            return;
+        }
+        let (rx, ry) = self.reach_point();
+        if matches!(map.ladder_fit(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)), LadderFit::Reaches { .. }) {
+            self.walk_timer = 0;
+            self.action = Action::Scramble { t: 0 };
+            return;
+        }
+        // Step up to the rock, drawn in to the middle of the cell.
+        let (fx, _) = self.body.feet();
+        let middle = fx.div_euclid(TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+        let moved = self.body.move_by((middle - fx).signum() * SPEED_WALK / 2, -SPEED_WALK, 0, &|r| map.is_solid_rect(r));
+        if !moved || t >= NOTICE_LOOKED + NOTICE_APPROACH {
+            self.walk_timer = 0;
+            self.action = Action::Idle;
+            return;
+        }
+        self.moving = true;
+        self.walk_timer += 1;
+        self.action = Action::Notice { t, climb };
     }
 
     /// Stops to think (something here needs what isn't carried).
