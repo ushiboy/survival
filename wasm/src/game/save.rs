@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -45,22 +45,62 @@ const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
 /// side of it, and a clearing in the forest in front): what changed there
 /// in a version 2 save no longer fits the island, so it is dropped.
 fn v2_to_v3(save: &mut Value) {
-    const REDRAWN: (std::ops::Range<i64>, std::ops::Range<i64>) = (54..74, 6..26);
-    let outside = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
-        (Some(x), Some(y)) => !(REDRAWN.0.contains(&x) && REDRAWN.1.contains(&y)),
-        _ => true,
-    };
-    let keep = |list: Option<&mut Value>| {
-        if let Some(Value::Array(entries)) = list {
-            entries.retain(|e| outside(e));
+    drop_changes_in(save, (54..74, 6..26), |_| false);
+}
+
+/// Version 4: the low stretch of the north cliff became a dip in its top
+/// (its edge a row lower, its foot in line with the rest of the cliff),
+/// and the clearing in front of it shrank, so the trees around it were
+/// placed again: what changed there in a version 3 save is dropped. A
+/// ladder stood there moves down the row with the foot, as does anything
+/// lying at the old foot and the castaway standing there.
+fn v3_to_v4(save: &mut Value) {
+    const DIP: (std::ops::Range<i64>, std::ops::Range<i64>) = (62..65, 12..16);
+    const ROW: i64 = 16;
+    let ladder = |e: &Value| e[1].get("Ladder").is_some();
+    if let Some(Value::Array(features)) = save["island"].get_mut("features") {
+        for e in features.iter_mut().filter(|e| ladder(e)) {
+            if let Some(y) = e[0][1].as_i64() {
+                e[0][1] = Value::from(y + 1);
+            }
         }
+    }
+    drop_changes_in(save, (54..80, 10..40), ladder);
+    // From world px to a cell in the dip's old rows, moved down a row.
+    let lower = |at: &mut Value, half: i64| {
+        if let (Some(x), Some(y)) = (at[0].as_i64(), at[1].as_i64())
+            && DIP.0.contains(&((x + half) / ROW))
+            && DIP.1.contains(&((y + half) / ROW))
+        {
+            at[1] = Value::from(y + ROW);
+        }
+    };
+    if let Some(Value::Array(items)) = save["island"].get_mut("items") {
+        for item in items {
+            lower(&mut item["at"], 0);
+        }
+    }
+    lower(&mut save["castaway"]["at"], ROW / 2);
+}
+
+/// Drops the changes to cells in `region` (x, y) kept in a save (features
+/// but those `spare` keeps, fruit, bark, and trees being worked), where
+/// the island was redrawn so they no longer fit it.
+fn drop_changes_in(save: &mut Value, region: (std::ops::Range<i64>, std::ops::Range<i64>), spare: impl Fn(&Value) -> bool) {
+    let outside = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => !(region.0.contains(&x) && region.1.contains(&y)),
+        _ => true,
     };
     let island = &mut save["island"];
     for key in ["features", "fruit", "bark"] {
-        keep(island.get_mut(key));
+        if let Some(Value::Array(entries)) = island.get_mut(key) {
+            entries.retain(|e| outside(e) || (key == "features" && spare(e)));
+        }
     }
     for key in ["damage", "shakes", "picked"] {
-        keep(island["harvest"].get_mut(key));
+        if let Some(Value::Array(entries)) = island["harvest"].get_mut(key) {
+            entries.retain(|e| outside(e));
+        }
     }
 }
 

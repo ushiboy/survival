@@ -83,10 +83,9 @@ const SEA_CURRENT_REACH: f32 = 11.5;
 
 /// Cells a cliff face drops below the high ground's edge, and the low
 /// stretch of the north cliff (a place a ladder could reach the top),
-/// from its left cell, cells wide. The low stretch is a recess in the
-/// cliff: its outer cells' feet slant in from the full-height rock beside
-/// them (see `fill_cliff_feet`), leaving its middle cell to stand a
-/// ladder in.
+/// from its left cell, cells wide. The low stretch is a dip in the
+/// cliff's top: its edge is a row lower than the rock beside it, its foot
+/// in line with the rest, and its middle cell is where a ladder stands.
 const CLIFF_HEIGHT: i32 = 3;
 const LOW_CLIFF: (i32, i32) = (62, 3);
 const LOW_CLIFF_HEIGHT: i32 = 2;
@@ -94,7 +93,7 @@ const LOW_CLIFF_HEIGHT: i32 = 2;
 /// straight (cells), so the recess stands out from the rock around it.
 const LOW_CLIFF_STRAIGHT: i32 = 3;
 /// Radius (cells) of the clearing in the forest in front of the recess.
-const LOW_CLIFF_CLEARING: f32 = 5.5;
+const LOW_CLIFF_CLEARING: f32 = 3.7;
 
 /// Steepest the sea floor may fall below the shallows (height per cell),
 /// and the depth below which that is kept to.
@@ -257,6 +256,11 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
             for y in 0..h / 2 {
                 high[idx(x, y)] = y <= edge;
             }
+        }
+        // The low stretch's edge is a row lower: its face is shorter, and
+        // stands on the same ground as the rest of the cliff.
+        for x in LOW_CLIFF.0..LOW_CLIFF.0 + LOW_CLIFF.1 {
+            high[idx(x, edge + 1)] = true;
         }
     }
     let is_high = |x: i32, y: i32| !map.in_bounds(x, y) || high[idx(x, y)];

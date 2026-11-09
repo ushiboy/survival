@@ -693,7 +693,9 @@ impl Game {
             return;
         }
         self.inventory.settle_hand();
-        let changed = self.map.stand_ladder(foot, rows);
+        let mut changed = self.map.stand_ladder(foot, rows);
+        // Its tops may stick up into the cell above (see `Tileset`).
+        changed.push((foot.0, foot.1 - rows - 1));
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 

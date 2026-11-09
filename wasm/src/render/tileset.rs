@@ -628,7 +628,7 @@ impl Builder<'_> {
     /// the foot. Where the falls come down the face is left open for the
     /// water behind it on BG2.
     fn cliff_face(&mut self, map: &WorldMap, x: i32, y: i32, river: Option<&RiverField>) -> MetatileId {
-        let (row, rows) = face_rows(map, x, y);
+        let (row, rows) = face_rows_drawn(map, x, y);
         // A side opens onto lower ground, unless the rock is carried on
         // into the corner there (see `WorldMap::foot_fill`).
         let open = |dx: i32| {
@@ -639,8 +639,8 @@ impl Builder<'_> {
         let (left, right) = (open(-1), open(1));
         let vx = x.rem_euclid(4);
         let draw = move |px: usize, py: usize| cliff_pixel(row, rows, left, right, wet, vx * 16 + px as i32, py as i32);
-        if let Some(cut) = (row == 1).then(|| crumble(map, x, y)).flatten() {
-            let art = compose(|px, py| crumbled_pixel(cut, vx * 16 + px as i32, py as i32, draw(px, py)));
+        if let Some((cut, oy)) = dip(map, x, y) {
+            let art = compose(|px, py| crumbled_pixel(cut, x * 16 + px as i32, py as i32, oy, draw(px, py)));
             return self.unique_art(PAL_ROCK, &art);
         }
         match river.filter(|r| r.channel.iter().any(|&d| d > 0.0)) {
@@ -657,17 +657,33 @@ impl Builder<'_> {
     /// other sides that drop away.
     fn cliff_top(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
         let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River);
-        let open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
+        let mut open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
         let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        if let Some((cut, 0)) = dip(map, x, y) {
+            return self.unique_art(PAL_ROCK, &lowered_edge_art(cut, x));
+        }
+        let above_dip = dip(map, x, y + 1).filter(|&(_, oy)| oy == 0).map(|(cut, _)| cut);
+        if above_dip.is_some() {
+            // The edge drops to the dip below as it would to a face.
+            open[2] = true;
+        }
         if !open[2] && (open[1] || open[3]) {
             let (left, right) = (open[3], open[1]);
             return self.get(Key::CliffSide { left, right, vx, vy }, |_, bank| {
                 bank.add_art(PAL_ROCK, &compose(|px, py| cliff_side_pixel(left, right, vx * 16 + px as i32, vy * 16 + py as i32)))
             });
         }
-        if let Some(cut) = crumble(map, x, y + 1) {
+        if let Some(cut) = above_dip {
             let mut art = cliff_top_art(self.tex, open, vx, vy);
-            crumble_edge(&mut art, &slice(&self.tex.grass, vx, vy), cut, vx * 16);
+            crumble_edge(&mut art, &slice(&self.tex.grass, vx, vy), cut, x * 16);
+            // A ladder stood in the dip sticks up over its edge to here.
+            if map.is_ladder(x, y + 1) {
+                for py in LADDER_TOP..16 {
+                    for (px, v) in ladder_pixel((py - LADDER_TOP) as i32, LADDER_PALETTE_GRASS) {
+                        art.set(px, py, v);
+                    }
+                }
+            }
             return self.unique_art(PAL_GRASS, &art);
         }
         self.get(Key::CliffTop { open, vx, vy }, |tex, bank| bank.add_art(PAL_GRASS, &cliff_top_art(tex, open, vx, vy)))
@@ -678,13 +694,14 @@ impl Builder<'_> {
     /// cliff's edge (grass palette, in its earth and sand browns).
     fn ladder(&mut self, map: &WorldMap, x: i32, y: i32, part: u8) -> MetatileId {
         let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
-        if part == 0 {
+        let dipped = dip(map, x, y);
+        // Stood in a dip, the ladder's tops stick up from the cell above
+        // its top (see `cliff_top`).
+        let lowered = dip(map, x, y - part as i32).is_some_and(|(_, oy)| oy == 0);
+        if part == 0 && dipped.is_none() {
             let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River);
             let open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
             let mut art = cliff_top_art(self.tex, open, vx, vy);
-            if let Some(cut) = crumble(map, x, y + 1) {
-                crumble_edge(&mut art, &slice(&self.tex.grass, vx, vy), cut, vx * 16);
-            }
             for py in LADDER_TOP..16 {
                 for (px, v) in ladder_pixel((py - LADDER_TOP) as i32, LADDER_PALETTE_GRASS) {
                     art.set(px, py, v);
@@ -692,18 +709,26 @@ impl Builder<'_> {
             }
             return self.unique_art(PAL_GRASS, &art);
         }
-        let (row, rows) = face_rows(map, x, y);
-        let wet = map.terrain(x, y + 1).holds_water() && row == rows;
-        let cut = (row == 1).then(|| crumble(map, x, y)).flatten();
+        // The top of a crumbled cliff is the lowered edge's cell: rock
+        // around the cut, like the top of the full-height face beside it.
+        let (row, rows) = if part == 0 { (1, CLIFF_ROWS) } else { face_rows_drawn(map, x, y) };
+        let wet = part > 0 && map.terrain(x, y + 1).holds_water() && row == rows;
         let art = compose(|px, py| {
-            let fy = (row - 1) * 16 + py as i32;
-            let rock = cliff_pixel(row, rows, false, false, wet, vx * 16 + px as i32, py as i32);
-            let rock = cut.map_or(rock, |cut| crumbled_pixel(cut, vx * 16 + px as i32, py as i32, rock));
+            let wx = vx * 16 + px as i32;
+            let rock = cliff_pixel(row, rows, false, false, wet, wx, py as i32);
+            let rock = dipped.map_or(rock, |(cut, oy)| crumbled_pixel(cut, x * 16 + px as i32, py as i32, oy, rock));
             // The poles and rungs (with a shadow on the rock to their
-            // right and below), running on from the top's.
-            let at = 16 - LADDER_TOP as i32 + fy;
+            // right and below), from the tops down.
+            let at = (part as i32 + lowered as i32) * 16 + py as i32 - LADDER_TOP as i32;
+            if at < 0 {
+                return rock;
+            }
             ladder_pixel(at, LADDER_PALETTE_ROCK).find(|&(lx, _)| lx == px).map_or_else(
-                || if ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px) || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px) { rock::STONE[0] } else { rock },
+                || {
+                    let shade = ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px)
+                        || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px);
+                    if shade && rock != 0 { rock::STONE[0] } else { rock }
+                },
                 |(_, v)| v,
             )
         });
@@ -782,43 +807,93 @@ fn cliff_top_art(tex: &TerrainTextures, open: [bool; 4], vx: i32, vy: i32) -> Pi
     })
 }
 
-/// How deep (px) the grass sinks into the top of a low cliff face where
-/// it has crumbled, in the middle of the cut.
+/// How deep (px) the grass sinks where the top of a low cliff has
+/// crumbled, in the middle of the cut, from the top of the lowered edge's
+/// cell (the edge is a row lower there, drawn as the top of the rock
+/// beside it, so the cut looks only this deep).
 const CRUMBLE_DEPTH: f32 = 13.0;
 
-/// Where the top of a cliff face has crumbled away: a face low enough for
-/// a ladder (the recess in the north cliff) is cut down into bare earth
-/// from the edge above. `(x, y)` is the face's top cell; the result is how
-/// much of the cut there is at the cell's left and right (0 at an end of
-/// the recess, beside full-height rock, so the cut slants in from there;
-/// 1 across its middle). `None` for a full-height face.
-fn crumble(map: &WorldMap, x: i32, y: i32) -> Option<(f32, f32)> {
-    let low = |x: i32| map.terrain(x, y) == Terrain::Cliff && face_rows(map, x, y).1 <= LADDER_ROWS;
-    if !low(x) || map.terrain(x, y - 1) != Terrain::CliffTop {
-        return None;
+/// Where the top of a low cliff has crumbled, as the world px its flat
+/// bottom runs from and to; the cut slants up from there over
+/// `CRUMBLE_SLANT` px either side.
+type Cut = (i32, i32);
+
+/// How wide (px) each slanting end of a crumbled cut is.
+const CRUMBLE_SLANT: f32 = 16.0;
+
+/// Whether the cell is the lowered edge of a low cliff face: the face
+/// below it is short enough for a ladder (the recess in the north cliff),
+/// and its edge sits a row below the full-height rock's beside it.
+fn lowered(map: &WorldMap, x: i32, y: i32) -> bool {
+    map.terrain(x, y) == Terrain::CliffTop
+        && map.terrain(x, y + 1) == Terrain::Cliff
+        && face_rows(map, x, y + 1).1 <= LADDER_ROWS
+}
+
+/// The cut a cell in the row of a lowered edge lies in, if any: across the
+/// lowered cells, its flat bottom inset half a cell from their ends so its
+/// slants reach half a cell into the full-height rock either side.
+fn cut_at(map: &WorldMap, x: i32, y: i32) -> Option<Cut> {
+    let at = [x, x - 1, x + 1].into_iter().find(|&c| lowered(map, c, y))?;
+    let (mut l, mut r) = (at, at);
+    while lowered(map, l - 1, y) {
+        l -= 1;
     }
-    let side = |dx: i32| if map.terrain(x + dx, y) == Terrain::Cliff && !low(x + dx) { 0.0 } else { 1.0 };
-    Some((side(-1), side(1)))
+    while lowered(map, r + 1, y) {
+        r += 1;
+    }
+    Some((l * 16 + 8, (r + 1) * 16 - 8))
 }
 
-/// How much of the cut there is across a cell, `wx` px along the face.
-fn crumble_amount((left, right): (f32, f32), wx: i32) -> f32 {
-    let t = (wx.rem_euclid(16) as f32 + 0.5) / 16.0;
-    left + (right - left) * t
+/// The cells of a crumbled cliff top: those in the lowered edge's row (0),
+/// or in the row below it (16), with the cut and the cell's offset (px)
+/// from the top of the cut.
+fn dip(map: &WorldMap, x: i32, y: i32) -> Option<(Cut, i32)> {
+    if let Some(cut) = cut_at(map, x, y) {
+        return Some((cut, 0));
+    }
+    if map.terrain(x, y) == Terrain::Cliff {
+        return cut_at(map, x, y - 1).map(|cut| (cut, 16));
+    }
+    None
 }
 
-/// How far down the top cell of a crumbled face the bare earth of the cut
-/// reaches, `wx` px along the face (px from the cell's top).
-fn crumble_depth(cut: (f32, f32), wx: i32) -> f32 {
+/// Rows of a full-height cliff face.
+const CLIFF_ROWS: i32 = 3;
+
+/// The lowered edge's cell of a crumbled cliff top (rock palette): the top
+/// of the full-height face beside it, cut away where the grass has sunk.
+fn lowered_edge_art(cut: Cut, x: i32) -> PixelArt {
+    let vx = x.rem_euclid(4);
+    compose(|px, py| {
+        let rock = cliff_pixel(1, CLIFF_ROWS, false, false, false, vx * 16 + px as i32, py as i32);
+        crumbled_pixel(cut, x * 16 + px as i32, py as i32, 0, rock)
+    })
+}
+
+/// The rows a cliff face is drawn as: a low face below a lowered edge
+/// carries on the courses of the full-height rock beside it.
+fn face_rows_drawn(map: &WorldMap, x: i32, y: i32) -> (i32, i32) {
+    let (row, rows) = face_rows(map, x, y);
+    if lowered(map, x, y - row) { (row + 1, rows + 1) } else { (row, rows) }
+}
+
+/// How much of the cut there is at world px `wx` (0 outside it, 1 across
+/// its flat bottom).
+fn crumble_amount((a, b): Cut, wx: i32) -> f32 {
+    let x = wx as f32 + 0.5;
+    ((x - (a as f32 - CRUMBLE_SLANT)).min(b as f32 + CRUMBLE_SLANT - x) / CRUMBLE_SLANT).clamp(0.0, 1.0)
+}
+
+/// How far down from the top of the lowered edge's cell the cut reaches,
+/// at world px `wx`.
+fn crumble_depth(cut: Cut, wx: i32) -> f32 {
     crumble_depth_beside(cut, wx, 0)
 }
 
-/// `crumble_depth` `dx` px along from `wx`, carrying the cell's slant on
-/// past its sides (none beyond a slanting end).
-fn crumble_depth_beside((left, right): (f32, f32), wx: i32, dx: i32) -> f32 {
-    let t = ((wx.rem_euclid(16) + dx) as f32 + 0.5) / 16.0;
-    let a = (left + (right - left) * t).clamp(0.0, 1.0);
-    a * (CRUMBLE_DEPTH + (noise_px((wx + dx).div_euclid(2), 0, 0xC2B1) - 0.5) * 3.0)
+/// `crumble_depth` `dx` px along from `wx`.
+fn crumble_depth_beside(cut: Cut, wx: i32, dx: i32) -> f32 {
+    crumble_amount(cut, wx + dx) * (CRUMBLE_DEPTH + (noise_px((wx + dx).div_euclid(2), 0, 0xC2B1) - 0.5) * 3.0)
 }
 
 /// How wide (px) the side of the high ground shows along each slanting
@@ -831,11 +906,12 @@ const CRUMBLE_SHADOW: i32 = 12;
 /// transparent where the grass has sunk into the cut (drawn on BG2, see
 /// `crumbled_grass`), then roots hanging out from under the turf over the
 /// rock (`rock`) below.
-fn crumbled_pixel(cut: (f32, f32), wx: i32, py: i32, rock: u8) -> u8 {
+fn crumbled_pixel(cut: Cut, wx: i32, py: i32, oy: i32, rock: u8) -> u8 {
     let depth = crumble_depth(cut, wx);
     if depth <= 0.0 {
         return rock;
     }
+    let py = py + oy;
     let y = py as f32 + 0.5;
     let b = bayer(wx, py);
     if y < depth {
@@ -843,6 +919,12 @@ fn crumbled_pixel(cut: (f32, f32), wx: i32, py: i32, rock: u8) -> u8 {
         // cut shows as a strip of rock: in shadow on the left (facing away
         // from the light), lit on the right.
         let outside = |dx: i32| crumble_depth_beside(cut, wx, dx) <= y;
+        // Right under the edge above, the strips are in its shadow like the
+        // rock beside them, so they don't stick up past its line.
+        let wall = (1..=CRUMBLE_WALL).any(|k| outside(-k) || outside(k));
+        if wall && (y < 3.0 || (y < 5.0 && b < 0.5)) {
+            return rock;
+        }
         if (1..=CRUMBLE_WALL).any(|k| outside(-k)) {
             return rock::STONE[0];
         }
@@ -867,7 +949,7 @@ fn crumbled_pixel(cut: (f32, f32), wx: i32, py: i32, rock: u8) -> u8 {
 /// The high ground's edge cell above a crumbled face (grass palette):
 /// where the cut is, its dark overhanging lip gives way to grass running
 /// on down into the cut (fading back in toward the cut's slanting ends).
-fn crumble_edge(art: &mut PixelArt, g: &PixelArt, cut: (f32, f32), x0: i32) {
+fn crumble_edge(art: &mut PixelArt, g: &PixelArt, cut: Cut, x0: i32) {
     for px in 0..16 {
         let a = crumble_amount(cut, x0 + px as i32);
         for py in 0..16 {
@@ -879,10 +961,11 @@ fn crumble_edge(art: &mut PixelArt, g: &PixelArt, cut: (f32, f32), x0: i32) {
             // edge slanting on up from the shadow on the grass below): the
             // lip stays dark instead of giving way to grass.
             let edge = 15.0 - 1.25 * up + bayer(x0 + px as i32, py as i32) * 3.0;
-            let in_shadow = cut.0 < cut.1 && (px as f32) < edge;
+            let along = (x0 + px as i32 - cut.0) as f32 + CRUMBLE_SLANT;
+            let in_shadow = (0.0..edge).contains(&along);
             if in_shadow && up < 6.0 {
                 let v = art.get(px, py);
-                if up < 6.0 * a || v == grass::RAMP[1] || v == grass::SOIL {
+                if v == grass::RAMP[0] || v == grass::RAMP[1] || v == grass::SOIL {
                     art.set(px, py, if bayer(x0 + px as i32, py as i32) < 0.75 { grass::RAMP[0] } else { grass::RAMP[1] });
                 }
             } else if up < 6.0 * a {
@@ -904,16 +987,17 @@ fn crumble_edge(art: &mut PixelArt, g: &PixelArt, cut: (f32, f32), x0: i32) {
 /// palette, on BG2 under the face's transparent pixels): the high ground's
 /// grass running on down, darkening as it slopes away toward its front,
 /// where the turf's dark edge overhangs the rock.
-fn crumbled_grass(tex: &TerrainTextures, cut: (f32, f32), vx: i32, vy: i32) -> PixelArt {
-    let g = slice(&tex.grass, vx, vy);
+fn crumbled_grass(tex: &TerrainTextures, cut: Cut, oy: i32, x: i32, y: i32) -> PixelArt {
+    let g = slice(&tex.grass, x, y);
     let r = grass::RAMP;
     compose(|px, py| {
-        let wx = vx * 16 + px as i32;
+        let wx = x * 16 + px as i32;
+        let fy = py as i32 + oy;
         let depth = crumble_depth(cut, wx);
-        let up = depth - (py as f32 + 0.5);
-        let b = bayer(wx, py as i32);
+        let up = depth - (fy as f32 + 0.5);
+        let b = bayer(wx, fy);
         // The shadow the left side of the cut casts on the grass beside it.
-        let y = py as f32 + 0.5;
+        let y = fy as f32 + 0.5;
         let shadowed = |k: i32| crumble_depth_beside(cut, wx, -k) <= y;
         if up > 0.0 {
             // How far from the side (px): darkest against it, fading out.
@@ -1433,8 +1517,8 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
             },
         },
     };
-    if let Some(cut) = crumble(map, x, y).filter(|_| overhead.is_empty()) {
-        overhead = BgCell::new(b.unique_art(PAL_GRASS, &crumbled_grass(b.tex, cut, x.rem_euclid(4), y.rem_euclid(4))));
+    if let Some((cut, oy)) = dip(map, x, y).filter(|&(_, oy)| oy == 0 && overhead.is_empty()) {
+        overhead = BgCell::new(b.unique_art(PAL_GRASS, &crumbled_grass(b.tex, cut, oy, x, y)));
     }
     if let Some(r) = river.filter(|r| r.max > 0.0 && overhead.is_empty()) {
         overhead = BgCell { tile: b.river_water(map, &r, x, y), hflip: false, high: false };
