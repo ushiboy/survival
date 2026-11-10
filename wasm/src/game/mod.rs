@@ -231,7 +231,7 @@ impl Game {
             Gull::new((sx - 80.0, sy + 10.0), (90.0, 70.0), -0.008, 2.0),
         ];
         if let Some(s) = save {
-            regions.restore(&s.island.asleep_since, clock.total_minutes());
+            regions.restore(&s.island.asleep_since);
         }
         let mut game = Self {
             assets,

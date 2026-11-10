@@ -42,12 +42,13 @@ impl Regions {
         }).collect()
     }
 
-    /// Puts the chunks to sleep as saved, those awake then as of `now` (they
-    /// wake again straight away, having slept no time). A save for another
-    /// size of island leaves things as they are.
-    pub fn restore(&mut self, since: &[Option<u32>], now: u32) {
+    /// Puts the chunks back as saved: asleep since when they fell asleep,
+    /// awake if they were (the next `update` lets any left behind sleep, as
+    /// it would have). A save for another size of island leaves things as
+    /// they are.
+    pub fn restore(&mut self, since: &[Option<u32>]) {
         if since.len() == self.state.len() {
-            self.state = since.iter().map(|s| State::Asleep(s.unwrap_or(now))).collect();
+            self.state = since.iter().map(|s| s.map_or(State::Awake, State::Asleep)).collect();
         }
     }
 
