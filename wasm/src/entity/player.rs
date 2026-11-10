@@ -133,6 +133,8 @@ const PULL_TOTAL: u32 = 26;
 
 /// Standing a ladder against a cliff (frames): lift it, and it's set
 /// against the rock on `PITCH_SET`.
+/// Longest (frames) stepping over to where a ladder goes may take.
+const TO_LADDER_FRAMES: u32 = 90;
 const PITCH_SET: u32 = 12;
 const PITCH_TOTAL: u32 = 24;
 /// Trying to scramble up a rock face too tall to climb bare-handed
@@ -206,6 +208,10 @@ pub enum Action {
     /// Grabbing at a low rock face and trying to haul up it, sliding back
     /// down; it ends in thought.
     Scramble { t: u32 },
+    /// Stepping sideways to stand under the cliff face whose foot is at
+    /// `foot` (a cell), to pitch a ladder there (`Pitch`); `t` counts
+    /// frames.
+    ToLadder { t: u32, foot: (i32, i32), rows: i32 },
     /// Standing a ladder against the cliff face whose foot is at `foot`
     /// (a cell), `rows` cells tall.
     Pitch { t: u32, foot: (i32, i32), rows: i32 },
@@ -475,6 +481,10 @@ impl Player {
             }
             return None;
         }
+        if let Action::ToLadder { t, foot, rows } = self.action {
+            self.step_to_ladder(t + 1, foot, rows, map);
+            return None;
+        }
         if let Action::Pitch { t, foot, rows } = self.action {
             let t = t + 1;
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Pitch { t, foot, rows } };
@@ -506,11 +516,13 @@ impl Player {
                 ItemKind::FishingRod => Action::Cast { t: 0 },
                 // A ladder is stood against the rock face ahead, where it
                 // reaches the top.
+                // Held anywhere along a low stretch of rock, it goes where it
+                // reaches: the castaway steps over there first.
                 ItemKind::Ladder => {
                     let (rx, ry) = self.reach_point();
-                    let fit = if self.facing == Dir::Up { map.ladder_fit(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)) } else { LadderFit::No };
+                    let fit = if self.facing == Dir::Up { map.ladder_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)) } else { LadderFit::No };
                     match fit {
-                        LadderFit::Reaches { foot, rows } => Action::Pitch { t: 0, foot, rows },
+                        LadderFit::Reaches { foot, rows } => Action::ToLadder { t: 0, foot, rows },
                         LadderFit::No => return None,
                     }
                 }
@@ -574,7 +586,7 @@ impl Player {
             // A rock face a ladder would reach: try to scramble up it
             // bare-handed (there's no ladder in hand), and fail.
             let face = (rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE));
-            if self.facing == Dir::Up && tool != Some(ItemKind::Ladder) && matches!(map.ladder_fit(face.0, face.1), LadderFit::Reaches { .. }) {
+            if self.facing == Dir::Up && tool != Some(ItemKind::Ladder) && matches!(map.ladder_spot(face.0, face.1), LadderFit::Reaches { .. }) {
                 self.action = Action::Scramble { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
@@ -784,7 +796,7 @@ impl Player {
             return;
         }
         let (rx, ry) = self.reach_point();
-        if matches!(map.ladder_fit(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)), LadderFit::Reaches { .. }) {
+        if matches!(map.ladder_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)), LadderFit::Reaches { .. }) {
             self.walk_timer = 0;
             self.action = Action::Scramble { t: 0 };
             return;
@@ -801,6 +813,37 @@ impl Player {
         self.moving = true;
         self.walk_timer += 1;
         self.action = Action::Notice { t, climb };
+    }
+
+    /// A frame of `Action::ToLadder`: walking sideways until the feet are
+    /// in the middle of the column of the face at `foot`, then turning to
+    /// the rock to pitch the ladder. Stopped by something in the way (or
+    /// taking too long), the ladder isn't pitched.
+    fn step_to_ladder(&mut self, t: u32, foot: (i32, i32), rows: i32, map: &WorldMap) {
+        let (fx, _) = self.body.feet();
+        let middle = foot.0 * TILE_SIZE + TILE_SIZE / 2;
+        if fx == middle {
+            self.facing = Dir::Up;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Pitch { t: 0, foot, rows };
+            return;
+        }
+        let step = (middle - fx).clamp(-1, 1);
+        // The last pixel exactly, so the feet land on the middle.
+        let dx = if (middle - fx).abs() * 256 < SPEED_WALK { (middle - fx) * 256 - self.body.x.rem_euclid(256) } else { step * SPEED_WALK };
+        let moved = self.body.move_by(dx, 0, 0, &|r| map.is_solid_rect(r));
+        if !moved || t > TO_LADDER_FRAMES {
+            self.facing = Dir::Up;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Idle;
+            return;
+        }
+        self.facing = if step < 0 { Dir::Left } else { Dir::Right };
+        self.moving = true;
+        self.walk_timer += 1;
+        self.action = Action::ToLadder { t, foot, rows };
     }
 
     /// Stops to think (something here needs what isn't carried).
@@ -1426,4 +1469,76 @@ fn facing_for(current: Dir, ax: i32, ay: i32) -> Dir {
 fn is_water(map: &WorldMap, (x, y): (i32, i32)) -> bool {
     let (cx, cy) = (x.div_euclid(crate::world::TILE_SIZE), y.div_euclid(crate::world::TILE_SIZE));
     (0..map.width()).contains(&cx) && (0..map.height()).contains(&cy) && map.terrain(cx, cy).holds_water()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::island;
+
+    /// The island, and the ground cell at the foot of its low cliff's
+    /// middle (where a ladder stands).
+    fn island_and_foot() -> (WorldMap, (i32, i32)) {
+        let map = island::generate(1);
+        let foot = map.spots.ladder.expect("the island has a low cliff");
+        (map, foot)
+    }
+
+    /// A castaway standing in the cell `(x, y)`, facing the rock above.
+    fn facing_the_rock_at(x: i32, y: i32) -> Player {
+        let mut p = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
+        // Into the middle of the cell, wherever the hitbox sits.
+        let (fx, fy) = p.body.feet();
+        p.body.move_by((x * TILE_SIZE + 8 - fx) * 256, (y * TILE_SIZE + 10 - fy) * 256, 0, &|_| false);
+        assert_eq!(p.body.feet().0.div_euclid(TILE_SIZE), x);
+        assert_eq!(p.body.feet().1.div_euclid(TILE_SIZE), y);
+        p.facing = Dir::Up;
+        p
+    }
+
+    /// Presses `button` once with `tool` in hand, then lets the castaway
+    /// carry on for up to `frames` frames; what was done to the world.
+    fn press(p: &mut Player, map: &WorldMap, button: u16, tool: Option<ItemKind>, frames: u32) -> Vec<Deed> {
+        let mut input = InputState::default();
+        let situation = Situation { tool, ..Situation::default() };
+        let mut deeds = Vec::new();
+        for f in 0..frames {
+            input.update(if f == 0 { button } else { 0 });
+            deeds.extend(p.update(&input, map, situation));
+        }
+        deeds
+    }
+
+    #[test]
+    fn a_ladder_pitched_anywhere_under_the_recess_stands_in_its_middle() {
+        let (map, (x, y)) = island_and_foot();
+        for dx in -1..=1 {
+            let mut p = facing_the_rock_at(x + dx, y);
+            let deeds = press(&mut p, &map, Buttons::B, Some(ItemKind::Ladder), 240);
+            let stood: Vec<_> = deeds.iter().filter_map(|d| if let Deed::StandLadder(foot, _) = d { Some(*foot) } else { None }).collect();
+            assert_eq!(stood, vec![(x, y - 1)], "pitched from {dx} cells off the middle");
+            assert_eq!(p.body.feet().0.div_euclid(TILE_SIZE), x, "the castaway steps over to the middle to pitch it");
+        }
+    }
+
+    #[test]
+    fn a_ladder_wont_go_against_the_full_height_rock_beside_the_recess() {
+        let (map, (x, y)) = island_and_foot();
+        for dx in [-2, 2] {
+            let mut p = facing_the_rock_at(x + dx, y);
+            let deeds = press(&mut p, &map, Buttons::B, Some(ItemKind::Ladder), 240);
+            assert!(!deeds.iter().any(|d| matches!(d, Deed::StandLadder(..))), "{dx} cells off the middle");
+            assert_eq!(p.action, Action::Idle);
+        }
+    }
+
+    #[test]
+    fn trying_to_climb_anywhere_under_the_recess_without_a_ladder_scrambles() {
+        let (map, (x, y)) = island_and_foot();
+        for dx in -1..=1 {
+            let mut p = facing_the_rock_at(x + dx, y);
+            press(&mut p, &map, Buttons::A, None, 1);
+            assert!(matches!(p.action, Action::Scramble { .. }), "{dx} cells off the middle");
+        }
+    }
 }

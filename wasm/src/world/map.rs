@@ -231,6 +231,36 @@ impl WorldMap {
         if lands && rows <= LADDER_ROWS { LadderFit::Reaches { foot: (x, y), rows } } else { LadderFit::No }
     }
 
+    /// Where a ladder held to the rock face at the cell (x, y) would go:
+    /// against that face if it reaches the top there (`ladder_fit`), or
+    /// else, anywhere along a stretch of rock low enough for a ladder (the
+    /// recess in the north cliff), at the one place in that stretch where
+    /// it reaches (the middle).
+    pub fn ladder_spot(&self, x: i32, y: i32) -> LadderFit {
+        if let fit @ LadderFit::Reaches { .. } = self.ladder_fit(x, y) {
+            return fit;
+        }
+        // A cell at the foot of a face no taller than a ladder.
+        let low = |x: i32| {
+            self.terrain(x, y) == Terrain::Cliff
+                && self.terrain(x, y + 1) != Terrain::Cliff
+                && (0..=LADDER_ROWS).any(|k| self.terrain(x, y - k) != Terrain::Cliff)
+        };
+        if !low(x) {
+            return LadderFit::No;
+        }
+        for dir in [-1, 1] {
+            let mut cx = x + dir;
+            while low(cx) {
+                if let fit @ LadderFit::Reaches { .. } = self.ladder_fit(cx, y) {
+                    return fit;
+                }
+                cx += dir;
+            }
+        }
+        LadderFit::No
+    }
+
     /// Stands a ladder against the face whose foot is at `foot`, `rows`
     /// cells tall, up to the edge above. Returns the cells it covers.
     pub fn stand_ladder(&mut self, foot: (i32, i32), rows: i32) -> Vec<(i32, i32)> {
