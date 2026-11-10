@@ -348,3 +348,182 @@ impl Default for Inventory {
         Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOUR: u32 = 60;
+
+    fn pass(v: &mut Vitals, minutes: u32, rest: Rest) {
+        for _ in 0..minutes {
+            v.on_minute(rest);
+        }
+    }
+
+    /// A castaway worn by a long day awake, but fed and watered.
+    fn tired_out() -> Vitals {
+        let mut v = Vitals::new();
+        pass(&mut v, 16 * HOUR, Rest::Awake);
+        v.eat(Vitals::MAX);
+        v.drink(Vitals::MAX);
+        v
+    }
+
+    #[test]
+    fn the_clock_rolls_over_into_the_next_day() {
+        let mut c = GameClock::new(1, 23);
+        c.advance_minutes(90);
+        assert_eq!((c.day, c.hour_minute()), (2, (0, 30)));
+    }
+
+    #[test]
+    fn a_minute_passes_every_so_many_frames() {
+        let mut c = GameClock::new(1, 7);
+        let ticks: Vec<bool> = (0..FRAMES_PER_MINUTE * 2).map(|_| c.tick()).collect();
+        assert_eq!(ticks.iter().filter(|&&t| t).count(), 2);
+        assert!(ticks[FRAMES_PER_MINUTE as usize - 1]);
+        assert_eq!(c.hour_minute(), (7, 2));
+    }
+
+    #[test]
+    fn total_minutes_count_across_days() {
+        let mut c = GameClock::new(1, 0);
+        let before = c.total_minutes();
+        c.advance_minutes(25 * HOUR);
+        assert_eq!(c.total_minutes() - before, 25 * HOUR);
+    }
+
+    #[test]
+    fn a_day_awake_wears_health_hunger_and_thirst() {
+        let mut v = Vitals::new();
+        pass(&mut v, 4 * HOUR, Rest::Awake);
+        assert!(v.hp < v.max_hp);
+        assert!(v.food < Vitals::MAX);
+        assert!(v.water < Vitals::MAX);
+        assert!(v.water < v.food, "thirst comes faster than hunger");
+    }
+
+    #[test]
+    fn hunger_and_thirst_grow_slower_asleep_and_slower_still_sheltered() {
+        let used = |rest| {
+            let mut v = Vitals::new();
+            pass(&mut v, 8 * HOUR, rest);
+            (Vitals::MAX - v.food, Vitals::MAX - v.water)
+        };
+        let (awake, asleep, sheltered) = (used(Rest::Awake), used(Rest::Asleep), used(Rest::Sheltered));
+        assert!(asleep.0 < awake.0 && asleep.1 < awake.1);
+        assert!(sheltered.0 <= asleep.0 && sheltered.1 < asleep.1);
+    }
+
+    #[test]
+    fn sleep_mends_health_and_a_shelter_mends_it_faster() {
+        let slept = |rest| {
+            let mut v = tired_out();
+            pass(&mut v, 2 * HOUR, rest);
+            v.hp
+        };
+        let before = tired_out().hp;
+        assert!(slept(Rest::Asleep) > before);
+        assert!(slept(Rest::Sheltered) > slept(Rest::Asleep));
+    }
+
+    #[test]
+    fn a_night_fed_and_watered_mends_health_fully() {
+        let mut v = tired_out();
+        pass(&mut v, 10 * HOUR, Rest::Sheltered);
+        assert_eq!(v.hp, v.max_hp);
+    }
+
+    #[test]
+    fn hungry_sleep_only_makes_up_for_being_tired() {
+        let mut fed = tired_out();
+        let mut hungry = tired_out();
+        hungry.food = 0;
+        pass(&mut fed, 10 * HOUR, Rest::Asleep);
+        pass(&mut hungry, 10 * HOUR, Rest::Asleep);
+        assert_eq!(fed.hp, fed.max_hp);
+        assert!(hungry.hp < hungry.max_hp);
+    }
+
+    #[test]
+    fn going_without_water_wears_health_faster_than_without_food() {
+        // Each hour the castaway eats and drinks what they aren't going without.
+        let lost = |food: bool, water: bool| {
+            let mut v = Vitals::new();
+            for _ in 0..12 {
+                v.food = if food { Vitals::MAX } else { 0 };
+                v.water = if water { Vitals::MAX } else { 0 };
+                pass(&mut v, HOUR, Rest::Awake);
+            }
+            v.max_hp - v.hp
+        };
+        let (fine, no_food, no_water) = (lost(true, true), lost(false, true), lost(true, false));
+        assert!(no_food > fine);
+        assert!(no_water > no_food);
+    }
+
+    #[test]
+    fn health_running_out_is_a_collapse() {
+        let mut v = Vitals::new();
+        v.water = 0;
+        v.food = 0;
+        for _ in 0..10 * 24 * HOUR {
+            if v.collapsed() {
+                break;
+            }
+            v.on_minute(Rest::Awake);
+        }
+        assert!(v.collapsed());
+        assert!(v.starving());
+    }
+
+    #[test]
+    fn eating_and_drinking_fill_up_to_the_top() {
+        let mut v = Vitals::new();
+        v.food = 10;
+        v.water = 10;
+        v.eat(5);
+        v.drink(5);
+        assert_eq!((v.food, v.water), (15, 15));
+        v.eat(Vitals::MAX);
+        v.drink(Vitals::MAX);
+        assert_eq!((v.food, v.water), (Vitals::MAX, Vitals::MAX));
+    }
+
+    #[test]
+    fn healing_works_only_when_fed_and_watered() {
+        let mut v = Vitals::new();
+        v.hp = 10;
+        v.water = 0;
+        v.heal(8);
+        assert_eq!(v.hp, 10);
+        v.drink(1);
+        v.heal(8);
+        assert!(v.hp > 10);
+        v.heal(Vitals::MAX);
+        assert_eq!(v.hp, v.max_hp);
+    }
+
+    #[test]
+    fn a_torch_burns_low_then_out() {
+        let mut inv = Inventory::default();
+        inv.light_torch(100);
+        assert!(inv.torch_lit() && !inv.torch_dying(100));
+        let end = 100 + TORCH_BURN_MINUTES;
+        assert!(inv.torch_dying(end - 1));
+        inv.tend_torch(end - 1);
+        assert!(inv.torch_lit());
+        inv.tend_torch(end);
+        assert!(!inv.torch_lit());
+    }
+
+    #[test]
+    fn lighting_a_torch_again_makes_it_burn_the_full_time() {
+        let mut inv = Inventory::default();
+        inv.light_torch(0);
+        inv.light_torch(TORCH_BURN_MINUTES - 10);
+        inv.tend_torch(TORCH_BURN_MINUTES);
+        assert!(inv.torch_lit());
+    }
+}

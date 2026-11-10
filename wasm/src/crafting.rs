@@ -112,3 +112,112 @@ impl RecipeBook {
         self.fresh.fill(false);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn index(makes: ItemKind) -> usize {
+        RECIPES.iter().position(|r| r.makes == makes).unwrap()
+    }
+
+    fn carrying(kinds: &[ItemKind]) -> impl Fn(ItemKind) -> bool + '_ {
+        move |k| kinds.contains(&k)
+    }
+
+    #[test]
+    fn nothing_comes_to_mind_at_first() {
+        assert!(RecipeBook::default().listed().is_empty());
+    }
+
+    #[test]
+    fn a_recipe_comes_to_mind_when_one_of_each_material_is_carried() {
+        // A stone knife takes two stones, but one is enough to think of it.
+        let mut book = RecipeBook::default();
+        assert!(book.notice(carrying(&[ItemKind::Stone])));
+        assert!(book.listed().contains(&index(ItemKind::StoneKnife)));
+    }
+
+    #[test]
+    fn a_recipe_does_not_come_to_mind_with_some_materials_missing() {
+        // A stone axe takes a stone, a rope and a branch.
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Stone, ItemKind::Branch]));
+        assert!(!book.listed().contains(&index(ItemKind::StoneAxe)));
+        book.notice(carrying(&[ItemKind::Rope]));
+        assert!(!book.listed().contains(&index(ItemKind::StoneAxe)), "the materials must be carried at once");
+        book.notice(carrying(&[ItemKind::Stone, ItemKind::Rope, ItemKind::Branch]));
+        assert!(book.listed().contains(&index(ItemKind::StoneAxe)));
+    }
+
+    #[test]
+    fn tools_and_the_fire_are_not_needed_to_think_of_a_recipe() {
+        // Grilled crab needs a knife and a fire; the crab alone brings it to mind.
+        let grilled = &RECIPES[index(ItemKind::GrilledCrab)];
+        assert!(!grilled.tools.is_empty() && grilled.at_fire);
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Crab]));
+        assert!(book.listed().contains(&index(ItemKind::GrilledCrab)));
+    }
+
+    #[test]
+    fn a_recipe_once_thought_of_stays_known() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Stone]));
+        book.notice(carrying(&[]));
+        assert!(book.listed().contains(&index(ItemKind::StoneKnife)));
+    }
+
+    #[test]
+    fn noticing_says_whether_anything_new_came_to_mind() {
+        let mut book = RecipeBook::default();
+        assert!(book.notice(carrying(&[ItemKind::Stone])));
+        assert!(!book.notice(carrying(&[ItemKind::Stone])));
+    }
+
+    #[test]
+    fn a_new_recipe_is_fresh_until_looked_at() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Stone]));
+        let i = index(ItemKind::StoneKnife);
+        assert!(book.is_fresh(i));
+        book.looked_at(i);
+        assert!(!book.is_fresh(i));
+        book.notice(carrying(&[ItemKind::Stone]));
+        assert!(!book.is_fresh(i), "thinking of it again doesn't make it fresh");
+    }
+
+    #[test]
+    fn known_recipes_are_listed_in_recipe_order() {
+        let mut book = RecipeBook::default();
+        book.learn_all();
+        assert_eq!(book.listed(), (0..RECIPES.len()).collect::<Vec<_>>());
+        assert!((0..RECIPES.len()).all(|i| !book.is_fresh(i)));
+    }
+
+    #[test]
+    fn a_saved_book_keeps_recipes_by_what_they_make() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Stone]));
+        book.looked_at(index(ItemKind::StoneKnife));
+        let json: serde_json::Value = serde_json::to_value(&book).unwrap();
+        assert!(json["known"].as_array().unwrap().contains(&serde_json::json!("StoneKnife")));
+        assert!(!json["fresh"].as_array().unwrap().contains(&serde_json::json!("StoneKnife")));
+        assert_eq!(serde_json::from_value::<RecipeBook>(json).unwrap(), book);
+    }
+
+    #[test]
+    fn every_recipe_makes_something_different() {
+        for (i, r) in RECIPES.iter().enumerate() {
+            assert_eq!(index(r.makes), i, "{:?} is made by two recipes", r.makes);
+        }
+    }
+
+    #[test]
+    fn no_recipe_needs_what_it_makes() {
+        for r in RECIPES {
+            assert!(r.needs.iter().all(|&(k, n)| k != r.makes && n > 0), "{:?}", r.makes);
+            assert!(!r.tools.contains(&r.makes), "{:?}", r.makes);
+        }
+    }
+}

@@ -205,3 +205,162 @@ impl Bag {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crafting::RECIPES;
+
+    fn stacking() -> ItemKind {
+        *ItemKind::ALL.iter().find(|k| k.max_stack() > 1 && k.size() == (1, 1)).expect("something stacks")
+    }
+
+    fn single() -> ItemKind {
+        *ItemKind::ALL.iter().find(|k| k.max_stack() == 1 && k.size() == (1, 1)).expect("something doesn't stack")
+    }
+
+    fn long() -> ItemKind {
+        *ItemKind::ALL.iter().find(|k| k.size().1 > 1 && k.size().0 == 1).expect("something is long")
+    }
+
+    fn recipe(makes: ItemKind) -> &'static Recipe {
+        RECIPES.iter().find(|r| r.makes == makes).unwrap()
+    }
+
+    #[test]
+    fn a_turned_item_swaps_its_width_and_height() {
+        let kind = long();
+        let (w, h) = kind.size();
+        assert_eq!(footprint(kind, false), (w, h));
+        assert_eq!(footprint(kind, true), (h, w));
+    }
+
+    #[test]
+    fn things_that_stack_fill_one_place_up_to_their_limit() {
+        let kind = stacking();
+        let mut bag = Bag::default();
+        assert_eq!(bag.stow(kind, kind.max_stack()), 0);
+        assert_eq!(bag.items().len(), 1);
+        assert_eq!(bag.stow(kind, 1), 0);
+        assert_eq!(bag.items().len(), 2);
+        assert_eq!(bag.count(kind), kind.max_stack() + 1);
+    }
+
+    #[test]
+    fn stowing_tops_up_a_stack_already_carried_first() {
+        let kind = stacking();
+        let mut bag = Bag::default();
+        bag.stow(kind, 1);
+        bag.stow(kind, 1);
+        assert_eq!(bag.items().len(), 1);
+        assert_eq!(bag.items()[0].count, 2);
+    }
+
+    #[test]
+    fn things_that_dont_stack_each_take_a_place() {
+        let kind = single();
+        let mut bag = Bag::default();
+        assert_eq!(bag.stow(kind, 2), 0);
+        assert_eq!(bag.items().len(), 2);
+    }
+
+    #[test]
+    fn a_full_bag_says_how_many_did_not_fit() {
+        let kind = single();
+        let cells = (BAG_W * BASE_ROWS) as u32;
+        let mut bag = Bag::default();
+        assert_eq!(bag.stow(kind, cells + 3), 3);
+        assert_eq!(bag.count(kind), cells);
+        assert!(!bag.stow_one(kind));
+    }
+
+    #[test]
+    fn a_long_item_is_turned_when_it_only_fits_lying_down() {
+        let kind = long();
+        let (_, h) = kind.size();
+        let mut bag = Bag::default();
+        bag.set_rows(h - 1);
+        assert!(bag.stow_one(kind));
+        assert!(bag.items()[0].turned);
+    }
+
+    #[test]
+    fn nothing_may_overlap_or_stick_out() {
+        let kind = long();
+        let mut bag = Bag::default();
+        bag.put(Placed { kind, x: 0, y: 0, turned: false, count: 1 });
+        assert!(!bag.fits(&Placed { kind, x: 0, y: 1, turned: false, count: 1 }));
+        assert!(bag.fits(&Placed { kind, x: 1, y: 0, turned: false, count: 1 }));
+        assert!(!bag.fits(&Placed { kind, x: BAG_W - 1, y: 0, turned: true, count: 1 }));
+        assert!(!bag.fits(&Placed { kind, x: -1, y: 0, turned: false, count: 1 }));
+        assert!(!bag.fits(&Placed { kind, x: 0, y: BASE_ROWS - 1, turned: false, count: 1 }));
+    }
+
+    #[test]
+    fn every_cell_an_item_covers_finds_it() {
+        let kind = long();
+        let mut bag = Bag::default();
+        bag.put(Placed { kind, x: 2, y: 1, turned: true, count: 1 });
+        let (w, h) = footprint(kind, true);
+        for y in 1..1 + h {
+            for x in 2..2 + w {
+                assert_eq!(bag.at(x, y), Some(0));
+            }
+        }
+        assert_eq!(bag.at(1, 1), None);
+    }
+
+    #[test]
+    fn the_bag_shrinks_only_while_everything_still_fits() {
+        let mut bag = Bag::default();
+        bag.put(Placed { kind: single(), x: 0, y: BASE_ROWS - 1, turned: false, count: 1 });
+        assert!(bag.fits_rows(BASE_ROWS));
+        assert!(!bag.fits_rows(BASE_ROWS - 1));
+        assert!(bag.fits_rows(BASE_ROWS + 2));
+    }
+
+    #[test]
+    fn taking_one_leaves_full_stacks_full() {
+        let kind = stacking();
+        let mut bag = Bag::default();
+        bag.stow(kind, kind.max_stack() + 2);
+        assert!(bag.take_kind(kind));
+        assert!(bag.items().iter().any(|p| p.count == kind.max_stack()));
+        assert_eq!(bag.count(kind), kind.max_stack() + 1);
+    }
+
+    #[test]
+    fn the_last_one_taken_empties_its_place() {
+        let kind = single();
+        let mut bag = Bag::default();
+        bag.stow_one(kind);
+        assert!(bag.take_kind(kind));
+        assert!(bag.items().is_empty());
+        assert!(!bag.take_kind(kind));
+    }
+
+    #[test]
+    fn making_needs_every_material_in_number() {
+        // Two stones make a stone knife.
+        let knife = recipe(ItemKind::StoneKnife);
+        let mut bag = Bag::default();
+        bag.stow(ItemKind::Stone, 1);
+        assert!(!bag.can_make(knife));
+        bag.stow(ItemKind::Stone, 1);
+        assert!(bag.can_make(knife));
+    }
+
+    #[test]
+    fn making_uses_up_the_materials_but_not_the_tools() {
+        // A coconut is opened with a stone knife.
+        let opened = recipe(ItemKind::OpenedCoconut);
+        let mut bag = Bag::default();
+        bag.stow(ItemKind::Coconut, 1);
+        assert!(!bag.can_make(opened));
+        bag.stow(ItemKind::StoneKnife, 1);
+        assert!(bag.can_make(opened));
+        bag.use_up(opened);
+        assert!(!bag.has(ItemKind::Coconut));
+        assert!(bag.has(ItemKind::StoneKnife));
+    }
+}

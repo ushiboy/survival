@@ -289,3 +289,130 @@ impl SaveData {
         serde_json::from_value(value).map_err(|_| LoadError::Unreadable)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A save of each version, from the first to the current one (see
+    /// docs/save.md: a sample of the new version is added whenever the
+    /// version goes up).
+    const SAMPLES: &[&str] = &[
+        include_str!("save_samples/v1.json"),
+        include_str!("save_samples/v2.json"),
+        include_str!("save_samples/v3.json"),
+        include_str!("save_samples/v4.json"),
+    ];
+
+    fn load(version: u32) -> SaveData {
+        SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
+    }
+
+    fn has_feature(s: &SaveData, at: (i32, i32), f: Feature) -> bool {
+        s.island.features.contains(&(at, f))
+    }
+
+    #[test]
+    fn there_is_a_sample_of_every_version() {
+        assert_eq!(SAMPLES.len() as u32, SAVE_VERSION);
+        for (i, text) in SAMPLES.iter().enumerate() {
+            let v: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(v["version"], i + 1, "save_samples/v{}.json", i + 1);
+        }
+    }
+
+    #[test]
+    fn every_older_save_loads_as_the_current_version() {
+        for version in 1..=SAVE_VERSION {
+            assert_eq!(load(version).version, SAVE_VERSION, "a version {version} save");
+        }
+    }
+
+    #[test]
+    fn a_current_save_comes_back_the_same() {
+        let text = SAMPLES[SAVE_VERSION as usize - 1];
+        let again: Value = serde_json::from_str(&load(SAVE_VERSION).to_json()).unwrap();
+        assert_eq!(again, serde_json::from_str::<Value>(text).unwrap());
+    }
+
+    #[test]
+    fn a_save_from_a_newer_game_is_not_read() {
+        let text = format!(r#"{{"version":{}}}"#, SAVE_VERSION + 1);
+        assert_eq!(SaveData::from_json(&text).unwrap_err(), LoadError::Newer(SAVE_VERSION + 1));
+    }
+
+    #[test]
+    fn what_is_not_a_save_is_unreadable() {
+        for text in ["", "not json", "{}", r#"{"version":0}"#, r#"{"version":"4"}"#, r#"{"version":4}"#] {
+            assert_eq!(SaveData::from_json(text).unwrap_err(), LoadError::Unreadable, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn version_2_moves_everything_down_with_the_map() {
+        let s = load(1);
+        assert_eq!(s.castaway.at, (512, 296 + 384));
+        assert_eq!(s.island.items[0].at, (500, 300 + 384));
+        assert_eq!((s.island.fires[0].x, s.island.fires[0].y), (100, 200 + 384));
+        assert_eq!(s.island.crabs, vec![(300, 400 + 384)]);
+        assert_eq!(s.island.fish, vec![(600, 700 + 384)]);
+        assert!(has_feature(&s, (20, 30 + 24), Feature::VineStake));
+        assert_eq!(s.island.bark, vec![((30, 40 + 24), 2)]);
+        assert_eq!(s.island.harvest.damage, vec![((40, 20 + 24), 1)]);
+        assert_eq!(s.island.harvest.picked, vec![((44, 30 + 24), 2)]);
+    }
+
+    #[test]
+    fn version_2_drops_changes_in_the_redrawn_top_rows() {
+        let s = load(1);
+        assert!(!s.island.features.iter().any(|&(at, _)| at == (10, 5) || at == (10, 5 + 24)));
+        assert!(!s.island.bark.iter().any(|&((_, y), _)| y == 10 || y == 10 + 24));
+        assert!(!s.island.harvest.damage.iter().any(|&((x, _), _)| x == 10));
+    }
+
+    #[test]
+    fn version_2_starts_every_chunk_awake() {
+        assert!(load(1).island.asleep_since.is_empty());
+    }
+
+    #[test]
+    fn version_2_keeps_palms_picked_bare_as_bare() {
+        let s = load(1);
+        assert!(!s.island.fruit.is_empty());
+        assert!(s.island.fruit.iter().all(|&(_, n)| n == 0));
+    }
+
+    #[test]
+    fn version_3_drops_changes_by_the_redrawn_cliff() {
+        let s = load(2);
+        assert!(!has_feature(&s, (60, 20), Feature::Rock));
+        assert!(has_feature(&s, (20, 50), Feature::VineStake));
+        assert!(s.island.bark.is_empty());
+        assert_eq!(s.island.harvest.damage, vec![((20, 50), 1)]);
+    }
+
+    #[test]
+    fn version_4_moves_a_ladder_down_with_the_cliff_foot() {
+        let s = load(3);
+        assert!(has_feature(&s, (63, 13), Feature::Ladder(0)));
+        assert!(has_feature(&s, (63, 14), Feature::Ladder(1)));
+        assert!(!has_feature(&s, (63, 12), Feature::Ladder(0)));
+    }
+
+    #[test]
+    fn version_4_drops_other_changes_by_the_redrawn_cliff() {
+        let s = load(3);
+        assert!(!has_feature(&s, (70, 30), Feature::Rock));
+        assert!(has_feature(&s, (20, 50), Feature::VineStake));
+        assert!(s.island.harvest.damage.is_empty());
+    }
+
+    #[test]
+    fn version_4_moves_what_stood_at_the_old_foot_down_a_row() {
+        let s = load(3);
+        assert_eq!(s.castaway.at, (1000, 200 + 16));
+        let at = |kind| s.island.items.iter().find(|l| l.kind == kind).unwrap().at;
+        assert_eq!(at(ItemKind::Rope), (1008, 208 + 16));
+        assert_eq!(at(ItemKind::Stone), (400, 600));
+    }
+}

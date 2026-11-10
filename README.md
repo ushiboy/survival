@@ -14,7 +14,10 @@
 pnpm install
 pnpm dev      # wasm(debug) をビルドして Vite 起動
 pnpm build    # wasm(release) + 型チェック + 本番ビルド
+pnpm test     # Rust のテスト（cargo test --manifest-path wasm/Cargo.toml）
 ```
+
+テストは Rust 側にだけあり、ネイティブで動きます（ブラウザは要りません）。単体テストは各ファイルの末尾の `#[cfg(test)] mod tests`、`Game` を外から動かすシナリオテストは `wasm/tests/` にあります。セーブの変換のテストは、古い版のセーブの見本（`wasm/src/game/save_samples/`）を読みます。
 
 URL に `?debug=true` を付けると（例: `http://localhost:5173/?debug=true`）デバッグパネルが出て、好きなアイテムを個数を指定してバッグに入れたり、全レシピを解放したりできます。
 

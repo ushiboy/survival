@@ -1,0 +1,163 @@
+{
+ "version": 1,
+ "seed": 1,
+ "clock": {
+  "day": 1,
+  "minute": 426
+ },
+ "vitals": {
+  "hp": 64,
+  "max_hp": 64,
+  "food": 64,
+  "water": 64,
+  "food_spent": 72,
+  "water_spent": 72,
+  "tired": 6,
+  "wear": 0.080000006,
+  "mend": 0.0
+ },
+ "castaway": {
+  "at": [
+   512,
+   296
+  ],
+  "facing": "Right",
+  "outfit": 0
+ },
+ "inventory": {
+  "bag": {
+   "items": [
+    {
+     "kind": "Stone",
+     "x": 0,
+     "y": 0,
+     "turned": false,
+     "count": 1
+    },
+    {
+     "kind": "Branch",
+     "x": 1,
+     "y": 0,
+     "turned": false,
+     "count": 1
+    }
+   ],
+   "rows": 4
+  },
+  "torch": null,
+  "recipes": {
+   "known": [
+    "StoneKnife",
+    "WoodSpear"
+   ],
+   "fresh": [
+    "StoneKnife",
+    "WoodSpear"
+   ]
+  },
+  "gear": {
+   "hand": null,
+   "back": null
+  }
+ },
+ "island": {
+  "features": [
+   [
+    [
+     10,
+     5
+    ],
+    "Rock"
+   ],
+   [
+    [
+     20,
+     30
+    ],
+    "VineStake"
+   ]
+  ],
+  "fruit": [],
+  "bark": [
+   [
+    [
+     30,
+     10
+    ],
+    1
+   ],
+   [
+    [
+     30,
+     40
+    ],
+    2
+   ]
+  ],
+  "harvest": {
+   "damage": [
+    [
+     [
+      10,
+      8
+     ],
+     3
+    ],
+    [
+     [
+      40,
+      20
+     ],
+     1
+    ]
+   ],
+   "shakes": [],
+   "picked": [
+    [
+     [
+      44,
+      30
+     ],
+     2
+    ]
+   ]
+  },
+  "items": [
+   {
+    "kind": "Stone",
+    "count": 2,
+    "at": [
+     500,
+     300
+    ]
+   }
+  ],
+  "fires": [
+   {
+    "x": 100,
+    "y": 200,
+    "lit_at": 10
+   }
+  ],
+  "crabs": [
+   [
+    300,
+    400
+   ]
+  ],
+  "fish": [
+   [
+    600,
+    700
+   ]
+  ],
+  "fish_due": [],
+  "shell_day": 1,
+  "shell_cap": 18,
+  "asleep_since": [
+   null,
+   5,
+   null
+  ]
+ }
+}
