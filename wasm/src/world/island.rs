@@ -778,3 +778,137 @@ fn pick_crab_spawns(map: &WorldMap, seed: u32, spawn: (i32, i32)) -> Vec<(i32, i
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+
+    use super::*;
+    use crate::world::map::LadderFit;
+
+    /// Cells that can be walked to from `start` (stepping diagonally only
+    /// where both sides are open, as the castaway can).
+    fn reachable(map: &WorldMap, start: (i32, i32)) -> Vec<bool> {
+        let w = map.width();
+        let open = |x: i32, y: i32| map.in_bounds(x, y) && !map.props(x, y).solid;
+        let mut seen = vec![false; (w * map.height()) as usize];
+        let mut queue = VecDeque::from([start]);
+        seen[(start.1 * w + start.0) as usize] = true;
+        while let Some((x, y)) = queue.pop_front() {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                let diagonal_ok = dx == 0 || dy == 0 || (open(x + dx, y) && open(x, y + dy));
+                if open(nx, ny) && diagonal_ok && !seen[(ny * w + nx) as usize] {
+                    seen[(ny * w + nx) as usize] = true;
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        seen
+    }
+
+    /// The island, and what can be walked to from where the castaway
+    /// washes up.
+    struct Walk {
+        map: WorldMap,
+        reach: Vec<bool>,
+    }
+
+    impl Walk {
+        fn from_landing(map: WorldMap) -> Self {
+            // The castaway's feet are in the cell below the spawn point.
+            let landing = (map.spawn.0 / TILE_SIZE, map.spawn.1 / TILE_SIZE + 1);
+            let reach = reachable(&map, landing);
+            Self { map, reach }
+        }
+
+        fn can(&self, (x, y): (i32, i32)) -> bool {
+            self.map.in_bounds(x, y) && self.reach[(y * self.map.width() + x) as usize]
+        }
+
+        /// Whether a cell can be reached or stood beside.
+        fn near(&self, (x, y): (i32, i32)) -> bool {
+            (-1..=1).any(|dy| (-1..=1).any(|dx| self.can((x + dx, y + dy))))
+        }
+
+        fn reaches_high_ground(&self) -> bool {
+            let w = self.map.width();
+            (0..self.map.height()).any(|y| (0..w).any(|x| self.can((x, y)) && self.map.terrain(x, y) == Terrain::Highland))
+        }
+    }
+
+    fn island() -> WorldMap {
+        generate(1)
+    }
+
+    /// The cell of rock face a ladder stands against at the low cliff.
+    fn ladder_face(map: &WorldMap) -> ((i32, i32), i32) {
+        let (x, y) = map.spots.ladder.expect("the island has a low cliff");
+        (y - 3..=y)
+            .find_map(|fy| match map.ladder_fit(x, fy) {
+                LadderFit::Reaches { foot, rows } => Some((foot, rows)),
+                LadderFit::No => None,
+            })
+            .expect("a ladder fits at the low cliff")
+    }
+
+    #[test]
+    fn the_island_is_made_the_same_from_the_same_seed() {
+        let (a, b) = (island(), island());
+        assert_eq!(a.spawn, b.spawn);
+        assert_eq!(a.loot, b.loot);
+        let w = a.width();
+        assert!((0..a.height()).all(|y| (0..w).all(|x| a.terrain(x, y) == b.terrain(x, y) && a.feature(x, y) == b.feature(x, y))));
+    }
+
+    #[test]
+    fn the_castaway_washes_up_on_open_ground() {
+        let walk = Walk::from_landing(island());
+        let w = walk.map.width();
+        let cells = walk.reach.iter().filter(|&&r| r).count();
+        assert!(cells > (w * 4) as usize, "more than a pocket to walk in");
+    }
+
+    #[test]
+    fn the_cliff_cant_be_climbed_without_a_ladder() {
+        assert!(!Walk::from_landing(island()).reaches_high_ground());
+    }
+
+    #[test]
+    fn the_water_spot_can_be_reached() {
+        let walk = Walk::from_landing(island());
+        let spot = walk.map.water_spot.expect("the island has a water spot");
+        assert!(walk.near((spot.0 / TILE_SIZE, spot.1 / TILE_SIZE)));
+    }
+
+    #[test]
+    fn the_foot_of_the_low_cliff_can_be_reached() {
+        let walk = Walk::from_landing(island());
+        assert!(walk.can(walk.map.spots.ladder.expect("the island has a low cliff")));
+    }
+
+    #[test]
+    fn the_river_cant_be_crossed() {
+        let walk = Walk::from_landing(island());
+        let (bx, by) = walk.map.spots.bridge.expect("the river has a narrow");
+        let bank = |side: i32| (1..8).map(|k| (bx + side * k, by)).find(|&(x, y)| walk.map.terrain(x, y) != Terrain::River).unwrap();
+        let (west, east) = (walk.near(bank(-1)), walk.near(bank(1)));
+        assert!(west != east, "one bank of the narrow is reached and the other isn't (west {west}, east {east})");
+    }
+
+    #[test]
+    fn a_ladder_fits_only_in_the_middle_of_the_low_cliff() {
+        let map = island();
+        let ((x, y), _) = ladder_face(&map);
+        assert_eq!(map.ladder_fit(x - 1, y), LadderFit::No);
+        assert_eq!(map.ladder_fit(x + 1, y), LadderFit::No);
+    }
+
+    #[test]
+    fn a_ladder_stood_at_the_low_cliff_leads_up_to_the_high_ground() {
+        let mut map = island();
+        let (foot, rows) = ladder_face(&map);
+        map.stand_ladder(foot, rows);
+        assert!(Walk::from_landing(map).reaches_high_ground());
+    }
+}

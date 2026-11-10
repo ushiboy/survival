@@ -288,3 +288,205 @@ impl Harvest {
         Shaken::Drop { anchor, slot: fruit - 1, changed: (anchor.0 + PalmPart::W / 2, anchor.1 + 1) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::terrain::Terrain;
+
+    /// The top-left cell trees are planted at on the test map.
+    const AT: (i32, i32) = (4, 4);
+
+    fn ground() -> WorldMap {
+        WorldMap::new(16, 16, Terrain::Grass)
+    }
+
+    /// The middle of a cell, in world px.
+    fn px((x, y): (i32, i32)) -> (i32, i32) {
+        (x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2)
+    }
+
+    /// Where a tree planted at `AT` is struck or shaken: its trunk base.
+    fn trunk() -> (i32, i32) {
+        px((AT.0 + PalmPart::W / 2, AT.1 + PalmPart::H - 1))
+    }
+
+    fn with_palm(coconuts: u8) -> WorldMap {
+        let mut map = ground();
+        for dy in 0..PalmPart::H {
+            for dx in 0..PalmPart::W {
+                map.set_feature(AT.0 + dx, AT.1 + dy, Feature::Palm(PalmPart { dx: dx as u8, dy: dy as u8, flip: false }));
+            }
+        }
+        map.set_fruit(AT, coconuts);
+        map
+    }
+
+    fn with_broadleaf(bark: u8) -> WorldMap {
+        let mut map = ground();
+        for dy in 0..BroadleafPart::H {
+            for dx in 0..BroadleafPart::W {
+                map.set_feature(AT.0 + dx, AT.1 + dy, Feature::Broadleaf(BroadleafPart { dx: dx as u8, dy: dy as u8, flip: false }));
+            }
+        }
+        map.set_bark(AT, bark);
+        map
+    }
+
+    fn with(cell: (i32, i32), f: Feature) -> WorldMap {
+        let mut map = ground();
+        map.set_feature(cell.0, cell.1, f);
+        map
+    }
+
+    /// Strikes until something other than a hit comes back; the strikes
+    /// it took and what came of the last.
+    fn chop_down(h: &mut Harvest, map: &mut WorldMap, at: (i32, i32)) -> (u32, Strike) {
+        for n in 1..=20 {
+            match h.axe(map, at) {
+                Strike::TreeHit { .. } | Strike::LogHit { .. } => continue,
+                last => return (n, last),
+            }
+        }
+        panic!("never came down");
+    }
+
+    #[test]
+    fn a_palm_falls_after_a_few_axe_strikes_leaving_a_stump() {
+        let mut map = with_palm(0);
+        let (strikes, last) = chop_down(&mut Harvest::default(), &mut map, trunk());
+        assert_eq!(strikes, PALM_HP as u32);
+        assert!(matches!(last, Strike::TreeFelled { timber: ItemKind::Timber, .. }));
+        let base = (AT.0 + PalmPart::W / 2, AT.1 + PalmPart::H - 1);
+        assert!(matches!(map.feature(base.0, base.1), Feature::Stump(_)));
+        assert_eq!(map.feature(AT.0, AT.1), Feature::None);
+    }
+
+    #[test]
+    fn hardwood_takes_more_strikes_than_a_palm() {
+        let (palm, _) = chop_down(&mut Harvest::default(), &mut with_palm(0), trunk());
+        let (broadleaf, last) = chop_down(&mut Harvest::default(), &mut with_broadleaf(0), trunk());
+        assert!(broadleaf > palm);
+        assert!(matches!(last, Strike::TreeFelled { timber: ItemKind::LauanTimber, .. }));
+    }
+
+    #[test]
+    fn a_felled_palm_brings_down_its_coconuts_and_fronds() {
+        let mut map = with_palm(2);
+        let (_, last) = chop_down(&mut Harvest::default(), &mut map, trunk());
+        assert!(matches!(last, Strike::TreeFelled { fruit: 2, fronds: true, .. }));
+        assert_eq!(map.fruit(AT), 0);
+    }
+
+    #[test]
+    fn bark_left_on_a_felled_broadleaf_comes_with_it() {
+        let mut map = with_broadleaf(2);
+        let (_, last) = chop_down(&mut Harvest::default(), &mut map, trunk());
+        assert!(matches!(last, Strike::TreeFelled { bark: 2, fronds: false, .. }));
+        assert_eq!(map.bark(AT), 0);
+    }
+
+    #[test]
+    fn only_the_trunk_base_can_be_cut() {
+        let mut map = with_palm(0);
+        assert_eq!(Harvest::default().axe(&mut map, px(AT)), Strike::Miss);
+    }
+
+    #[test]
+    fn the_axe_cant_cut_rock_or_stumps_and_brushes_through_bushes() {
+        let cell = (3, 3);
+        for f in [Feature::Rock, Feature::Stump(StumpPart { flip: false }), Feature::BroadleafStump(StumpPart { flip: false })] {
+            assert_eq!(Harvest::default().axe(&mut with(cell, f), px(cell)), Strike::Hard { kind: f });
+        }
+        for f in [Feature::Bush, Feature::Vine] {
+            assert_eq!(Harvest::default().axe(&mut with(cell, f), px(cell)), Strike::Brush);
+        }
+        assert_eq!(Harvest::default().axe(&mut ground(), px(cell)), Strike::Miss);
+    }
+
+    #[test]
+    fn driftwood_splits_into_branches_and_is_gone() {
+        let mut map = ground();
+        for dx in 0..DriftwoodPart::W {
+            map.set_feature(3 + dx, 3, Feature::Driftwood(DriftwoodPart { dx: dx as u8, flip: false }));
+        }
+        let (strikes, last) = chop_down(&mut Harvest::default(), &mut map, px((4, 3)));
+        assert_eq!(strikes, DRIFTWOOD_HP as u32);
+        assert!(matches!(last, Strike::LogSplit { anchor: (3, 3), .. }));
+        assert!((0..DriftwoodPart::W).all(|dx| map.feature(3 + dx, 3) == Feature::None));
+    }
+
+    #[test]
+    fn strikes_on_a_tree_are_remembered_through_a_save() {
+        let mut map = with_palm(0);
+        let mut h = Harvest::default();
+        h.axe(&mut map, trunk());
+        let mut back = Harvest::from_state(&h.state());
+        let (more, _) = chop_down(&mut back, &mut map, trunk());
+        assert_eq!(more, PALM_HP as u32 - 1);
+    }
+
+    #[test]
+    fn a_vine_can_be_pulled_off_once() {
+        let cell = (3, 3);
+        let mut map = with(cell, Feature::Vine);
+        assert!(can_pull_vine(&map, px(cell)));
+        assert_eq!(pull_vine(&mut map, px(cell)), Some(cell));
+        assert_eq!(map.feature(cell.0, cell.1), Feature::VineStake);
+        assert!(!can_pull_vine(&map, px(cell)));
+        assert_eq!(pull_vine(&mut map, px(cell)), None);
+    }
+
+    #[test]
+    fn bark_strips_off_until_there_is_none_left() {
+        let mut map = with_broadleaf(BARK_STRIPS);
+        for _ in 0..BARK_STRIPS {
+            assert!(has_bark(&map, trunk()));
+            assert!(strip_bark(&mut map, trunk()).is_some());
+        }
+        assert!(!has_bark(&map, trunk()));
+        assert!(is_broadleaf_trunk(&map, trunk()));
+        assert_eq!(strip_bark(&mut map, trunk()), None);
+    }
+
+    #[test]
+    fn a_bush_is_picked_once_a_day() {
+        let cell = (3, 3);
+        let map = with(cell, Feature::Bush);
+        let mut h = Harvest::default();
+        assert_eq!(h.pick_leaves(&map, px(cell), 1), Some(cell));
+        assert_eq!(h.pick_leaves(&map, px(cell), 1), None);
+        assert_eq!(h.pick_leaves(&map, px(cell), 2), Some(cell));
+        assert_eq!(h.pick_leaves(&ground(), px(cell), 3), None);
+    }
+
+    #[test]
+    fn shaking_a_palm_works_a_coconut_loose_every_few_shakes() {
+        let mut map = with_palm(2);
+        let mut h = Harvest::default();
+        let mut drops = 0;
+        for _ in 0..30 {
+            match h.shake(&mut map, trunk()) {
+                Shaken::Drop { .. } => drops += 1,
+                Shaken::Rustle { fruit_left, .. } => assert_eq!(fruit_left, map.fruit(AT)),
+                Shaken::Miss => panic!("the trunk is there"),
+            }
+        }
+        assert_eq!(drops, 2, "no more than it carried");
+        assert_eq!(map.fruit(AT), 0);
+    }
+
+    #[test]
+    fn no_coconut_falls_on_the_first_shake() {
+        let mut map = with_palm(PALM_COCONUTS);
+        assert!(matches!(Harvest::default().shake(&mut map, trunk()), Shaken::Rustle { .. }));
+    }
+
+    #[test]
+    fn only_a_palm_trunk_can_be_shaken() {
+        let mut map = with_broadleaf(0);
+        assert!(!can_shake(&map, trunk()));
+        assert_eq!(Harvest::default().shake(&mut map, trunk()), Shaken::Miss);
+        assert!(can_shake(&with_palm(0), trunk()));
+    }
+}

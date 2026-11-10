@@ -351,6 +351,7 @@ impl Default for Inventory {
 
 #[cfg(test)]
 mod tests {
+    use super::super::bag::{BAG_W, Placed};
     use super::*;
 
     const HOUR: u32 = 60;
@@ -525,5 +526,123 @@ mod tests {
         inv.light_torch(TORCH_BURN_MINUTES - 10);
         inv.tend_torch(TORCH_BURN_MINUTES);
         assert!(inv.torch_lit());
+    }
+
+    fn pack() -> ItemKind {
+        *ItemKind::ALL.iter().find(|k| k.slot() == Some(Slot::Back)).expect("a pack")
+    }
+
+    fn tool() -> ItemKind {
+        *ItemKind::ALL.iter().find(|k| k.slot() == Some(Slot::Hand)).expect("a tool")
+    }
+
+    /// Bag index of the first of a kind.
+    fn find(inv: &Inventory, kind: ItemKind) -> usize {
+        inv.bag.items().iter().position(|p| p.kind == kind).unwrap()
+    }
+
+    /// Fills rows `ys` of the bag with stones.
+    fn fill_rows(inv: &mut Inventory, ys: std::ops::Range<i32>) {
+        for y in ys {
+            for x in 0..BAG_W {
+                inv.bag.put(Placed { kind: ItemKind::Stone, x, y, turned: false, count: 1 });
+            }
+        }
+    }
+
+    #[test]
+    fn a_tool_obtained_with_empty_hands_is_taken_in_hand() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(tool());
+        inv.took(tool());
+        assert_eq!(inv.gear.hand, Some(tool()));
+    }
+
+    #[test]
+    fn a_tool_obtained_with_hands_full_goes_in_the_bag_only() {
+        let others: Vec<ItemKind> = ItemKind::ALL.iter().copied().filter(|k| k.slot() == Some(Slot::Hand)).collect();
+        let (held, new) = (others[0], others[1]);
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(held);
+        inv.took(held);
+        inv.bag.stow_one(new);
+        inv.took(new);
+        assert_eq!(inv.gear.hand, Some(held));
+    }
+
+    #[test]
+    fn what_isnt_a_tool_is_not_taken_in_hand() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(ItemKind::Stone);
+        inv.took(ItemKind::Stone);
+        assert_eq!(inv.gear.hand, None);
+    }
+
+    #[test]
+    fn a_tool_no_longer_carried_is_let_go_of() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(tool());
+        inv.took(tool());
+        inv.bag.take_kind(tool());
+        inv.settle_hand();
+        assert_eq!(inv.gear.hand, None);
+    }
+
+    #[test]
+    fn wearing_a_pack_takes_it_out_of_the_bag_and_adds_rows() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(pack());
+        assert!(inv.wear(find(&inv, pack())).is_ok());
+        assert_eq!(inv.gear.back, Some(pack()));
+        assert!(!inv.bag.has(pack()));
+        assert_eq!(inv.bag.rows(), BASE_ROWS + pack().extra_rows());
+    }
+
+    #[test]
+    fn taking_off_a_pack_puts_it_in_the_bag_which_shrinks_back() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(pack());
+        inv.wear(find(&inv, pack())).unwrap();
+        assert!(inv.take_off(Slot::Back).is_ok());
+        assert_eq!(inv.gear.back, None);
+        assert!(inv.bag.has(pack()));
+        assert_eq!(inv.bag.rows(), BASE_ROWS);
+    }
+
+    #[test]
+    fn a_pack_cant_come_off_with_things_in_the_rows_it_adds() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(pack());
+        inv.wear(find(&inv, pack())).unwrap();
+        let rows = inv.bag.rows();
+        fill_rows(&mut inv, BASE_ROWS..rows);
+        let before = inv.bag.clone();
+        assert!(inv.take_off(Slot::Back).is_err());
+        assert_eq!(inv.gear.back, Some(pack()));
+        assert_eq!(inv.bag, before, "nothing changes");
+    }
+
+    #[test]
+    fn a_pack_cant_come_off_with_no_room_in_the_bag_for_it() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(pack());
+        inv.wear(find(&inv, pack())).unwrap();
+        // Only the rows the pack adds are empty: nowhere for the pack once
+        // they're gone.
+        fill_rows(&mut inv, 0..BASE_ROWS);
+        let before = inv.bag.clone();
+        assert!(inv.take_off(Slot::Back).is_err());
+        assert_eq!(inv.gear.back, Some(pack()));
+        assert_eq!(inv.bag, before, "nothing changes");
+    }
+
+    #[test]
+    fn letting_go_of_a_tool_leaves_it_in_the_bag() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(tool());
+        inv.took(tool());
+        assert!(inv.take_off(Slot::Hand).is_ok());
+        assert_eq!(inv.gear.hand, None);
+        assert!(inv.bag.has(tool()));
     }
 }

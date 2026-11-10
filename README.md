@@ -37,7 +37,7 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 cd wasm && cargo run --release --example stream_check
 ```
 
-島全体の地図（設計図の形の確認用。1マス4ピクセル）。漂着地点から歩いて行ける範囲も調べて、行けない陸を暗く描き、水汲み場・低い崖・川の狭い所に行けるかを出力します:
+島全体の地図（設計図の形の確認用。1マス4ピクセル）。漂着地点から歩いて行ける範囲も調べて、行けない陸を暗く描き、水汲み場・低い崖・川の狭い所に行けるかを出力します（行けるかどうかは `pnpm test` でも確かめています。`wasm/src/world/island.rs` のテスト）:
 
 ```bash
 cd wasm && cargo run --release --example island_map -- island.ppm 4
