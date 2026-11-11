@@ -45,7 +45,7 @@ use survival_core::render::sprites::DrawList;
 use survival_core::render::tileset::{Tileset, VisualMap};
 use survival_core::world::harvest::BARK_STRIPS;
 use survival_core::world::island::SAND_BELOW;
-use survival_core::world::terrain::{BroadleafPart, DriftwoodPart, PalmPart, PinePart, StumpPart};
+use survival_core::world::terrain::{BambooPart, BroadleafPart, DriftwoodPart, PalmPart, PinePart, StumpPart};
 use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
 
 const BG: Rgb = [24, 24, 32];
@@ -126,6 +126,7 @@ fn specimens(a: &Assets) -> Vec<Specimen> {
     let pine = tree(PinePart::W, PinePart::H, |dx, dy| Feature::Pine(PinePart { dx, dy, flip: false }));
     let stump = StumpPart { flip: false };
     let log = |flip| tree(DriftwoodPart::W, 1, move |dx, _| Feature::Driftwood(DriftwoodPart { dx, flip }));
+    let culm = |v| tree(1, BambooPart::H, move |_, dy| Feature::Bamboo(BambooPart { dy, v, flip: false }));
     let v = vec![
         Specimen { name: "PALM", ground: p.palm.lower[1].ground, parts: palm(false), fruit: Some(3), bark: None },
         Specimen { name: "PALM NO NUTS FLIPPED", ground: p.palm.lower[1].ground, parts: palm(true), fruit: Some(0), bark: None },
@@ -136,6 +137,10 @@ fn specimens(a: &Assets) -> Vec<Specimen> {
         Specimen { name: "PINE", ground: p.pine_base[1].ground, parts: pine, fruit: None, bark: None },
         Specimen::one("PINE STUMP", p.pine_stump.ground, Feature::PineStump(stump)),
         Specimen::one("PINE CONE", p.pine_cone.ground, Feature::PineCone),
+        Specimen { name: "BAMBOO 1", ground: p.bamboo_base[0].ground, parts: culm(0), fruit: None, bark: None },
+        Specimen { name: "BAMBOO 2", ground: p.bamboo_base[1].ground, parts: culm(1), fruit: None, bark: None },
+        Specimen { name: "BAMBOO 3", ground: p.bamboo_base[2].ground, parts: culm(2), fruit: None, bark: None },
+        Specimen::one("BAMBOO STUMP", p.bamboo_stump.ground, Feature::BambooStump(stump)),
         Specimen::one("BUSH", p.bush.ground, Feature::Bush),
         Specimen::one("VINE", p.vine.ground, Feature::Vine),
         Specimen::one("VINE STAKE", p.vine_stake.ground, Feature::VineStake),
@@ -171,7 +176,9 @@ fn on_sheet(f: Feature) -> bool {
         | Feature::VineStake
         | Feature::Pine(_)
         | Feature::PineStump(_)
-        | Feature::PineCone => true,
+        | Feature::PineCone
+        | Feature::Bamboo(_)
+        | Feature::BambooStump(_) => true,
         // Bare ground; and the ladder, drawn with the cliff it stands
         // against (see `pnpm map`).
         Feature::None | Feature::Ladder(_) => false,
