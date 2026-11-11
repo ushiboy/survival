@@ -22,7 +22,7 @@
 //! the castaway washes up, the river's course) are set here by hand, and the
 //! details (trees, stones, shells...) are scattered from a fixed seed.
 
-use super::harvest::{BARK_STRIPS, PALM_COCONUTS};
+use super::harvest::{BARK_STRIPS, PALM_COCONUTS, PINE_CONES};
 use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
@@ -408,6 +408,10 @@ pub fn generate(seed: u32) -> WorldMap {
     map
 }
 
+/// Share of the trees on the high ground that are pines (the rest are
+/// broadleafs): low ground grows broadleafs, high ground conifers.
+const HIGHLAND_PINES: f32 = 0.8;
+
 /// Where the pine above the cliff's recess stands, from the recess's middle
 /// (cells): just right of it, its foot on the row behind the edge, so its
 /// tiers show over the cliff from below.
@@ -431,6 +435,7 @@ fn place_pine(map: &mut WorldMap) {
             map.set_feature(ax + dx, ay + dy, Feature::Pine(PinePart { dx: dx as u8, dy: dy as u8, flip: false }));
         }
     }
+    map.set_fruit((ax, ay), PINE_CONES);
 }
 
 /// Pine cones fallen from the pine above the recess: a few on the high
@@ -624,8 +629,8 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
 }
 
 /// Broadleaf trees stand on the grass between the beach and the jungle,
-/// thickening toward the jungle's edge, close together in the forest, and
-/// on the high ground.
+/// thickening toward the jungle's edge, and close together in the forest;
+/// on the high ground most of the trees are pines (`HIGHLAND_PINES`).
 fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     let (tw, th) = (BroadleafPart::W, BroadleafPart::H);
     for y in 0..map.height() - th + 1 {
@@ -661,10 +666,18 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
             });
             if fits && !crowded {
                 let flip = roll(x, y, seed ^ 0xB41F) < 0.5;
-                map.set_bark((x, y), BARK_STRIPS);
+                // Up on the high ground most trees are pines.
+                let pine = ground == Terrain::Highland && roll(x, y, seed ^ 0x914A) < HIGHLAND_PINES;
+                if pine {
+                    map.set_fruit((x, y), PINE_CONES);
+                } else {
+                    map.set_bark((x, y), BARK_STRIPS);
+                }
                 for dy in 0..th {
                     for dx in 0..tw {
-                        map.set_feature(x + dx, y + dy, Feature::Broadleaf(BroadleafPart { dx: dx as u8, dy: dy as u8, flip }));
+                        let (dx8, dy8) = (dx as u8, dy as u8);
+                        let f = if pine { Feature::Pine(PinePart { dx: dx8, dy: dy8, flip }) } else { Feature::Broadleaf(BroadleafPart { dx: dx8, dy: dy8, flip }) };
+                        map.set_feature(x + dx, y + dy, f);
                     }
                 }
             }

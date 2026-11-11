@@ -1535,6 +1535,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
             }
         }
         Feature::PineCone => b.prop(35, &props.pine_cone, x % 2 == 0, x, y),
+        Feature::PineStump(s) => b.prop(36, &props.pine_stump, s.flip, x, y),
         Feature::Rock => b.prop(0, &props.boulder, false, x, y),
         Feature::Driftwood(p) => {
             // A mirrored log swaps its halves (and flips each).

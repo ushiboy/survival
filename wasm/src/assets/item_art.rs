@@ -826,11 +826,11 @@ pub fn icon_pine_cone() -> PixelArt {
             let v = if in_scale == 0 || (x + row % 2 * 2) % 4 == 0 {
                 'd'
             } else if in_scale == 1 && (lit || col % 2 == 0) {
-                'h'
-            } else if lit {
                 'W'
-            } else {
+            } else if lit {
                 'w'
+            } else {
+                'd'
             };
             a.set(x, y, i(v));
         }

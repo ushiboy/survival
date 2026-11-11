@@ -130,6 +130,7 @@ impl Item {
             ItemKind::Leaf => (8, [sprites.leaves; 2], sprites.shadow_coconut),
             ItemKind::Bark => (8, [sprites.bark; 2], sprites.shadow_coconut),
             ItemKind::LauanTimber => (16, [sprites.lauan_timber; 2], sprites.shadow_player),
+            ItemKind::PineTimber => (16, [sprites.pine_timber; 2], sprites.shadow_player),
             ItemKind::PackFrame => (16, [sprites.pack_frame; 2], sprites.shadow_player),
             ItemKind::BarkContainer | ItemKind::BoiledWater => (8, [sprites.bark_pot; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),

@@ -105,6 +105,11 @@ impl PinePart {
     pub fn is_trunk_base(&self) -> bool {
         self.dx as i32 == Self::W / 2 && self.dy as i32 == Self::H - 1
     }
+
+    /// Top-left cell of the tree this part at `(x, y)` belongs to.
+    pub fn anchor(&self, x: i32, y: i32) -> (i32, i32) {
+        (x - self.dx as i32, y - self.dy as i32)
+    }
 }
 
 /// One cell of a driftwood log lying on the beach, two cells long:
@@ -155,6 +160,8 @@ pub enum Feature {
     /// down, so these cells aren't solid.
     Ladder(u8),
     Pine(PinePart),
+    /// What's left of a felled pine.
+    PineStump(StumpPart),
     /// A pine cone lying on the ground, fallen from a pine; picked up like
     /// a shell.
     PineCone,
@@ -176,7 +183,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         Feature::Palm(p) => p.is_trunk_base(),
         Feature::Broadleaf(p) => p.is_trunk_base(),
         Feature::Pine(p) => p.is_trunk_base(),
-        Feature::BroadleafStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
+        Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };
     TileProps {

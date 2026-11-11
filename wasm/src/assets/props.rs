@@ -664,6 +664,9 @@ pub struct PineArt {
     pub upper: PixelArt,
     pub base: [PropTile; 3],
     pub shade: [PropTile; 3],
+    /// The stump left after felling: narrower than a broadleaf's, its cut
+    /// face pale with rings.
+    pub stump: PropTile,
 }
 
 pub fn pine() -> PineArt {
@@ -721,7 +724,29 @@ pub fn pine() -> PineArt {
     // The tiers' shadow, cast down-right over the row above the foot.
     let mut shade = PixelArt::filled(48, 16, 0);
     shadow_ellipse(&mut shade, 27.0, 7.0, 19.0, 6.0);
-    PineArt { upper: whole.sub(0, 0, 48, 48), base: split(&base, PAL_FOLIAGE), shade: split(&shade, PAL_GRASS) }
+    let mut stump = PixelArt::filled(16, 16, 0);
+    for y in 8..=14 {
+        let hw = 3.2 + if y > 12 { (y - 12) as f32 * 0.6 } else { 0.0 };
+        for x in (8.0 - hw).floor() as i32..=(8.0 + hw).ceil() as i32 {
+            let u = (x as f32 + 0.5 - (8.0 - hw)) / (2.0 * hw);
+            if (0.0..=1.0).contains(&u) {
+                stump.put(x, y, bark[if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 }]);
+            }
+        }
+    }
+    fill_ellipse(&mut stump, 8.0, 8.0, 3.4, 1.6, |_, _, nx, ny| {
+        let r = (nx * nx + ny * ny).sqrt();
+        Some(if r > 0.75 { bark[2] } else if (0.3..0.5).contains(&r) { foliage::SAND[0] } else { foliage::SAND[1] })
+    });
+    let mut stump_tile = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut stump_tile, 9.5, 13.5, 6.0, 2.2);
+    stump_tile.overlay(&stump.outlined(bark[0]), 0, 0);
+    PineArt {
+        upper: whole.sub(0, 0, 48, 48),
+        base: split(&base, PAL_FOLIAGE),
+        shade: split(&shade, PAL_GRASS),
+        stump: PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: stump_tile },
+    }
 }
 
 /// A pine cone fallen in the grass: a short brown egg of scales, lit from

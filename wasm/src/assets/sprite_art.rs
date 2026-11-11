@@ -496,6 +496,21 @@ pub fn as_lauan(art: &PixelArt) -> PixelArt {
     })
 }
 
+/// A pine cone lying on the ground, 8x8: a small brown egg of scales.
+pub fn pine_cone() -> PixelArt {
+    let rows = ["...o....", "..odo...", ".owWdo..", ".odwWo..", ".oWdwo..", ".odwdo..", "..ooo...", "........"];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// Wood art in the item colours redone pale, as pine (a lighter, yellower
+/// wood than palm): each shade a step lighter, the lightest coconut-flesh
+/// cream.
+pub fn as_pine(art: &PixelArt) -> PixelArt {
+    let shade = |k: char| ITEM_LEGEND.iter().find(|(c, _)| *c == k).map(|(_, i)| *i).unwrap_or(0);
+    let (d, w, big_w, h, f) = (shade('d'), shade('w'), shade('W'), shade('h'), shade('f'));
+    art.map(|v| if v == d { w } else if v == w { big_w } else if v == big_w { h } else if v == h { f } else { v })
+}
+
 /// A strip of bark lying on the ground, curling at one end, 8x8.
 pub fn bark() -> PixelArt {
     let rows = ["........", "......o.", ".oooooho", "owwdwwho", "odwwdwo.", ".ooooo..", "........", "........"];

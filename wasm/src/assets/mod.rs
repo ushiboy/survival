@@ -182,6 +182,7 @@ pub struct BagSprites {
     pub leaf: SpriteId,
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
+    pub pine_timber: SpriteId,
     pub bark_container: SpriteId,
     pub boiled_water: SpriteId,
     /// Upright, turned.
@@ -254,6 +255,7 @@ impl BagSprites {
             ItemKind::GrilledFish => (self.grilled_fish, palettes::OBJ_CRAB),
             ItemKind::Ladder => (self.ladder[turned as usize], palettes::OBJ_FX),
             ItemKind::PineCone => (self.pine_cone, palettes::OBJ_CRAB),
+            ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
         }
     }
 }
@@ -302,6 +304,7 @@ pub struct SpriteIds {
     pub leaves: SpriteId,
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
+    pub pine_timber: SpriteId,
     pub bark_pot: SpriteId,
     pub pack_frame: SpriteId,
     pub husk: SpriteId,
@@ -424,6 +427,7 @@ pub struct PropSet {
     pub pine_shade: [PropTile; 3],
     pub pine_base: [PropTile; 3],
     pub pine_cone: PropTile,
+    pub pine_stump: PropTile,
 }
 
 /// Furthest a canopy shifts (px) when the tree sways.
@@ -478,6 +482,7 @@ fn load_props(vram: &mut Vram) -> PropSet {
         pine_shade: pine.shade,
         pine_base: pine.base,
         pine_cone: props::pine_cone(),
+        pine_stump: pine.stump,
         boulder: props::boulder(),
         driftwood: props::driftwood(),
         shell: props::shell(),
@@ -514,6 +519,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         leaf: bank.add(&item_art::icon_leaf()),
         bark: bank.add(&item_art::icon_bark()),
         lauan_timber: bank.add(&as_lauan(&item_art::icon_timber())),
+        pine_timber: bank.add(&as_pine(&item_art::icon_timber())),
         bark_container: bank.add(&item_art::icon_bark_container()),
         boiled_water: bank.add(&item_art::icon_boiled_water()),
         pack_frame: {
@@ -595,6 +601,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         leaves: bank.add(&leaves()),
         bark: bank.add(&bark()),
         lauan_timber: bank.add(&as_lauan(&timber())),
+        pine_timber: bank.add(&as_pine(&timber())),
         bark_pot: bank.add(&bark_pot()),
         pack_frame: bank.add(&pack_frame()),
         husk: bank.add(&husk()),
@@ -620,7 +627,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         sea_shell: bank.add(&item_art::icon_sea_shell()),
         shell_hook: bank.add(&item_art::icon_shell_hook()),
-        pine_cone: bank.add(&item_art::icon_pine_cone()),
+        pine_cone: bank.add(&pine_cone()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
         fire: FireSprites {

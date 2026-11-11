@@ -593,7 +593,7 @@ impl Game {
                 self.particles.leaves(canopy, ground, 2);
                 self.start_sway(anchor, TREE_SHAKE_FRAMES);
             }
-            Strike::TreeFelled { anchor, changed, timber, wood, fruit, fronds, bark } => {
+            Strike::TreeFelled { anchor, changed, timber, wood, fruit, fronds, bark, cones } => {
                 self.hitstop = HITSTOP_FELL;
                 self.camera_shake = CAMERA_SHAKE_FRAMES;
                 self.tree_shake = None;
@@ -619,6 +619,10 @@ impl Game {
                 }
                 for _ in 0..bark {
                     self.drop_item(ItemKind::Bark, anchor, from);
+                }
+                // A pine's cones come down out of its tiers.
+                for _ in 0..cones {
+                    self.drop_cone(anchor);
                 }
             }
             Strike::LogHit { .. } => {
@@ -669,6 +673,10 @@ impl Game {
         let (anchor, sway) = match self.harvest.shake(&mut self.map, point) {
             Shaken::Miss => return,
             Shaken::Rustle { anchor, .. } => (anchor, TREE_SWAY_FRAMES),
+            Shaken::Cone { anchor } => {
+                self.drop_cone(anchor);
+                (anchor, TREE_SHAKE_FRAMES)
+            }
             Shaken::Drop { anchor, slot, changed } => {
                 let flip = palm_flip(&self.map, anchor);
                 self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[changed]);
@@ -680,8 +688,9 @@ impl Game {
         if self.rng.chance(0.35) {
             self.particles.leaves(canopy, ground, 1);
         }
-        // Now and then a dead frond comes away too.
-        if self.rng.chance(FROND_CHANCE) {
+        // Now and then a dead frond comes away from a palm too.
+        let palm = matches!(self.map.feature(anchor.0, anchor.1), crate::world::Feature::Palm(_));
+        if palm && self.rng.chance(FROND_CHANCE) {
             self.drop_frond(anchor);
         }
         self.start_sway(anchor, sway);
@@ -706,6 +715,14 @@ impl Game {
         let hx = if flip { PALM_W as f32 - hx } else { hx };
         let from = ((anchor.0 * TILE_SIZE) as f32 + hx, (anchor.1 * TILE_SIZE) as f32 + hy);
         self.drop_item(ItemKind::Coconut, anchor, from);
+    }
+
+    /// Sends a cone down from somewhere in the tiers of the pine at
+    /// `anchor`.
+    fn drop_cone(&mut self, anchor: (i32, i32)) {
+        let ((x, y, w, h), _) = palm_canopy(anchor);
+        let from = ((x + self.rng.between(10, w - 10)) as f32, (y + self.rng.between(h / 3, h - 4)) as f32);
+        self.drop_item(ItemKind::PineCone, anchor, from);
     }
 
     /// Sends a frond down from somewhere in the crown of the palm at

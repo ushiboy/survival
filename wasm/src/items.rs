@@ -78,6 +78,9 @@ pub enum ItemKind {
     /// A pine cone, fallen from a pine: resinous, so it burns well, and
     /// small, so it's handier fuel to carry than a branch.
     PineCone,
+    /// A long, straight length of pine (the conifer of the high ground):
+    /// light for its size.
+    PineTimber,
 }
 
 /// Where a piece of gear goes.
@@ -120,7 +123,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 32] = [
+    pub const ALL: [ItemKind; 33] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -153,6 +156,7 @@ impl ItemKind {
         ItemKind::GrilledFish,
         ItemKind::Ladder,
         ItemKind::PineCone,
+        ItemKind::PineTimber,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -163,7 +167,7 @@ impl ItemKind {
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear | ItemKind::FishingRod => (1, 3),
             ItemKind::Ladder => (1, 4),
-            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::Shelter => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter => (2, 2),
         }
     }
 
@@ -201,6 +205,7 @@ impl ItemKind {
             ItemKind::GrilledFish => "GRILLED FISH",
             ItemKind::Ladder => "LADDER",
             ItemKind::PineCone => "PINE CONE",
+            ItemKind::PineTimber => "PINE TIMBER",
         }
     }
 
@@ -240,6 +245,7 @@ impl ItemKind {
             ItemKind::GrilledFish => "CLEANED AND COOKED OVER A FIRE. FILLING, AND HEALS.",
             ItemKind::Ladder => "A LADDER OF LAUAN POLES AND BRANCHES, LASHED WITH ROPE.",
             ItemKind::PineCone => "A RESINOUS PINE CONE. IT BURNS WELL.",
+            ItemKind::PineTimber => "A LONG, STRAIGHT LENGTH OF PINE. LIGHT FOR ITS SIZE.",
         }
     }
 

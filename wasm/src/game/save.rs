@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 4;
+pub const SAVE_VERSION: u32 = 5;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -83,14 +83,36 @@ fn v3_to_v4(save: &mut Value) {
     lower(&mut save["castaway"]["at"], ROW / 2);
 }
 
+/// Version 5: most of the trees on the high ground became pines (which
+/// can be shaken and felled), so the trees there were placed again: what
+/// changed on the high ground in a version 4 save is dropped. The high
+/// ground is read from the island made from the save's seed.
+fn v4_to_v5(save: &mut Value) {
+    let seed = save["seed"].as_u64().unwrap_or(1) as u32;
+    let island = crate::world::island::generate(seed);
+    let high = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => island.terrain(x as i32, y as i32) == crate::world::Terrain::Highland,
+        _ => false,
+    };
+    drop_changes_where(save, high, |_| false);
+}
+
 /// Drops the changes to cells in `region` (x, y) kept in a save (features
 /// but those `spare` keeps, fruit, bark, and trees being worked), where
 /// the island was redrawn so they no longer fit it.
 fn drop_changes_in(save: &mut Value, region: (std::ops::Range<i64>, std::ops::Range<i64>), spare: impl Fn(&Value) -> bool) {
-    let outside = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
-        (Some(x), Some(y)) => !(region.0.contains(&x) && region.1.contains(&y)),
-        _ => true,
+    let inside = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => region.0.contains(&x) && region.1.contains(&y),
+        _ => false,
     };
+    drop_changes_where(save, inside, spare);
+}
+
+/// Drops the changes kept in a save to the cells `redrawn` picks out (each
+/// entry keyed by its cell): features but those `spare` keeps, fruit,
+/// bark, and trees being worked.
+fn drop_changes_where(save: &mut Value, redrawn: impl Fn(&Value) -> bool, spare: impl Fn(&Value) -> bool) {
+    let outside = |e: &Value| !redrawn(e);
     let island = &mut save["island"];
     for key in ["features", "fruit", "bark"] {
         if let Some(Value::Array(entries)) = island.get_mut(key) {
@@ -293,6 +315,7 @@ impl SaveData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::terrain::StumpPart;
 
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
@@ -302,6 +325,7 @@ mod tests {
         include_str!("save_samples/v2.json"),
         include_str!("save_samples/v3.json"),
         include_str!("save_samples/v4.json"),
+        include_str!("save_samples/v5.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -405,6 +429,15 @@ mod tests {
         assert!(!has_feature(&s, (70, 30), Feature::Rock));
         assert!(has_feature(&s, (20, 50), Feature::VineStake));
         assert!(s.island.harvest.damage.is_empty());
+    }
+
+    #[test]
+    fn version_5_drops_changes_on_the_high_ground_where_pines_now_grow() {
+        let s = load(4);
+        assert!(!has_feature(&s, (40, 5), Feature::BroadleafStump(StumpPart { flip: false })));
+        assert!(s.island.bark.is_empty());
+        assert!(has_feature(&s, (40, 40), Feature::Rock), "changes below the cliff stay");
+        assert_eq!(s.island.harvest.damage, vec![((40, 40), 1)]);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
-use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, StumpPart};
+use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart};
 use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
 
@@ -15,6 +15,12 @@ pub const PALM_WOOD: u32 = 3;
 /// timber it breaks into.
 pub const BROADLEAF_HP: u8 = 5;
 pub const BROADLEAF_WOOD: u32 = 3;
+/// Axe hits needed to fell a pine (softwood: more than a palm, fewer than
+/// hardwood), and the pine timber it breaks into (long lengths, so fewer).
+pub const PINE_HP: u8 = 4;
+pub const PINE_WOOD: u32 = 2;
+/// Most cones a pine carries (they don't grow back yet).
+pub const PINE_CONES: u8 = 3;
 /// Axe hits needed to split a driftwood log, and the branches it breaks
 /// into (at least, and up to one more).
 pub const DRIFTWOOD_HP: u8 = 2;
@@ -48,8 +54,9 @@ pub enum Strike {
     /// apart into `wood` lengths of `timber`. What a palm still carried
     /// comes down with it: its coconuts (`fruit`) and fronds off its crown
     /// (`fronds`). A broadleaf's bark not yet stripped (`bark` strips) can
-    /// be peeled off the fallen trunk.
-    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, timber: ItemKind, wood: u32, fruit: u8, fronds: bool, bark: u8 },
+    /// be peeled off the fallen trunk. A pine's cones still on it (`cones`)
+    /// come down too.
+    TreeFelled { anchor: (i32, i32), changed: Vec<(i32, i32)>, timber: ItemKind, wood: u32, fruit: u8, fronds: bool, bark: u8, cones: u8 },
 }
 
 /// What shaking a trunk did.
@@ -62,6 +69,8 @@ pub enum Shaken {
     /// A coconut fell: `slot` is the one that dropped (see the palm art);
     /// the crown cell `changed` needs redrawing.
     Drop { anchor: (i32, i32), slot: u8, changed: (i32, i32) },
+    /// A cone fell from the pine at `anchor`.
+    Cone { anchor: (i32, i32) },
 }
 
 /// Damage and shaking state of trees being worked.
@@ -144,6 +153,15 @@ fn broadleaf_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), Bro
     }
 }
 
+/// The pine whose trunk base is at the world pixel, as (anchor, part).
+fn pine_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), PinePart)> {
+    let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+    match map.feature(x, y) {
+        Feature::Pine(p) if p.is_trunk_base() => Some((p.anchor(x, y), p)),
+        _ => None,
+    }
+}
+
 /// Whether there's a broadleaf trunk at the world pixel to strip bark from
 /// (it may have none left).
 pub fn is_broadleaf_trunk(map: &WorldMap, point: (i32, i32)) -> bool {
@@ -169,9 +187,10 @@ pub fn strip_bark(map: &mut WorldMap, point: (i32, i32)) -> Option<(i32, i32)> {
     Some((anchor.0 + BroadleafPart::W / 2, anchor.1 + BroadleafPart::H - 1))
 }
 
-/// Whether there's a trunk at the world pixel to take hold of and shake.
+/// Whether there's a trunk at the world pixel to take hold of and shake (a
+/// palm's or a pine's).
 pub fn can_shake(map: &WorldMap, point: (i32, i32)) -> bool {
-    trunk_at(map, point).is_some()
+    trunk_at(map, point).is_some() || pine_at(map, point).is_some()
 }
 
 impl Harvest {
@@ -198,11 +217,14 @@ impl Harvest {
         if let Some((anchor, p)) = broadleaf_at(map, (px, py)) {
             return self.chop_broadleaf(map, anchor, p.flip);
         }
+        if let Some((anchor, p)) = pine_at(map, (px, py)) {
+            return self.chop_pine(map, anchor, p.flip);
+        }
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
             Feature::Driftwood(p) => self.split_log(map, p.anchor(x, y)),
             Feature::Bush | Feature::Vine => Strike::Brush,
-            f @ (Feature::Rock | Feature::Stump(_) | Feature::BroadleafStump(_)) => Strike::Hard { kind: f },
+            f @ (Feature::Rock | Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
         }
     }
@@ -241,7 +263,7 @@ impl Harvest {
                 changed.push((x, y));
             }
         }
-        Strike::TreeFelled { anchor, changed, timber: ItemKind::Timber, wood: PALM_WOOD, fruit, fronds: true, bark: 0 }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::Timber, wood: PALM_WOOD, fruit, fronds: true, bark: 0, cones: 0 }
     }
 
     fn chop_broadleaf(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {
@@ -264,14 +286,40 @@ impl Harvest {
                 changed.push((x, y));
             }
         }
-        Strike::TreeFelled { anchor, changed, timber: ItemKind::LauanTimber, wood: BROADLEAF_WOOD, fruit: 0, fronds: false, bark }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::LauanTimber, wood: BROADLEAF_WOOD, fruit: 0, fronds: false, bark, cones: 0 }
+    }
+
+    fn chop_pine(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {
+        let hits = self.damage.entry(anchor).or_insert(0);
+        *hits += 1;
+        if *hits < PINE_HP {
+            return Strike::TreeHit { anchor, hp_left: PINE_HP - *hits };
+        }
+        self.damage.remove(&anchor);
+        self.shakes.remove(&anchor);
+        // The cones still on it come down with it.
+        let cones = map.fruit(anchor);
+        map.set_fruit(anchor, 0);
+        let mut changed = Vec::new();
+        for dy in 0..PinePart::H {
+            for dx in 0..PinePart::W {
+                let (x, y) = (anchor.0 + dx, anchor.1 + dy);
+                let part = PinePart { dx: dx as u8, dy: dy as u8, flip };
+                let f = if part.is_trunk_base() { Feature::PineStump(StumpPart { flip }) } else { Feature::None };
+                map.set_feature(x, y, f);
+                changed.push((x, y));
+            }
+        }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::PineTimber, wood: PINE_WOOD, fruit: 0, fronds: false, bark: 0, cones }
     }
 
     /// Resolves one shake of the trunk at a world pixel. Every few shakes a
-    /// coconut works loose, until the palm has none left.
+    /// coconut (or a pine's cone) works loose, until the tree has none left.
     pub fn shake(&mut self, map: &mut WorldMap, point: (i32, i32)) -> Shaken {
-        let Some((anchor, _)) = trunk_at(map, point) else {
-            return Shaken::Miss;
+        let (anchor, pine) = match (trunk_at(map, point), pine_at(map, point)) {
+            (Some((anchor, _)), _) => (anchor, false),
+            (_, Some((anchor, _))) => (anchor, true),
+            _ => return Shaken::Miss,
         };
         let fruit = map.fruit(anchor);
         if fruit == 0 {
@@ -285,6 +333,9 @@ impl Harvest {
         }
         self.shakes.remove(&anchor);
         map.set_fruit(anchor, fruit - 1);
+        if pine {
+            return Shaken::Cone { anchor };
+        }
         Shaken::Drop { anchor, slot: fruit - 1, changed: (anchor.0 + PalmPart::W / 2, anchor.1 + 1) }
     }
 }
@@ -330,6 +381,17 @@ mod tests {
             }
         }
         map.set_bark(AT, bark);
+        map
+    }
+
+    fn with_pine(cones: u8) -> WorldMap {
+        let mut map = ground();
+        for dy in 0..PinePart::H {
+            for dx in 0..PinePart::W {
+                map.set_feature(AT.0 + dx, AT.1 + dy, Feature::Pine(PinePart { dx: dx as u8, dy: dy as u8, flip: false }));
+            }
+        }
+        map.set_fruit(AT, cones);
         map
     }
 
@@ -469,7 +531,7 @@ mod tests {
             match h.shake(&mut map, trunk()) {
                 Shaken::Drop { .. } => drops += 1,
                 Shaken::Rustle { fruit_left, .. } => assert_eq!(fruit_left, map.fruit(AT)),
-                Shaken::Miss => panic!("the trunk is there"),
+                Shaken::Miss | Shaken::Cone { .. } => panic!("a palm drops coconuts"),
             }
         }
         assert_eq!(drops, 2, "no more than it carried");
@@ -483,10 +545,56 @@ mod tests {
     }
 
     #[test]
-    fn only_a_palm_trunk_can_be_shaken() {
+    fn a_broadleaf_cant_be_shaken() {
         let mut map = with_broadleaf(0);
         assert!(!can_shake(&map, trunk()));
         assert_eq!(Harvest::default().shake(&mut map, trunk()), Shaken::Miss);
         assert!(can_shake(&with_palm(0), trunk()));
+        assert!(can_shake(&with_pine(0), trunk()));
+    }
+
+    #[test]
+    fn a_pine_falls_to_more_strikes_than_a_palm_and_fewer_than_hardwood_leaving_a_stump() {
+        let (palm, _) = chop_down(&mut Harvest::default(), &mut with_palm(0), trunk());
+        let (broadleaf, _) = chop_down(&mut Harvest::default(), &mut with_broadleaf(0), trunk());
+        let mut map = with_pine(0);
+        let (pine, last) = chop_down(&mut Harvest::default(), &mut map, trunk());
+        assert!(palm < pine && pine < broadleaf, "palm {palm}, pine {pine}, broadleaf {broadleaf}");
+        assert!(matches!(last, Strike::TreeFelled { timber: ItemKind::PineTimber, wood: PINE_WOOD, fronds: false, bark: 0, .. }));
+        let base = (AT.0 + PinePart::W / 2, AT.1 + PinePart::H - 1);
+        assert!(matches!(map.feature(base.0, base.1), Feature::PineStump(_)));
+        assert_eq!(map.feature(AT.0, AT.1), Feature::None);
+    }
+
+    #[test]
+    fn the_cones_left_on_a_felled_pine_come_down_with_it() {
+        let mut map = with_pine(2);
+        let (_, last) = chop_down(&mut Harvest::default(), &mut map, trunk());
+        assert!(matches!(last, Strike::TreeFelled { cones: 2, fruit: 0, .. }));
+        assert_eq!(map.fruit(AT), 0);
+    }
+
+    #[test]
+    fn shaking_a_pine_works_a_cone_loose_every_few_shakes_until_none_are_left() {
+        let mut map = with_pine(PINE_CONES);
+        let mut h = Harvest::default();
+        assert!(matches!(h.shake(&mut map, trunk()), Shaken::Rustle { .. }), "nothing on the first shake");
+        let mut cones = 0;
+        for _ in 0..40 {
+            match h.shake(&mut map, trunk()) {
+                Shaken::Cone { .. } => cones += 1,
+                Shaken::Rustle { fruit_left, .. } => assert_eq!(fruit_left, map.fruit(AT)),
+                other => panic!("a pine gives cones, not {other:?}"),
+            }
+        }
+        assert_eq!(cones, PINE_CONES, "no more than it carried");
+        assert_eq!(map.fruit(AT), 0);
+    }
+
+    #[test]
+    fn the_axe_cant_cut_a_pine_stump() {
+        let cell = (3, 3);
+        let f = Feature::PineStump(StumpPart { flip: false });
+        assert_eq!(Harvest::default().axe(&mut with(cell, f), px(cell)), Strike::Hard { kind: f });
     }
 }

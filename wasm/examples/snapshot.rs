@@ -85,6 +85,7 @@ fn main() {
                 "shell" => ItemKind::SeaShell,
                 "hook" => ItemKind::ShellHook,
                 "cone" => ItemKind::PineCone,
+                "pine" => ItemKind::PineTimber,
                 "rod" => ItemKind::FishingRod,
                 "fish" => ItemKind::Fish,
                 "grilledfish" => ItemKind::GrilledFish,
