@@ -840,3 +840,30 @@ pub fn icon_pine_cone() -> PixelArt {
     a.set(8, 2, i('d'));
     a.outlined(i('o'))
 }
+
+/// A length of bamboo standing upright, 16x48: a green culm with pale
+/// joints, cut square at both ends (the hollow showing at the top).
+pub fn icon_bamboo() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 48, 0);
+    for y in 3..45 {
+        let joint = (y + 4) % 13;
+        for (k, x) in (6..10).enumerate() {
+            let c = match (joint, k) {
+                (0, _) => i('g'),
+                (1, 0..=2) => i('h'),
+                (_, 0) => i('h'),
+                (_, 3) => i('g'),
+                _ => i('G'),
+            };
+            a.set(x, y, c);
+        }
+    }
+    // The cut end: a pale rim round the dark hollow.
+    for x in 6..10 {
+        a.set(x, 2, i('c'));
+    }
+    a.set(7, 2, i('w'));
+    a.set(8, 2, i('w'));
+    a.outlined(i('o'))
+}

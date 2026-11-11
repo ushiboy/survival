@@ -864,3 +864,21 @@ pub fn fish_shadow_frames() -> [PixelArt; 2] {
 pub fn droplet() -> PixelArt {
     PixelArt::parse(&["........", "...i....", "..ili...", "..lbl...", "...l....", "........", "........", "........"], FX_LEGEND)
 }
+
+/// A length of bamboo lying on the ground, 32x8: a green culm with joints,
+/// its cut end (right) pale.
+pub fn bamboo_lying() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            "................................",
+            "ooooooooooooooooooooooooooooooo.",
+            "ohhhhhhghhhhhhhhhghhhhhhhhghhhco",
+            "oGGGGGGgGGGGGGGGGgGGGGGGGGgGGGco",
+            "oggggggggggggggggggggggggggggggo",
+            "ooooooooooooooooooooooooooooooo.",
+            "................................",
+        ],
+        FX_LEGEND,
+    )
+}

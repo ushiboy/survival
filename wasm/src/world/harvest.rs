@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
-use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart};
+use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart};
 use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
 
@@ -19,6 +19,9 @@ pub const BROADLEAF_WOOD: u32 = 3;
 /// hardwood), and the pine timber it breaks into (long lengths, so fewer).
 pub const PINE_HP: u8 = 4;
 pub const PINE_WOOD: u32 = 2;
+/// Axe hits needed to fell a bamboo culm (hollow and thin: fewer than a
+/// palm); it gives a single length.
+pub const BAMBOO_HP: u8 = 2;
 /// Most cones a pine carries (they don't grow back yet).
 pub const PINE_CONES: u8 = 3;
 /// Axe hits needed to split a driftwood log, and the branches it breaks
@@ -162,6 +165,25 @@ fn pine_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), PinePart
     }
 }
 
+/// The bamboo culm whose foot is at the world pixel, as (anchor, part).
+/// Its anchor is the top-left of a palm-sized box (3 cells wide) centred
+/// on the culm, so what falls from it lands around it as from a tree.
+fn bamboo_at(map: &WorldMap, (px, py): (i32, i32)) -> Option<((i32, i32), BambooPart)> {
+    let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+    match map.feature(x, y) {
+        Feature::Bamboo(p) if p.is_foot() => {
+            let (ax, ay) = p.anchor(x, y);
+            Some(((ax - 1, ay), p))
+        }
+        _ => None,
+    }
+}
+
+/// Whether there's a bamboo culm's foot at the world pixel.
+pub fn is_bamboo(map: &WorldMap, point: (i32, i32)) -> bool {
+    bamboo_at(map, point).is_some()
+}
+
 /// Whether there's a broadleaf trunk at the world pixel to strip bark from
 /// (it may have none left).
 pub fn is_broadleaf_trunk(map: &WorldMap, point: (i32, i32)) -> bool {
@@ -220,11 +242,14 @@ impl Harvest {
         if let Some((anchor, p)) = pine_at(map, (px, py)) {
             return self.chop_pine(map, anchor, p.flip);
         }
+        if let Some((anchor, p)) = bamboo_at(map, (px, py)) {
+            return self.chop_bamboo(map, anchor, p.flip);
+        }
         let (x, y) = (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
         match map.feature(x, y) {
             Feature::Driftwood(p) => self.split_log(map, p.anchor(x, y)),
             Feature::Bush | Feature::Vine => Strike::Brush,
-            f @ (Feature::Rock | Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_)) => Strike::Hard { kind: f },
+            f @ (Feature::Rock | Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::BambooStump(_)) => Strike::Hard { kind: f },
             _ => Strike::Miss,
         }
     }
@@ -313,6 +338,24 @@ impl Harvest {
         Strike::TreeFelled { anchor, changed, timber: ItemKind::PineTimber, wood: PINE_WOOD, fruit: 0, fronds: false, bark: 0, cones }
     }
 
+    fn chop_bamboo(&mut self, map: &mut WorldMap, anchor: (i32, i32), flip: bool) -> Strike {
+        let hits = self.damage.entry(anchor).or_insert(0);
+        *hits += 1;
+        if *hits < BAMBOO_HP {
+            return Strike::TreeHit { anchor, hp_left: BAMBOO_HP - *hits };
+        }
+        self.damage.remove(&anchor);
+        let x = anchor.0 + 1;
+        let mut changed = Vec::new();
+        for dy in 0..BambooPart::H {
+            let y = anchor.1 + dy;
+            let f = if dy == BambooPart::H - 1 { Feature::BambooStump(StumpPart { flip }) } else { Feature::None };
+            map.set_feature(x, y, f);
+            changed.push((x, y));
+        }
+        Strike::TreeFelled { anchor, changed, timber: ItemKind::Bamboo, wood: 1, fruit: 0, fronds: false, bark: 0, cones: 0 }
+    }
+
     /// Resolves one shake of the trunk at a world pixel. Every few shakes a
     /// coconut (or a pine's cone) works loose, until the tree has none left.
     pub fn shake(&mut self, map: &mut WorldMap, point: (i32, i32)) -> Shaken {
@@ -393,6 +436,20 @@ mod tests {
         }
         map.set_fruit(AT, cones);
         map
+    }
+
+    /// A bamboo culm standing in column `AT.0` from row `AT.1`; struck at
+    /// its foot.
+    fn with_bamboo() -> WorldMap {
+        let mut map = ground();
+        for dy in 0..BambooPart::H {
+            map.set_feature(AT.0, AT.1 + dy, Feature::Bamboo(BambooPart { dy: dy as u8, v: 0, flip: false }));
+        }
+        map
+    }
+
+    fn bamboo_foot() -> (i32, i32) {
+        (AT.0, AT.1 + BambooPart::H - 1)
     }
 
     fn with(cell: (i32, i32), f: Feature) -> WorldMap {
@@ -596,5 +653,35 @@ mod tests {
         let cell = (3, 3);
         let f = Feature::PineStump(StumpPart { flip: false });
         assert_eq!(Harvest::default().axe(&mut with(cell, f), px(cell)), Strike::Hard { kind: f });
+    }
+
+    #[test]
+    fn a_bamboo_culm_falls_to_fewer_strikes_than_a_palm_giving_one_length_and_leaving_a_cut_stalk() {
+        let (palm, _) = chop_down(&mut Harvest::default(), &mut with_palm(0), trunk());
+        let mut map = with_bamboo();
+        let (bamboo, last) = chop_down(&mut Harvest::default(), &mut map, px(bamboo_foot()));
+        assert!(bamboo < palm);
+        assert!(matches!(last, Strike::TreeFelled { timber: ItemKind::Bamboo, wood: 1, fruit: 0, fronds: false, bark: 0, cones: 0, .. }));
+        let foot = bamboo_foot();
+        assert!(matches!(map.feature(foot.0, foot.1), Feature::BambooStump(_)));
+        assert!((0..BambooPart::H - 1).all(|dy| map.feature(AT.0, AT.1 + dy) == Feature::None));
+    }
+
+    #[test]
+    fn only_the_foot_of_a_bamboo_culm_can_be_cut() {
+        let mut map = with_bamboo();
+        assert_eq!(Harvest::default().axe(&mut map, px(AT)), Strike::Miss);
+    }
+
+    #[test]
+    fn the_axe_cant_cut_a_bamboo_stump() {
+        let cell = (3, 3);
+        let f = Feature::BambooStump(StumpPart { flip: false });
+        assert_eq!(Harvest::default().axe(&mut with(cell, f), px(cell)), Strike::Hard { kind: f });
+    }
+
+    #[test]
+    fn bamboo_cant_be_shaken() {
+        assert!(!can_shake(&with_bamboo(), px(bamboo_foot())));
     }
 }

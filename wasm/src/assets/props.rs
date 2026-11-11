@@ -749,6 +749,103 @@ pub fn pine() -> PineArt {
     }
 }
 
+// ---------------------------------------------------------------- bamboo (16x64)
+
+/// A bamboo culm's art, 1x4 cells: `upper` (16x48: the stalk and its
+/// leaves) goes on BG2 above sprites; `base` is the stalk's foot over its
+/// shadow, `shade` the leaves' shadow on the cell above it.
+pub struct BambooArt {
+    pub upper: PixelArt,
+    pub base: PropTile,
+    pub shade: PropTile,
+}
+
+/// The culm in shape `v` (see `BambooPart`): how far its top leans, how
+/// high it reaches and where its joints fall.
+pub fn bamboo(v: u8) -> BambooArt {
+    let g = foliage::LEAF;
+    let base_y = 61.0f32;
+    let (foot, lean, top, off) = [(7.5f32, -2.5f32, 1.0f32, 0), (8.0, 2.0, 4.0, 4), (7.5, 0.5, 0.0, 7)][v as usize % 3];
+    let x_at = |y: f32| foot + lean * ((base_y - y) / (base_y - top)).powf(1.5);
+    let mut culm = PixelArt::filled(16, 64, 0);
+    let w = 3;
+    let joint = 10;
+    for y in top as i32..=base_y as i32 {
+        let x0 = (x_at(y as f32) - w as f32 / 2.0).round() as i32;
+        let j = (y + off) % joint;
+        for i in 0..w {
+            let c = match (j, i) {
+                (0, _) => g[2],
+                (1, 0 | 1) => g[6],
+                (_, 0) => g[6],
+                (_, 2) => g[3],
+                _ => g[5],
+            };
+            culm.put(x0 + i, y, c);
+        }
+    }
+    let mut whole = culm.outlined(g[1]);
+    // Sprays of narrow leaves on twigs off the upper stalk, alternating
+    // sides, reaching out and hanging down (kept within the cell).
+    let mut leaves = PixelArt::filled(16, 64, 0);
+    let mut y = top + 1.0;
+    let mut side = if v.is_multiple_of(2) { -1.0 } else { 1.0 };
+    let mut n = 0;
+    while y < 36.0 {
+        let x = x_at(y);
+        let (tx, ty) = (x + side * 2.0, y - 1.0);
+        line(&mut leaves, x, y, tx, ty, g[2]);
+        for b in 0..3 {
+            let droop = 0.15 + b as f32 * 0.45;
+            let blade = 5.0 + noise_px(b + n * 3, v as i32, 0xBA31) * 2.5;
+            let (ex, ey) = ((tx + side * blade).clamp(0.0, 15.0), ty + blade * droop);
+            line(&mut leaves, tx, ty, ex, ey, if side < 0.0 { g[6] } else { g[5] });
+            line(&mut leaves, tx + side, ty + 1.0, ex - side, ey + 1.0, g[4]);
+        }
+        y += 3.0 + noise_px(n, v as i32, 0xBA32) * 2.0;
+        side = -side;
+        n += 1;
+    }
+    whole.overlay(&leaves.outlined(g[1]), 0, 0);
+
+    let mut base = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut base, 9.5, 13.5, 4.5, 1.8);
+    base.overlay(&whole.sub(0, 48, 16, 16), 0, 0);
+    let mut shade = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut shade, 10.0, 9.0, 6.0, 3.0);
+    BambooArt {
+        upper: whole.sub(0, 0, 16, 48),
+        base: PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: base },
+        shade: PropTile { palette: PAL_GRASS, ground: Ground::Grass, overlay: shade },
+    }
+}
+
+/// What's left of a cut bamboo culm: a short green stalk cut aslant, the
+/// pale wall and dark hollow showing, over a little shadow.
+pub fn bamboo_stump() -> PropTile {
+    let g = foliage::LEAF;
+    let mut stalk = PixelArt::filled(16, 16, 0);
+    for y in 6..=14 {
+        for (i, x) in (7..10).enumerate() {
+            // Cut aslant: higher on the left.
+            if y < 6 + i as i32 * 2 {
+                continue;
+            }
+            let c = if y == 11 { g[2] } else { [g[6], g[5], g[3]][i] };
+            stalk.put(x, y, c);
+        }
+    }
+    // The cut face: a pale rim round the hollow.
+    stalk.put(7, 6, foliage::SAND[1]);
+    stalk.put(8, 7, foliage::SAND[0]);
+    stalk.put(8, 8, g[0]);
+    stalk.put(9, 9, foliage::SAND[1]);
+    let mut a = PixelArt::filled(16, 16, 0);
+    shadow_ellipse(&mut a, 9.5, 14.0, 4.0, 1.6);
+    a.overlay(&stalk.outlined(g[1]), 0, 0);
+    PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: a }
+}
+
 /// A pine cone fallen in the grass: a short brown egg of scales, lit from
 /// the top-left, over a little shadow.
 pub fn pine_cone() -> PropTile {

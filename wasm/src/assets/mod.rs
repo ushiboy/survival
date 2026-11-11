@@ -183,6 +183,7 @@ pub struct BagSprites {
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
     pub pine_timber: SpriteId,
+    pub bamboo: SpriteId,
     pub bark_container: SpriteId,
     pub boiled_water: SpriteId,
     /// Upright, turned.
@@ -256,6 +257,7 @@ impl BagSprites {
             ItemKind::Ladder => (self.ladder[turned as usize], palettes::OBJ_FX),
             ItemKind::PineCone => (self.pine_cone, palettes::OBJ_CRAB),
             ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
+            ItemKind::Bamboo => (self.bamboo, palettes::OBJ_FX),
         }
     }
 }
@@ -305,6 +307,7 @@ pub struct SpriteIds {
     pub bark: SpriteId,
     pub lauan_timber: SpriteId,
     pub pine_timber: SpriteId,
+    pub bamboo_lying: SpriteId,
     pub bark_pot: SpriteId,
     pub pack_frame: SpriteId,
     pub husk: SpriteId,
@@ -428,6 +431,13 @@ pub struct PropSet {
     pub pine_base: [PropTile; 3],
     pub pine_cone: PropTile,
     pub pine_stump: PropTile,
+    pub bamboo_stump: PropTile,
+    /// A bamboo culm in each of its shapes: the stalk and leaves (BG2),
+    /// three cells top to bottom; their shadow and the stalk's foot on the
+    /// grass (BG1).
+    pub bamboo_upper: [[MetatileId; 3]; 3],
+    pub bamboo_shade: [PropTile; 3],
+    pub bamboo_base: [PropTile; 3],
 }
 
 /// Furthest a canopy shifts (px) when the tree sways.
@@ -473,6 +483,7 @@ fn load_props(vram: &mut Vram) -> PropSet {
     });
     let tree = props::broadleaf();
     let pine = props::pine();
+    let bamboo: [props::BambooArt; 3] = std::array::from_fn(|v| props::bamboo(v as u8));
     PropSet {
         broadleaf_upper: std::array::from_fn(|c| vram.metatiles.add_art(PAL_FOLIAGE, &tree.upper.sub(c % 3 * 16, c / 3 * 16, 16, 16))),
         broadleaf_shade: tree.shade,
@@ -483,6 +494,10 @@ fn load_props(vram: &mut Vram) -> PropSet {
         pine_base: pine.base,
         pine_cone: props::pine_cone(),
         pine_stump: pine.stump,
+        bamboo_stump: props::bamboo_stump(),
+        bamboo_upper: std::array::from_fn(|v| std::array::from_fn(|r| vram.metatiles.add_art(PAL_FOLIAGE, &bamboo[v].upper.sub(0, r * 16, 16, 16)))),
+        bamboo_shade: std::array::from_fn(|v| bamboo[v].shade.clone()),
+        bamboo_base: std::array::from_fn(|v| bamboo[v].base.clone()),
         boulder: props::boulder(),
         driftwood: props::driftwood(),
         shell: props::shell(),
@@ -520,6 +535,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark: bank.add(&item_art::icon_bark()),
         lauan_timber: bank.add(&as_lauan(&item_art::icon_timber())),
         pine_timber: bank.add(&as_pine(&item_art::icon_timber())),
+        bamboo: bank.add(&item_art::icon_bamboo()),
         bark_container: bank.add(&item_art::icon_bark_container()),
         boiled_water: bank.add(&item_art::icon_boiled_water()),
         pack_frame: {
@@ -602,6 +618,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bark: bank.add(&bark()),
         lauan_timber: bank.add(&as_lauan(&timber())),
         pine_timber: bank.add(&as_pine(&timber())),
+        bamboo_lying: bank.add(&bamboo_lying()),
         bark_pot: bank.add(&bark_pot()),
         pack_frame: bank.add(&pack_frame()),
         husk: bank.add(&husk()),

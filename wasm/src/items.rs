@@ -81,6 +81,9 @@ pub enum ItemKind {
     /// A long, straight length of pine (the conifer of the high ground):
     /// light for its size.
     PineTimber,
+    /// A length of bamboo cut from a culm in the groves behind the west
+    /// coast: long, hollow and light.
+    Bamboo,
 }
 
 /// Where a piece of gear goes.
@@ -123,7 +126,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 33] = [
+    pub const ALL: [ItemKind; 34] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -157,6 +160,7 @@ impl ItemKind {
         ItemKind::Ladder,
         ItemKind::PineCone,
         ItemKind::PineTimber,
+        ItemKind::Bamboo,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -165,7 +169,7 @@ impl ItemKind {
             ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope | ItemKind::SeaShell | ItemKind::ShellHook | ItemKind::Fish | ItemKind::GrilledFish | ItemKind::PineCone => (1, 1),
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
-            ItemKind::WoodSpear | ItemKind::FishingRod => (1, 3),
+            ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo => (1, 3),
             ItemKind::Ladder => (1, 4),
             ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter => (2, 2),
         }
@@ -206,6 +210,7 @@ impl ItemKind {
             ItemKind::Ladder => "LADDER",
             ItemKind::PineCone => "PINE CONE",
             ItemKind::PineTimber => "PINE TIMBER",
+            ItemKind::Bamboo => "BAMBOO",
         }
     }
 
@@ -246,6 +251,7 @@ impl ItemKind {
             ItemKind::Ladder => "A LADDER OF LAUAN POLES AND BRANCHES, LASHED WITH ROPE.",
             ItemKind::PineCone => "A RESINOUS PINE CONE. IT BURNS WELL.",
             ItemKind::PineTimber => "A LONG, STRAIGHT LENGTH OF PINE. LIGHT FOR ITS SIZE.",
+            ItemKind::Bamboo => "A LENGTH OF BAMBOO. HOLLOW AND LIGHT.",
         }
     }
 
@@ -279,7 +285,7 @@ impl ItemKind {
     pub fn max_stack(self) -> u32 {
         match self {
             ItemKind::Leaf => 20,
-            ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond | ItemKind::SeaShell | ItemKind::PineCone => 5,
+            ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond | ItemKind::SeaShell | ItemKind::PineCone | ItemKind::Bamboo => 5,
             _ => 1,
         }
     }
@@ -337,6 +343,19 @@ impl ItemKind {
         match self {
             ItemKind::RawWater => ("POUR OUT", "POURED IT OUT"),
             _ => ("PUT DOWN", "PUT IT DOWN"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bamboo_is_light_enough_to_stack_unlike_timber() {
+        assert!(ItemKind::Bamboo.max_stack() > 1);
+        for timber in [ItemKind::Timber, ItemKind::LauanTimber, ItemKind::PineTimber] {
+            assert_eq!(timber.max_stack(), 1);
         }
     }
 }

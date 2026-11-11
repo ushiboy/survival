@@ -13,6 +13,7 @@
 //! | `#` | jungle (a thicket) |
 //! | `T` | forest |
 //! | `^` | high ground above a cliff |
+//! | `B` | bamboo grove (on grassland) |
 //!
 //! Each character sets a height for its block; heights are smoothed between
 //! blocks and roughened with noise, so coasts and the jungle's edge curve
@@ -27,7 +28,7 @@ use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Terrain};
+use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 
 /// The island's plan, and the cells each of its characters stands for.
@@ -57,7 +58,7 @@ const AREA_LAND: i32 = 1531;
 /// given in the first area's cells (as they were before the map grew north),
 /// and details are scattered by those cells, so the first area stays as it
 /// was drawn.
-const ORIGIN: (i32, i32) = (0, 24);
+const ORIGIN: (i32, i32) = (32, 24);
 /// Where the castaway washes up (a cell on the lower beach; the nearest
 /// clear spot to it is used).
 const LANDING: (i32, i32) = (32, 19);
@@ -86,8 +87,11 @@ const SEA_CURRENT_REACH: f32 = 11.5;
 /// from its left cell, cells wide. The low stretch is a dip in the
 /// cliff's top: its edge is a row lower than the rock beside it, its foot
 /// in line with the rest, and its middle cell is where a ladder stands.
+/// Its left cell is in the first area's cells (see `ORIGIN`).
 const CLIFF_HEIGHT: i32 = 3;
 const LOW_CLIFF: (i32, i32) = (62, 3);
+/// The low stretch's left cell on the map.
+const LOW_CLIFF_X: i32 = LOW_CLIFF.0 + ORIGIN.0;
 const LOW_CLIFF_HEIGHT: i32 = 2;
 /// How far either side of the low stretch the cliff's edge is drawn
 /// straight (cells), so the recess stands out from the rock around it.
@@ -111,19 +115,21 @@ fn plan_height(c: char) -> f32 {
         '.' => 3.5,
         ',' => 12.0,
         'T' => 11.0,
+        'B' => 11.0,
         '#' => 24.0,
         _ => panic!("unknown character {c:?} in the island plan"),
     }
 }
 
 /// The plan read into blocks: the height of the land, and which blocks
-/// are high ground and forest.
+/// are high ground, forest and bamboo grove.
 struct Plan {
     w: i32,
     h: i32,
     heights: Vec<f32>,
     high: Vec<f32>,
     forest: Vec<f32>,
+    bamboo: Vec<f32>,
 }
 
 impl Plan {
@@ -158,7 +164,7 @@ impl Plan {
             assert!(low != before, "the island plan is all high ground");
         }
         let mark = |want: char| chars.iter().map(|&c| if c == want { 1.0 } else { 0.0 }).collect();
-        Self { w, h, heights: low.iter().map(|&c| plan_height(c)).collect(), high: mark('^'), forest: mark('T') }
+        Self { w, h, heights: low.iter().map(|&c| plan_height(c)).collect(), high: mark('^'), forest: mark('T'), bamboo: mark('B') }
     }
 
     /// Smooth value of `blocks` at a cell, passing through each block's
@@ -206,6 +212,12 @@ impl HeightField {
         self.plan.smooth(&self.plan.high, x as f32, y as f32) + fbm(nx * 0.13, ny * 0.13, self.seed ^ 0x41C4, 2) * 0.4 > 0.5
     }
 
+    /// Whether a cell is in a bamboo grove (its edge roughened).
+    fn is_bamboo(&self, x: i32, y: i32) -> bool {
+        let (nx, ny) = ((x - ORIGIN.0) as f32, (y - ORIGIN.1) as f32);
+        self.plan.smooth(&self.plan.bamboo, x as f32, y as f32) + fbm(nx * 0.21, ny * 0.21, self.seed ^ 0xBA3B, 2) * 0.35 > 0.5
+    }
+
     /// How much a cell is in the forest (0 to 1).
     fn forest(&self, x: i32, y: i32) -> f32 {
         self.plan.smooth(&self.plan.forest, x as f32, y as f32).clamp(0.0, 1.0)
@@ -250,8 +262,8 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
     }
     // Around the low stretch the edge runs straight, at the row it has
     // over the stretch's first cell.
-    let around = LOW_CLIFF.0 - LOW_CLIFF_STRAIGHT..LOW_CLIFF.0 + LOW_CLIFF.1 + LOW_CLIFF_STRAIGHT;
-    if let Some(edge) = (0..h / 2).find(|&y| high[idx(LOW_CLIFF.0, y)] && !high[idx(LOW_CLIFF.0, y + 1)]) {
+    let around = LOW_CLIFF_X - LOW_CLIFF_STRAIGHT..LOW_CLIFF_X + LOW_CLIFF.1 + LOW_CLIFF_STRAIGHT;
+    if let Some(edge) = (0..h / 2).find(|&y| high[idx(LOW_CLIFF_X, y)] && !high[idx(LOW_CLIFF_X, y + 1)]) {
         for x in around {
             for y in 0..h / 2 {
                 high[idx(x, y)] = y <= edge;
@@ -259,7 +271,7 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
         }
         // The low stretch's edge is a row lower: its face is shorter, and
         // stands on the same ground as the rest of the cliff.
-        for x in LOW_CLIFF.0..LOW_CLIFF.0 + LOW_CLIFF.1 {
+        for x in LOW_CLIFF_X..LOW_CLIFF_X + LOW_CLIFF.1 {
             high[idx(x, edge + 1)] = true;
         }
     }
@@ -273,7 +285,7 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
             let edge = (-1..=1).any(|dy| (-1..=1).any(|dx| !is_high(x + dx, y + dy)));
             terrain.push((x, y, if edge { Terrain::CliffTop } else { Terrain::Highland }));
             if !is_high(x, y + 1) {
-                let low = (LOW_CLIFF.0..LOW_CLIFF.0 + LOW_CLIFF.1).contains(&x) && y < h / 2;
+                let low = (LOW_CLIFF_X..LOW_CLIFF_X + LOW_CLIFF.1).contains(&x) && y < h / 2;
                 let drop = if low { LOW_CLIFF_HEIGHT } else { CLIFF_HEIGHT };
                 for k in 1..=drop {
                     if map.in_bounds(x, y + k) && !is_high(x, y + k) {
@@ -397,9 +409,12 @@ pub fn generate(seed: u32) -> WorldMap {
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
     place_pine(&mut map);
+    let bamboo: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.is_bamboo(x, y)).collect();
+    place_bamboo(&mut map, &heights, &bamboo, seed);
     place_palms(&mut map, &heights, seed, &near_spawn);
     place_broadleafs(&mut map, &heights, &forest, seed, &near_spawn);
-    place_scatter(&mut map, &heights, &forest, seed, &near_spawn);
+    let in_grove = |x: i32, y: i32| near_spawn(x, y) || bamboo[(y * w + x) as usize];
+    place_scatter(&mut map, &heights, &forest, seed, &in_grove);
     drop_pine_cones(&mut map);
     fill_cliff_feet(&mut map);
     map.set_elevation(heights);
@@ -505,7 +520,7 @@ fn nearest_on_river(river: &River, p: (f32, f32)) -> (i32, i32) {
 /// The cell at the foot of the low stretch of the north cliff.
 fn low_cliff_foot(map: &WorldMap) -> Option<(i32, i32)> {
     // The middle of the recess.
-    let x = LOW_CLIFF.0 + LOW_CLIFF.1 / 2;
+    let x = LOW_CLIFF_X + LOW_CLIFF.1 / 2;
     (0..map.height() / 2).find(|&y| map.terrain(x, y) == Terrain::Cliff && map.terrain(x, y + 1) != Terrain::Cliff).map(|y| (x, y + 1))
 }
 
@@ -631,6 +646,43 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
 /// Broadleaf trees stand on the grass between the beach and the jungle,
 /// thickening toward the jungle's edge, and close together in the forest;
 /// on the high ground most of the trees are pines (`HIGHLAND_PINES`).
+/// How often a culm takes a free spot in a grove: thick enough to read as
+/// a grove, with paths left among the stalks.
+const BAMBOO_DENSITY: f32 = 0.6;
+
+/// Bamboo culms standing in the groves drawn on the plan: on grass, away
+/// from the river's banks, each wholly inside the grove, and not right
+/// beside another (a cell between neighbours on the same rows).
+fn place_bamboo(map: &mut WorldMap, heights: &[f32], grove: &[bool], seed: u32) {
+    let th = BambooPart::H;
+    let w = map.width();
+    for y in 0..map.height() - th + 1 {
+        for x in 1..w - 1 {
+            if roll(x, y, seed ^ 0xBA30) > BAMBOO_DENSITY {
+                continue;
+            }
+            let fits = (0..th).all(|dy| {
+                let (cx, cy) = (x, y + dy);
+                let i = (cy * w + cx) as usize;
+                grove[i]
+                    && map.terrain(cx, cy) == Terrain::Grass
+                    && heights[i] > SAND_BELOW + PROP_MARGIN
+                    && map.feature(cx, cy) == Feature::None
+                    && !map.is_riverside(cx, cy)
+                    && !matches!(map.feature(cx - 1, cy), Feature::Bamboo(_))
+                    && !matches!(map.feature(cx + 1, cy), Feature::Bamboo(_))
+            });
+            if fits {
+                let flip = roll(x, y, seed ^ 0xBA31) < 0.5;
+                let v = (roll(x, y, seed ^ 0xBA32) * BambooPart::SHAPES as f32) as u8 % BambooPart::SHAPES;
+                for dy in 0..th {
+                    map.set_feature(x, y + dy, Feature::Bamboo(BambooPart { dy: dy as u8, v, flip }));
+                }
+            }
+        }
+    }
+}
+
 fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     let (tw, th) = (BroadleafPart::W, BroadleafPart::H);
     for y in 0..map.height() - th + 1 {
@@ -662,7 +714,7 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
                 })
             });
             let crowded = (-1..=th).any(|dy| {
-                (-1..=tw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_)))
+                (-1..=tw).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_) | Feature::Bamboo(_)))
             });
             if fits && !crowded {
                 let flip = roll(x, y, seed ^ 0xB41F) < 0.5;

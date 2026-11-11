@@ -265,7 +265,8 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::Palm(_) => [30, 90, 30],
         Feature::Broadleaf(_) => [15, 60, 25],
         Feature::Pine(_) => [20, 75, 60],
-        Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_) => [110, 80, 50],
+        Feature::Bamboo(_) => [150, 190, 60],
+        Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::BambooStump(_) => [110, 80, 50],
         Feature::Bush | Feature::Vine | Feature::VineStake => [70, 140, 50],
         Feature::Rock => [120, 120, 120],
         Feature::Driftwood(_) => [150, 105, 60],
@@ -277,7 +278,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
     }
 }
 
-const LEGEND: [(&str, Rgb); 14] = [
+const LEGEND: [(&str, Rgb); 15] = [
     ("DEEP SEA", [20, 50, 120]),
     ("SHALLOWS", [60, 140, 200]),
     ("RIVER", [40, 110, 230]),
@@ -290,6 +291,7 @@ const LEGEND: [(&str, Rgb); 14] = [
     ("PALM", [30, 90, 30]),
     ("BROADLEAF", [15, 60, 25]),
     ("PINE", [20, 75, 60]),
+    ("BAMBOO", [150, 190, 60]),
     ("BUSH VINE", [70, 140, 50]),
     ("ROCK", [120, 120, 120]),
 ];
@@ -300,7 +302,7 @@ fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32
     for y in 0..h {
         for x in 0..w {
             let mut c = ground_colour(map, x, y);
-            let walkable = !map.props(x, y).solid || matches!(map.feature(x, y), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_));
+            let walkable = !map.props(x, y).solid || matches!(map.feature(x, y), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_) | Feature::Bamboo(_));
             if walkable && map.terrain(x, y).is_land() && !reach[(y * w + x) as usize] {
                 c = c.map(|v| (v as u32 * 3 / 5) as u8);
             }
@@ -418,6 +420,8 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::Pine(_) => 'n',
                 Feature::PineStump(_) => 'N',
                 Feature::PineCone => 'k',
+                Feature::Bamboo(_) => 'y',
+                Feature::BambooStump(_) => 'Y',
             });
         }
         s.push('\n');

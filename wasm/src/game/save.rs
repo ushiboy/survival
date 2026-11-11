@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 5;
+pub const SAVE_VERSION: u32 = 6;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -90,11 +90,59 @@ fn v3_to_v4(save: &mut Value) {
 fn v4_to_v5(save: &mut Value) {
     let seed = save["seed"].as_u64().unwrap_or(1) as u32;
     let island = crate::world::island::generate(seed);
+    // The island as made now lies `WEST_CELLS` further east (version 6).
     let high = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
-        (Some(x), Some(y)) => island.terrain(x as i32, y as i32) == crate::world::Terrain::Highland,
+        (Some(x), Some(y)) => island.terrain(x as i32 + WEST_CELLS, y as i32) == crate::world::Terrain::Highland,
         _ => false,
     };
     drop_changes_where(save, high, |_| false);
+}
+
+/// Cells the map grew by on the west in version 6.
+const WEST_CELLS: i32 = 32;
+
+/// Version 6: the map grew `WEST_CELLS` cells west (a beach on the west
+/// coast, and a bamboo grove behind it), so everything moves east. The old
+/// west edge now carries on into the new land and was smoothed again, but
+/// it lies beyond the river, where nothing could be changed yet, so no
+/// changes are dropped. Bamboo culms, and their stumps, are new features.
+fn v5_to_v6(save: &mut Value) {
+    let cells = WEST_CELLS as i64;
+    let px = cells * 16;
+    let shift = |v: &mut Value, by: i64| {
+        if let Some(x) = v.get_mut(0).and_then(|x| x.as_i64().map(|n| (x, n))) {
+            *x.0 = Value::from(x.1 + by);
+        }
+    };
+    let island = &mut save["island"];
+    for key in ["features", "fruit", "bark"] {
+        if let Some(Value::Array(entries)) = island.get_mut(key) {
+            entries.iter_mut().for_each(|e| shift(&mut e[0], cells));
+        }
+    }
+    for key in ["damage", "shakes", "picked"] {
+        if let Some(Value::Array(entries)) = island["harvest"].get_mut(key) {
+            entries.iter_mut().for_each(|e| shift(&mut e[0], cells));
+        }
+    }
+    for key in ["crabs", "fish"] {
+        if let Some(Value::Array(list)) = island.get_mut(key) {
+            list.iter_mut().for_each(|p| shift(p, px));
+        }
+    }
+    if let Some(Value::Array(items)) = island.get_mut("items") {
+        items.iter_mut().for_each(|i| shift(&mut i["at"], px));
+    }
+    if let Some(Value::Array(fires)) = island.get_mut("fires") {
+        for f in fires {
+            if let Some(x) = f["x"].as_i64() {
+                f["x"] = Value::from(x + px);
+            }
+        }
+    }
+    // The chunks are laid out afresh.
+    island["asleep_since"] = Value::Array(Vec::new());
+    shift(&mut save["castaway"]["at"], px);
 }
 
 /// Drops the changes to cells in `region` (x, y) kept in a save (features
@@ -158,10 +206,12 @@ fn v1_to_v2(save: &mut Value) {
     let island = &mut save["island"];
     if let Some(Value::Array(fruit)) = island.get_mut("fruit") {
         let kept: Vec<(i64, i64)> = fruit.iter().filter_map(|e| Some((e[0][0].as_i64()?, e[0][1].as_i64()?))).collect();
-        for (x, y) in made.palm_anchors() {
-            let (x, y) = (x as i64, y as i64);
+        for anchor in made.palm_anchors() {
+            // The island as made now lies `WEST_CELLS` further east
+            // (version 6); back to this version's cells.
+            let (x, y) = ((anchor.0 - WEST_CELLS) as i64, anchor.1 as i64);
             let old = (0..OLD_SIZE.0).contains(&x) && (ROWS + REDRAWN..ROWS + OLD_SIZE.1).contains(&y);
-            if old && made.fruit((x as i32, y as i32)) > 0 && !kept.contains(&(x, y)) {
+            if old && made.fruit(anchor) > 0 && !kept.contains(&(x, y)) {
                 fruit.push(serde_json::json!([[x, y], 0]));
             }
         }
@@ -326,11 +376,17 @@ mod tests {
         include_str!("save_samples/v3.json"),
         include_str!("save_samples/v4.json"),
         include_str!("save_samples/v5.json"),
+        include_str!("save_samples/v6.json"),
     ];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
     }
+
+    /// How far everything in an older save moves east as it loads (the
+    /// map grew west in version 6), in cells and in world px.
+    const E: i32 = WEST_CELLS;
+    const E_PX: i32 = WEST_CELLS * 16;
 
     fn has_feature(s: &SaveData, at: (i32, i32), f: Feature) -> bool {
         s.island.features.contains(&(at, f))
@@ -375,23 +431,23 @@ mod tests {
     #[test]
     fn version_2_moves_everything_down_with_the_map() {
         let s = load(1);
-        assert_eq!(s.castaway.at, (512, 296 + 384));
-        assert_eq!(s.island.items[0].at, (500, 300 + 384));
-        assert_eq!((s.island.fires[0].x, s.island.fires[0].y), (100, 200 + 384));
-        assert_eq!(s.island.crabs, vec![(300, 400 + 384)]);
-        assert_eq!(s.island.fish, vec![(600, 700 + 384)]);
-        assert!(has_feature(&s, (20, 30 + 24), Feature::VineStake));
-        assert_eq!(s.island.bark, vec![((30, 40 + 24), 2)]);
-        assert_eq!(s.island.harvest.damage, vec![((40, 20 + 24), 1)]);
-        assert_eq!(s.island.harvest.picked, vec![((44, 30 + 24), 2)]);
+        assert_eq!(s.castaway.at, (512 + E_PX, 296 + 384));
+        assert_eq!(s.island.items[0].at, (500 + E_PX, 300 + 384));
+        assert_eq!((s.island.fires[0].x, s.island.fires[0].y), (100 + E_PX, 200 + 384));
+        assert_eq!(s.island.crabs, vec![(300 + E_PX, 400 + 384)]);
+        assert_eq!(s.island.fish, vec![(600 + E_PX, 700 + 384)]);
+        assert!(has_feature(&s, (20 + E, 30 + 24), Feature::VineStake));
+        assert_eq!(s.island.bark, vec![((30 + E, 40 + 24), 2)]);
+        assert_eq!(s.island.harvest.damage, vec![((40 + E, 20 + 24), 1)]);
+        assert_eq!(s.island.harvest.picked, vec![((44 + E, 30 + 24), 2)]);
     }
 
     #[test]
     fn version_2_drops_changes_in_the_redrawn_top_rows() {
         let s = load(1);
-        assert!(!s.island.features.iter().any(|&(at, _)| at == (10, 5) || at == (10, 5 + 24)));
+        assert!(!s.island.features.iter().any(|&(at, _)| at == (10 + E, 5) || at == (10 + E, 5 + 24)));
         assert!(!s.island.bark.iter().any(|&((_, y), _)| y == 10 || y == 10 + 24));
-        assert!(!s.island.harvest.damage.iter().any(|&((x, _), _)| x == 10));
+        assert!(!s.island.harvest.damage.iter().any(|&((x, _), _)| x == 10 + E));
     }
 
     #[test]
@@ -409,43 +465,71 @@ mod tests {
     #[test]
     fn version_3_drops_changes_by_the_redrawn_cliff() {
         let s = load(2);
-        assert!(!has_feature(&s, (60, 20), Feature::Rock));
-        assert!(has_feature(&s, (20, 50), Feature::VineStake));
+        assert!(!has_feature(&s, (60 + E, 20), Feature::Rock));
+        assert!(has_feature(&s, (20 + E, 50), Feature::VineStake));
         assert!(s.island.bark.is_empty());
-        assert_eq!(s.island.harvest.damage, vec![((20, 50), 1)]);
+        assert_eq!(s.island.harvest.damage, vec![((20 + E, 50), 1)]);
     }
 
     #[test]
     fn version_4_moves_a_ladder_down_with_the_cliff_foot() {
         let s = load(3);
-        assert!(has_feature(&s, (63, 13), Feature::Ladder(0)));
-        assert!(has_feature(&s, (63, 14), Feature::Ladder(1)));
-        assert!(!has_feature(&s, (63, 12), Feature::Ladder(0)));
+        assert!(has_feature(&s, (63 + E, 13), Feature::Ladder(0)));
+        assert!(has_feature(&s, (63 + E, 14), Feature::Ladder(1)));
+        assert!(!has_feature(&s, (63 + E, 12), Feature::Ladder(0)));
     }
 
     #[test]
     fn version_4_drops_other_changes_by_the_redrawn_cliff() {
         let s = load(3);
-        assert!(!has_feature(&s, (70, 30), Feature::Rock));
-        assert!(has_feature(&s, (20, 50), Feature::VineStake));
+        assert!(!has_feature(&s, (70 + E, 30), Feature::Rock));
+        assert!(has_feature(&s, (20 + E, 50), Feature::VineStake));
         assert!(s.island.harvest.damage.is_empty());
     }
 
     #[test]
     fn version_5_drops_changes_on_the_high_ground_where_pines_now_grow() {
         let s = load(4);
-        assert!(!has_feature(&s, (40, 5), Feature::BroadleafStump(StumpPart { flip: false })));
+        assert!(!has_feature(&s, (40 + E, 5), Feature::BroadleafStump(StumpPart { flip: false })));
         assert!(s.island.bark.is_empty());
-        assert!(has_feature(&s, (40, 40), Feature::Rock), "changes below the cliff stay");
-        assert_eq!(s.island.harvest.damage, vec![((40, 40), 1)]);
+        assert!(has_feature(&s, (40 + E, 40), Feature::Rock), "changes below the cliff stay");
+        assert_eq!(s.island.harvest.damage, vec![((40 + E, 40), 1)]);
     }
 
     #[test]
     fn version_4_moves_what_stood_at_the_old_foot_down_a_row() {
         let s = load(3);
-        assert_eq!(s.castaway.at, (1000, 200 + 16));
+        assert_eq!(s.castaway.at, (1000 + E_PX, 200 + 16));
         let at = |kind| s.island.items.iter().find(|l| l.kind == kind).unwrap().at;
-        assert_eq!(at(ItemKind::Rope), (1008, 208 + 16));
-        assert_eq!(at(ItemKind::Stone), (400, 600));
+        assert_eq!(at(ItemKind::Rope), (1008 + E_PX, 208 + 16));
+        assert_eq!(at(ItemKind::Stone), (400 + E_PX, 600));
+    }
+
+    /// The version 5 sample as written, for comparing with what it loads as.
+    fn sample(version: u32) -> Value {
+        serde_json::from_str(SAMPLES[version as usize - 1]).unwrap()
+    }
+
+    #[test]
+    fn version_6_moves_everything_east_with_the_map_grown_west() {
+        let (old, s) = (sample(5), load(5));
+        let px = |v: &Value| (v[0].as_i64().unwrap() as i32, v[1].as_i64().unwrap() as i32);
+        let east = |(x, y): (i32, i32)| (x + WEST_CELLS * 16, y);
+        assert_eq!(s.castaway.at, east(px(&old["castaway"]["at"])));
+        assert_eq!(s.island.items[0].at, east(px(&old["island"]["items"][0]["at"])));
+        assert_eq!(s.island.crabs[0], east(px(&old["island"]["crabs"][0])));
+        assert_eq!(s.island.fish[0], east(px(&old["island"]["fish"][0])));
+        let fire = &old["island"]["fires"][0];
+        assert_eq!((s.island.fires[0].x, s.island.fires[0].y), east(px(&serde_json::json!([fire["x"], fire["y"]]))));
+        let cell = |(x, y): (i32, i32)| (x + WEST_CELLS, y);
+        assert!(has_feature(&s, cell((64, 11)), Feature::PineStump(StumpPart { flip: false })));
+        assert_eq!(s.island.fruit, vec![(cell((63, 8)), 0)]);
+        assert_eq!(s.island.harvest.damage, vec![(cell((40, 40)), 1)]);
+        assert_eq!(s.island.harvest.picked, vec![(cell((50, 45)), 1)]);
+    }
+
+    #[test]
+    fn version_6_starts_every_chunk_awake() {
+        assert!(load(5).island.asleep_since.is_empty());
     }
 }

@@ -13,7 +13,7 @@ use crate::render::sprites::DrawList;
 use crate::world::map::LadderFit;
 use crate::world::{TILE_SIZE, WorldMap};
 use crate::items::{ItemKind, Use};
-use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_broadleaf_trunk, is_bush};
+use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -562,6 +562,11 @@ impl Player {
                 return None;
             }
             let reach = self.reach_point();
+            // Bamboo won't give to bare hands or a knife: it takes an axe.
+            if is_bamboo(map, reach) {
+                self.ponder();
+                return None;
+            }
             // Vine and bark need cutting: without a knife, stop and think.
             if !has_knife && (can_pull_vine(map, reach) || has_bark(map, reach)) {
                 self.ponder();
@@ -1540,5 +1545,19 @@ mod tests {
             press(&mut p, &map, Buttons::A, None, 1);
             assert!(matches!(p.action, Action::Scramble { .. }), "{dx} cells off the middle");
         }
+    }
+
+    #[test]
+    fn reaching_for_bamboo_with_no_axe_makes_the_castaway_think() {
+        use crate::world::Feature;
+        use crate::world::terrain::BambooPart;
+        let mut map = WorldMap::new(8, 8, crate::world::Terrain::Grass);
+        for dy in 0..BambooPart::H {
+            map.set_feature(3, dy, Feature::Bamboo(BambooPart { dy: dy as u8, v: 0, flip: false }));
+        }
+        // Standing just below the culm's foot, facing it.
+        let mut p = facing_the_rock_at(3, BambooPart::H);
+        press(&mut p, &map, Buttons::A, Some(ItemKind::StoneKnife), 1);
+        assert!(matches!(p.action, Action::Ponder { .. }));
     }
 }

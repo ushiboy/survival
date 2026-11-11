@@ -131,6 +131,7 @@ impl Item {
             ItemKind::Bark => (8, [sprites.bark; 2], sprites.shadow_coconut),
             ItemKind::LauanTimber => (16, [sprites.lauan_timber; 2], sprites.shadow_player),
             ItemKind::PineTimber => (16, [sprites.pine_timber; 2], sprites.shadow_player),
+            ItemKind::Bamboo => (32, [sprites.bamboo_lying; 2], sprites.shadow_lying),
             ItemKind::PackFrame => (16, [sprites.pack_frame; 2], sprites.shadow_player),
             ItemKind::BarkContainer | ItemKind::BoiledWater => (8, [sprites.bark_pot; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
@@ -160,7 +161,7 @@ impl Item {
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
         let palette = match self.kind {
-            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Thatch | ItemKind::Shelter | ItemKind::StoneKnife | ItemKind::FishingRod | ItemKind::Fish | ItemKind::Ladder => OBJ_FX,
+            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Thatch | ItemKind::Shelter | ItemKind::StoneKnife | ItemKind::FishingRod | ItemKind::Fish | ItemKind::Ladder | ItemKind::Bamboo => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,

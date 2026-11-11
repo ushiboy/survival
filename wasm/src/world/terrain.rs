@@ -112,6 +112,33 @@ impl PinePart {
     }
 }
 
+/// Which cell of a bamboo culm a map cell holds: one tall jointed stalk,
+/// a cell wide and four high, with sprays of narrow leaves up top. `v`
+/// picks one of a few shapes (lean, height), so a grove isn't all alike.
+/// The foot (the bottom cell) is solid; the rest stands over the ground
+/// behind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct BambooPart {
+    pub dy: u8,
+    pub v: u8,
+    pub flip: bool,
+}
+
+impl BambooPart {
+    pub const H: i32 = 4;
+    /// How many shapes a culm comes in.
+    pub const SHAPES: u8 = 3;
+
+    pub fn is_foot(&self) -> bool {
+        self.dy as i32 == Self::H - 1
+    }
+
+    /// Top cell of the culm this part at `(x, y)` belongs to.
+    pub fn anchor(&self, x: i32, y: i32) -> (i32, i32) {
+        (x, y - self.dy as i32)
+    }
+}
+
 /// One cell of a driftwood log lying on the beach, two cells long:
 /// `dx` 0 is the left cell. Mirrored logs have their roots on the right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -165,6 +192,10 @@ pub enum Feature {
     /// A pine cone lying on the ground, fallen from a pine; picked up like
     /// a shell.
     PineCone,
+    /// A bamboo culm (in the groves behind the west coast).
+    Bamboo(BambooPart),
+    /// What's left of a cut bamboo culm: a short stalk, cut aslant.
+    BambooStump(StumpPart),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,7 +214,8 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         Feature::Palm(p) => p.is_trunk_base(),
         Feature::Broadleaf(p) => p.is_trunk_base(),
         Feature::Pine(p) => p.is_trunk_base(),
-        Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
+        Feature::Bamboo(p) => p.is_foot(),
+        Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::BambooStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
         _ => false,
     };
     TileProps {

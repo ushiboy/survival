@@ -1536,6 +1536,19 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         }
         Feature::PineCone => b.prop(35, &props.pine_cone, x % 2 == 0, x, y),
         Feature::PineStump(s) => b.prop(36, &props.pine_stump, s.flip, x, y),
+        Feature::BambooStump(s) => b.prop(43, &props.bamboo_stump, s.flip, x, y),
+        Feature::Bamboo(p) => {
+            // The stalk and leaves on BG2, their shadow and the stalk's
+            // foot on BG1.
+            let v = p.v as usize % 3;
+            match p.dy {
+                3 => b.prop(37 + v as u8, &props.bamboo_base[v], p.flip, x, y),
+                dy => {
+                    overhead = BgCell { tile: props.bamboo_upper[v][dy as usize], hflip: p.flip, high: true };
+                    if dy == 2 { b.prop(40 + v as u8, &props.bamboo_shade[v], p.flip, x, y) } else { b.terrain(map, x, y) }
+                }
+            }
+        }
         Feature::Rock => b.prop(0, &props.boulder, false, x, y),
         Feature::Driftwood(p) => {
             // A mirrored log swaps its halves (and flips each).
