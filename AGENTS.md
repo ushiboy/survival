@@ -33,7 +33,7 @@
 - アイテムを追加したとき:
   - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグパネルの一覧。追加しないとデバッグパネルに出ない）
   - `wasm/examples/snapshot.rs` の `SNAP_GIVE` の名前
-  - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵
+  - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵（`pnpm art` で並べて確かめる）
 - 操作を変えたとき: `src/components/ControlsHelp.tsx` の操作説明。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
 - 開発用ツールの使い方を変えたとき: [README.md](README.md)
 
@@ -52,7 +52,7 @@
 
 - パッケージ管理は **pnpm** を使う。
 - ルールを変える・足すとき（袋、レシピ、体調、時間、セーブなど）は TDD で進める。先に失敗するテストを書き（red）、通る最小のコードを書き（green）、整理する（refactor）。
-- 見た目や手触りの変更（絵、アニメーション、明るさ、数値の調整など）はスナップショットやブラウザで確かめ、テストは必須にしない。
+- 見た目や手触りの変更（絵、アニメーション、明るさ、数値の調整など）はスナップショットやブラウザで確かめ、テストは必須にしない。島に置く物やアイテムの絵は、まず `pnpm art` で試行錯誤する（下の「ビルドと確認」）。
 - テストでは数値そのものより関係を確かめる（「雨よけの下で寝ると外より早く回復する」など）。調整のたびにテストが壊れないようにするため。テスト名は docs の仕様の言葉で付ける。
 - 単体テストは対象のファイルの末尾の `#[cfg(test)] mod tests` に、`Game` を外から動かすシナリオテストは `wasm/tests/` に書く。シナリオテストは島の座標に頼らず、デバッグ用の関数（`debug_give` など）で状況を作る。
 - テストを書く途中でバグを見つけたら、その場で直さずにユーザーに報告して相談する。
@@ -68,6 +68,7 @@ pnpm exec tsc -b     # 型チェック
 pnpm dev             # wasm をビルドして開発サーバーを起動
 pnpm test            # Rust のテストを実行（cargo test）
 pnpm map             # 島の地図（設計・全景・特別な場所・前との差分）を wasm/target/map/ に描く
+pnpm art             # 島に置く物とアイテムの絵の一覧（と前との差分）を wasm/target/art/ に描く
 ```
 
 - **島のフィールドに関わる作業では、地図ツール（`pnpm map`）を必ず使う。** 対象は、設計図・地形・特別な場所・木や物の置き方・地面や崖などの描き方の変更や、「ここをこうしたい」という相談。使い方は [docs/island.md](docs/island.md#確認ツール) にある。
@@ -75,5 +76,11 @@ pnpm map             # 島の地図（設計・全景・特別な場所・前と
   2. 変えたら `pnpm map` で描き直す。`plan-diff.png`・`view-diff.png` で、変わったのが狙った所だけかを確かめる。行ける範囲の出力も見る。狭い所を見るときは `--area` を使う。
   3. ユーザーには、変わった所の画像（diff や `--area` の全景）を送って見せる。
   4. 終わったら `pnpm map --clear-base` で、比べる元を直前の実行に戻す。
-- 見た目の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
+- **島に置く物（資源）やアイテムの絵を考える・足す・直すときは、まず絵の一覧ツール（`pnpm art`）で試行錯誤する。** スナップショットを切り抜いて見比べる代わりに使い、ゲームの画面での見え方はそのあとでスナップショットやブラウザで確かめる。使い方は [README.md](README.md) にある。
+  1. 手を付ける前に `pnpm art --set-base` で今の絵を描き、比べる元にする。見たいものだけなら名前を渡す（`pnpm art palm`）。新しい絵を試行錯誤するときは、その1枚だけを大きく描き直し続ける（`pnpm art:watch -- "pine stump" --scale 6`）。
+  2. 変えたら `pnpm art` で描き直し、`sheet-diff.png` で変わったのが狙った絵だけかを確かめる。
+  3. ユーザーには `sheet.png` か `sheet-diff.png` を送って見せる。
+  4. 終わったら `pnpm art --clear-base` で、比べる元を直前の実行に戻す。
+  - 新しい資源（島の配置物 `Feature`）は、絵を詰める前に `wasm/examples/art.rs` の `on_sheet` と `specimens` に足してシートに出す（`Feature` を足すと、ここに足すまでコンパイルできない）。新しいアイテムは `ItemKind::ALL` に足せばシートに出る。
+- ゲームの画面での見え方の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
 - ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したりできる。

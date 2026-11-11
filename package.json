@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "cargo test --manifest-path wasm/Cargo.toml",
     "map": "cargo run -q --profile tools --manifest-path wasm/Cargo.toml --example map --",
-    "map:watch": "node scripts/map-watch.mjs"
+    "map:watch": "node scripts/map-watch.mjs",
+    "art": "cargo run -q --profile tools --manifest-path wasm/Cargo.toml --example art --",
+    "art:watch": "node scripts/art-watch.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",
