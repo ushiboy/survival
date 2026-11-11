@@ -1279,6 +1279,39 @@ impl Game {
         self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
     }
 
+    /// Dev tools: draws the world alone (no HUD, castaway or creatures;
+    /// items on the ground are kept) in daylight, with the screen's top-left
+    /// at world px `at`, for maps of the island. Leaves the game's own
+    /// camera alone.
+    pub fn debug_render_view(&mut self, at: (i32, i32)) {
+        let view = Rect::new(at.0, at.1, SCREEN_W as i32, SCREEN_H as i32);
+        self.tileset.stream(&self.map, &mut self.assets, &mut self.visual, view);
+        let camera = Camera { x: at.0, y: at.1, ..self.camera };
+        let f = &mut self.frame;
+        f.clock = 0;
+        f.scroll_x = camera.x;
+        f.scroll_y = camera.y;
+        f.brightness = 15;
+        f.cgram.clone_from(&self.base_cgram);
+        f.lines.clear();
+        f.math = MATH_TRANSLUCENT;
+        f.main_layers = layer::BG1 | layer::BG2 | layer::OBJ;
+        f.bg3_priority = false;
+        let list = &mut self.draw_list;
+        list.clear();
+        for item in &self.items {
+            item.draw(list, &camera, &self.assets.sprites, false);
+        }
+        f.oam.clear();
+        list.flush(&mut f.oam);
+        self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
+    }
+
+    /// Dev tools: the island's map, as the game holds it.
+    pub fn map(&self) -> &WorldMap {
+        &self.map
+    }
+
     /// Dev tools: the game as it stands, as a save (JSON).
     pub fn debug_save_json(&self) -> String {
         self.save_data().to_json()

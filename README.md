@@ -37,11 +37,18 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 cd wasm && cargo run --release --example stream_check
 ```
 
-島全体の地図（設計図の形の確認用。1マス4ピクセル）。漂着地点から歩いて行ける範囲も調べて、行けない陸を暗く描き、水汲み場・低い崖・川の狭い所に行けるかを出力します（行けるかどうかは `pnpm test` でも確かめています。`wasm/src/world/island.rs` のテスト）:
+島の地図（設計図や島の作り方を変えたときの確認用。使い方は [docs/island.md](docs/island.md#確認ツール)）。`wasm/target/map/` に、設計の地図 `plan.png`、ゲームの見た目の全景 `view.png`、特別な場所の画面の一覧 `spots.png`、前と比べて変わった所 `plan-diff.png`・`view-diff.png` を書き出します。漂着地点から行ける範囲も出力します:
 
 ```bash
-cd wasm && cargo run --release --example island_map -- island.ppm 4
+pnpm map                          # すべて描く（数秒）
+pnpm map --quick                  # 設計の地図だけ
+pnpm map --area 55,8,72,22        # 全景をこの範囲のマス（x0,y0,x1,y1）だけ
+pnpm map --shrink 2               # 全景を縮めて（2×2 ピクセルを1つに）
+pnpm map --set-base               # 今の状態を比べる元にする（--clear-base で直前の実行と比べるのに戻す）
+pnpm map:watch                    # wasm/src が変わるたびに描き直す（オプションも渡せる）
 ```
+
+ツールは `tools` プロファイル（release から LTO を抜いたもの）でビルドするので、描き変えてから数秒で描き直せます。
 
 主人公の全ポーズ×服装プリセットの一覧シート:
 
@@ -72,6 +79,8 @@ wasm/src/               Rust コア
   render/               ワールド → PPU入力 (地形タイル生成, HUD, カメラ, スプライト順, 時間帯ライティング)
   entity/               プレイヤー(移動・斧アクション)・カニ・カモメ・パーティクル・移動/衝突
   game/                 全体の進行 (step / render)
+wasm/examples/          開発用ツール (スナップショット, 島の地図, ストリーミングの確認など)
+scripts/                開発用スクリプト (島の地図を描き直す見張り)
 ```
 
 ## SFC (Mode 1) 準拠の制約

@@ -9,7 +9,9 @@
     "dev": "pnpm wasm:dev && vite",
     "build": "pnpm wasm && tsc -b && vite build",
     "preview": "vite preview",
-    "test": "cargo test --manifest-path wasm/Cargo.toml"
+    "test": "cargo test --manifest-path wasm/Cargo.toml",
+    "map": "cargo run -q --profile tools --manifest-path wasm/Cargo.toml --example map --",
+    "map:watch": "node scripts/map-watch.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

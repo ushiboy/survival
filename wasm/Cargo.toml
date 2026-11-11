@@ -18,3 +18,15 @@ serde_json = "1.0.154"
 [profile.release]
 opt-level = 3
 lto = true
+
+[dev-dependencies]
+# Dev tools only (examples/map.rs writes PNGs); not in the wasm build.
+miniz_oxide = "0.8"
+crc32fast = "1.5"
+
+# Dev tools: release speed without LTO, so a tool rebuilds quickly after an
+# edit (`cargo run --profile tools --example map`).
+[profile.tools]
+inherits = "release"
+lto = false
+incremental = true

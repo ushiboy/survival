@@ -67,7 +67,13 @@ pnpm wasm:dev        # wasm をデバッグビルド
 pnpm exec tsc -b     # 型チェック
 pnpm dev             # wasm をビルドして開発サーバーを起動
 pnpm test            # Rust のテストを実行（cargo test）
+pnpm map             # 島の地図（設計・全景・特別な場所・前との差分）を wasm/target/map/ に描く
 ```
 
+- **島のフィールドに関わる作業では、地図ツール（`pnpm map`）を必ず使う。** 対象は、設計図・地形・特別な場所・木や物の置き方・地面や崖などの描き方の変更や、「ここをこうしたい」という相談。使い方は [docs/island.md](docs/island.md#確認ツール) にある。
+  1. 手を付ける前に `pnpm map --set-base` で今の状態を描き、比べる元にする。話の場所は `plan.png` と `spots.png` で確かめ、座標は地図から読む。
+  2. 変えたら `pnpm map` で描き直す。`plan-diff.png`・`view-diff.png` で、変わったのが狙った所だけかを確かめる。行ける範囲の出力も見る。狭い所を見るときは `--area` を使う。
+  3. ユーザーには、変わった所の画像（diff や `--area` の全景）を送って見せる。
+  4. 終わったら `pnpm map --clear-base` で、比べる元を直前の実行に戻す。
 - 見た目の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
 - ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したりできる。

@@ -1,0 +1,571 @@
+//! Dev tool: maps of the island, for working on its plan
+//! (`wasm/src/world/island_plan.txt`) and the places in it.
+//!
+//! Usage (from the repository): `pnpm map -- [options]`, or
+//! `cargo run --profile tools --example map -- [options]` here. Options:
+//!
+//! - `--quick`: the plan map only (skips the views drawn by the game).
+//! - `--area X0,Y0,X1,Y1`: the view covers only these cells (inclusive).
+//! - `--shrink N`: the view is shrunk, N×N pixels averaged into one.
+//! - `--scale N`: the plan map's pixels per cell (default 6).
+//! - `--set-base`: keeps this run as the base later runs are compared
+//!   with; `--clear-base` goes back to comparing with the run before.
+//! - `--out DIR`: where to write (default `wasm/target/map`).
+//!
+//! It writes:
+//!
+//! - `plan.png`: the island a few pixels a cell, coloured by ground and what
+//!   stands on it, over the plan's blocks and cell coordinates, with the
+//!   special places marked. Ground the castaway can't walk to from the
+//!   landing is drawn darker.
+//! - `view.png`: the island as the game draws it (no HUD, castaway or
+//!   creatures; at midday), 16 px a cell, with cell coordinates.
+//! - `spots.png`: a screen of each special place, as the game draws it.
+//! - `plan-diff.png` / `view-diff.png`: what changed since the base (or the
+//!   last run), in colour over the rest greyed out, the cells boxed.
+//!
+//! It also prints what can be reached from the landing, and what changed.
+
+#[path = "map_parts/image.rs"]
+mod image;
+
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use image::{Image, Rgb, text_width};
+use survival_core::game::Game;
+use survival_core::ppu::{SCREEN_H, SCREEN_W};
+use survival_core::world::island::PLAN_BLOCK;
+use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
+
+const CHANGED: Rgb = [255, 0, 255];
+const AXIS_BG: Rgb = [24, 24, 32];
+const LABEL: Rgb = [235, 235, 235];
+/// Font pixel size of labels.
+const FONT: i32 = 2;
+/// Room for the coordinates along the top and the left of a map.
+const MARGIN_TOP: i32 = 14;
+const MARGIN_LEFT: i32 = 30;
+
+struct Options {
+    out: PathBuf,
+    quick: bool,
+    area: Option<(i32, i32, i32, i32)>,
+    shrink: i32,
+    scale: i32,
+    set_base: bool,
+    clear_base: bool,
+}
+
+fn options() -> Options {
+    let mut o = Options {
+        out: Path::new(env!("CARGO_MANIFEST_DIR")).join("target/map"),
+        quick: false,
+        area: None,
+        shrink: 1,
+        scale: 6,
+        set_base: false,
+        clear_base: false,
+    };
+    let mut args = std::env::args().skip(1);
+    let number = |v: Option<String>, what: &str| -> i32 { v.and_then(|v| v.parse().ok()).unwrap_or_else(|| panic!("{what} needs a number")) };
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--quick" => o.quick = true,
+            "--set-base" => o.set_base = true,
+            "--clear-base" => o.clear_base = true,
+            "--out" => o.out = PathBuf::from(args.next().expect("--out needs a directory")),
+            "--shrink" => o.shrink = number(args.next(), "--shrink").max(1),
+            "--scale" => o.scale = number(args.next(), "--scale").max(2),
+            "--area" => {
+                let v: Vec<i32> = args.next().expect("--area needs X0,Y0,X1,Y1").split(',').map(|n| n.trim().parse().expect("--area takes cells")).collect();
+                assert!(v.len() == 4, "--area needs X0,Y0,X1,Y1");
+                o.area = Some((v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])));
+            }
+            "--" => {}
+            other => panic!("unknown option {other} (see the top of wasm/examples/map.rs)"),
+        }
+    }
+    o
+}
+
+/// The special places, with a letter each for the plan map.
+fn spots(map: &WorldMap) -> Vec<(&'static str, char, Rgb, (i32, i32))> {
+    let cell = |(x, y): (i32, i32)| (x / TILE_SIZE, y / TILE_SIZE);
+    let mut v = vec![("LANDING", 'L', [255, 255, 255], (map.spawn.0 / TILE_SIZE, map.spawn.1 / TILE_SIZE + 1))];
+    if let Some(w) = map.water_spot {
+        v.push(("WATER SPOT", 'W', [0, 255, 255], cell(w)));
+    }
+    if let Some(f) = map.spots.falls {
+        v.push(("FALLS POOL", 'F', [120, 200, 255], f));
+    }
+    if let Some(b) = map.spots.bridge {
+        v.push(("RIVER NARROW", 'N', [255, 60, 60], b));
+    }
+    if let Some(l) = map.spots.ladder {
+        v.push(("LOW CLIFF", 'C', [255, 160, 0], l));
+    }
+    v
+}
+
+fn main() {
+    let o = options();
+    std::fs::create_dir_all(&o.out).expect("make the output directory");
+    let base = o.out.join("base");
+    if o.clear_base {
+        let _ = std::fs::remove_dir_all(&base);
+    }
+    let against = if base.is_dir() { base.clone() } else { o.out.clone() };
+    let against_name = if base.is_dir() { "the base" } else { "the last run" };
+
+    let t = Instant::now();
+    let mut game = Game::new(1);
+    game.skip_title();
+    let map = game.map().clone();
+    let spots = spots(&map);
+
+    // The plan map.
+    let reach = reachable(&map, spots[0].3);
+    report_reach(&map, &reach, &spots);
+    let cells = cell_signature(&map);
+    let old_cells = std::fs::read_to_string(against.join("plan.cells")).ok();
+    let old_plan = Image::load_png(&against.join("plan.png"));
+    let plan = plan_map(&map, &reach, &spots, o.scale, o.area);
+    plan.save_png(&o.out.join("plan.png"));
+    std::fs::write(o.out.join("plan.cells"), &cells).expect("write plan.cells");
+    let plan_diff = o.out.join("plan-diff.png");
+    match old_cells.as_deref().map(|old| changed_cells(old, &cells)) {
+        Some(Some(changed)) if !changed.is_empty() => {
+            describe("plan", &changed, against_name);
+            let size = (map.width() * o.scale, map.height() * o.scale);
+            match old_plan.filter(|p| p.w == plan.w && p.h == plan.h) {
+                Some(old) => before_after(&old, &plan, &changed, o.scale as f32, (0, 0), size),
+                None => highlight(&plan, &changed, o.scale as f32, (0, 0), (MARGIN_LEFT, MARGIN_TOP), size),
+            }
+            .save_png(&plan_diff);
+        }
+        Some(Some(_)) => {
+            println!("plan: no cell changed since {against_name}");
+            let _ = std::fs::remove_file(&plan_diff);
+        }
+        Some(None) => println!("plan: the island's size changed since {against_name}; no diff"),
+        None => {}
+    }
+    println!("wrote plan.png ({} ms)", t.elapsed().as_millis());
+
+    if !o.quick {
+        // The view drawn by the game, and a screen of each special place.
+        let t = Instant::now();
+        let area = o.area.unwrap_or((0, 0, map.width() - 1, map.height() - 1));
+        let area = (area.0.max(0), area.1.max(0), area.2.min(map.width() - 1), area.3.min(map.height() - 1));
+        let meta = format!("area {},{},{},{} shrink {}\n", area.0, area.1, area.2, area.3, o.shrink);
+        let old_meta = std::fs::read_to_string(against.join("view.txt")).ok();
+        let old_view = (old_meta.as_deref() == Some(meta.as_str())).then(|| Image::load_png(&against.join("view.png"))).flatten();
+        let raw = draw_view(&mut game, area).shrink(o.shrink);
+        let cell_px = TILE_SIZE as f32 / o.shrink as f32;
+        let view = with_axes(&raw, cell_px, (area.0, area.1), label_step(cell_px));
+        view.save_png(&o.out.join("view.png"));
+        std::fs::write(o.out.join("view.txt"), &meta).expect("write view.txt");
+        let view_diff = o.out.join("view-diff.png");
+        match old_view {
+            Some(old) if old.w == view.w && old.h == view.h => {
+                let changed = changed_view_cells(&old, &view, cell_px, (area.0, area.1));
+                if changed.is_empty() {
+                    println!("view: nothing changed since {against_name}");
+                    let _ = std::fs::remove_file(&view_diff);
+                } else {
+                    describe("view", &changed, against_name);
+                    before_after(&old, &view, &changed, cell_px, (area.0, area.1), (raw.w, raw.h)).save_png(&view_diff);
+                }
+            }
+            _ => {
+                if old_meta.is_some() {
+                    println!("view: not compared ({against_name} drew another area or size)");
+                }
+                let _ = std::fs::remove_file(&view_diff);
+            }
+        }
+        spot_sheet(&mut game, &spots).save_png(&o.out.join("spots.png"));
+        println!("wrote view.png and spots.png ({} ms)", t.elapsed().as_millis());
+    }
+
+    if o.set_base {
+        std::fs::create_dir_all(&base).expect("make base/");
+        for f in ["plan.cells", "plan.png", "view.png", "view.txt"] {
+            let _ = std::fs::copy(o.out.join(f), base.join(f));
+        }
+        println!("kept this run as the base");
+    }
+    println!("in {}", o.out.display());
+}
+
+// --- What can be reached --------------------------------------------------
+
+/// Cells the castaway can walk to from `start` (moving cell to cell through
+/// ground that isn't solid; diagonal steps need both sides open).
+fn reachable(map: &WorldMap, start: (i32, i32)) -> Vec<bool> {
+    let (w, h) = (map.width(), map.height());
+    let open = |x: i32, y: i32| map.in_bounds(x, y) && !map.props(x, y).solid;
+    let mut seen = vec![false; (w * h) as usize];
+    let mut queue = VecDeque::from([start]);
+    seen[(start.1 * w + start.0) as usize] = true;
+    while let Some((x, y)) = queue.pop_front() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            let diagonal_ok = dx == 0 || dy == 0 || (open(x + dx, y) && open(x, y + dy));
+            if open(nx, ny) && diagonal_ok && !seen[(ny * w + nx) as usize] {
+                seen[(ny * w + nx) as usize] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    seen
+}
+
+fn report_reach(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32))]) {
+    let w = map.width();
+    let can = |c: (i32, i32)| map.in_bounds(c.0, c.1) && reach[(c.1 * w + c.0) as usize];
+    let near = |c: (i32, i32)| (-1..=1).any(|dy| (-1..=1).any(|dx| can((c.0 + dx, c.1 + dy))));
+    let cells: Vec<(i32, i32)> = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&c| can(c)).collect();
+    let span = |f: fn(&(i32, i32)) -> i32| (cells.iter().map(f).min().unwrap_or(0), cells.iter().map(f).max().unwrap_or(0));
+    let ((x0, x1), (y0, y1)) = (span(|c| c.0), span(|c| c.1));
+    println!("island {}x{} cells; walkable from the landing: {} cells, x {x0}..={x1}, y {y0}..={y1}", w, map.height(), cells.len());
+    println!("  high ground reached: {}", cells.iter().any(|&(x, y)| map.terrain(x, y) == Terrain::Highland));
+    // The falls pool is water: it's seen, not walked to.
+    for (name, letter, _, at) in spots.iter().filter(|s| s.1 != 'F') {
+        println!("  {letter} {name} {at:?}: {}", if near(*at) { "in reach" } else { "OUT OF REACH" });
+    }
+    if let (Some((bx, by)), Some(river)) = (map.spots.bridge, map.river.as_ref()) {
+        // Look across the river at the narrow, both ways.
+        let p = river.nearest(bx as f32, by as f32);
+        let banks: Vec<bool> = [-1, 1]
+            .iter()
+            .map(|side| (1..8).map(|k| (bx + side * k, by)).find(|&(x, y)| map.terrain(x, y) != Terrain::River).is_some_and(near))
+            .collect();
+        println!("  banks at the narrow in reach (west, east): {banks:?} (channel half-width {:.2})", p.half);
+    }
+}
+
+// --- The plan map ---------------------------------------------------------
+
+fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
+    let c = match map.terrain(x, y) {
+        Terrain::DeepWater => [20, 50, 120],
+        Terrain::ShallowWater => [60, 140, 200],
+        Terrain::River => [40, 110, 230],
+        Terrain::Sand => [230, 210, 150],
+        Terrain::Grass if map.elevation(x, y) > 17.0 => [40, 110, 50],
+        Terrain::Grass => [100, 170, 70],
+        Terrain::Highland => [140, 150, 70],
+        Terrain::CliffTop => [90, 94, 44],
+        Terrain::Cliff => [130, 126, 130],
+    };
+    match map.feature(x, y) {
+        Feature::Palm(_) => [30, 90, 30],
+        Feature::Broadleaf(_) => [15, 60, 25],
+        Feature::Pine(_) => [20, 75, 60],
+        Feature::Stump(_) | Feature::BroadleafStump(_) | Feature::PineStump(_) => [110, 80, 50],
+        Feature::Bush | Feature::Vine | Feature::VineStake => [70, 140, 50],
+        Feature::Rock => [120, 120, 120],
+        Feature::Driftwood(_) => [150, 105, 60],
+        Feature::Shell => [240, 160, 170],
+        Feature::Flower => [230, 220, 90],
+        Feature::PineCone => [170, 100, 40],
+        Feature::Ladder(_) => [200, 150, 90],
+        Feature::None => c,
+    }
+}
+
+const LEGEND: [(&str, Rgb); 14] = [
+    ("DEEP SEA", [20, 50, 120]),
+    ("SHALLOWS", [60, 140, 200]),
+    ("RIVER", [40, 110, 230]),
+    ("BEACH", [230, 210, 150]),
+    ("GRASS", [100, 170, 70]),
+    ("FOREST", [40, 110, 50]),
+    ("HIGH GROUND", [140, 150, 70]),
+    ("CLIFF EDGE", [90, 94, 44]),
+    ("CLIFF", [130, 126, 130]),
+    ("PALM", [30, 90, 30]),
+    ("BROADLEAF", [15, 60, 25]),
+    ("PINE", [20, 75, 60]),
+    ("BUSH VINE", [70, 140, 50]),
+    ("ROCK", [120, 120, 120]),
+];
+
+fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32))], s: i32, area: Option<(i32, i32, i32, i32)>) -> Image {
+    let (w, h) = (map.width(), map.height());
+    let mut img = Image::new(w * s, h * s, [0; 3]);
+    for y in 0..h {
+        for x in 0..w {
+            let mut c = ground_colour(map, x, y);
+            let walkable = !map.props(x, y).solid || matches!(map.feature(x, y), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_));
+            if walkable && map.terrain(x, y).is_land() && !reach[(y * w + x) as usize] {
+                c = c.map(|v| (v as u32 * 3 / 5) as u8);
+            }
+            img.fill_rect(x * s, y * s, s, s, c);
+        }
+    }
+    // The plan's blocks faintly, chunks (and labelled coordinates) firmly.
+    for x in 0..=w {
+        let a = if x % CHUNK_CELLS == 0 { 150 } else if x % PLAN_BLOCK == 0 { 45 } else { 0 };
+        (0..h * s).for_each(|py| img.blend(x * s, py, [0; 3], a));
+    }
+    for y in 0..=h {
+        let a = if y % CHUNK_CELLS == 0 { 150 } else if y % PLAN_BLOCK == 0 { 45 } else { 0 };
+        (0..w * s).for_each(|px| img.blend(px, y * s, [0; 3], a));
+    }
+    if let Some((x0, y0, x1, y1)) = area {
+        img.frame(x0 * s - 2, y0 * s - 2, (x1 - x0 + 1) * s + 4, (y1 - y0 + 1) * s + 4, 2, [255, 230, 0]);
+    }
+    for &(_, letter, c, (x, y)) in spots {
+        img.frame(x * s - 2, y * s - 2, s + 4, s + 4, 2, c);
+        img.text(x * s + s + 3, y * s - 1, FONT, c, &letter.to_string());
+    }
+    let framed = with_axes(&img, s as f32, (0, 0), PLAN_BLOCK * 4);
+    // The legend underneath.
+    let names: Vec<(String, Rgb)> = LEGEND
+        .iter()
+        .map(|&(n, c)| (n.to_string(), c))
+        .chain(spots.iter().map(|&(n, l, c, _)| (format!("{l} {n}"), c)))
+        .chain([("DARK: OUT OF REACH".to_string(), [70, 70, 70])])
+        .collect();
+    let entry_w = names.iter().map(|(n, _)| text_width(FONT, n)).max().unwrap_or(0) + 26;
+    let per_row = ((framed.w - MARGIN_LEFT) / entry_w).max(1);
+    let rows = (names.len() as i32 + per_row - 1) / per_row;
+    let mut out = Image::new(framed.w, framed.h + rows * 16 + 6, AXIS_BG);
+    out.paste(&framed, 0, 0);
+    for (i, (name, c)) in names.iter().enumerate() {
+        let (col, row) = (i as i32 % per_row, i as i32 / per_row);
+        let (x, y) = (MARGIN_LEFT + col * entry_w, framed.h + 6 + row * 16);
+        out.fill_rect(x, y, 10, 10, *c);
+        out.text(x + 14, y, FONT, LABEL, name);
+    }
+    out
+}
+
+/// Adds coordinates along the top and left: a tick every cell (when there's
+/// room) and a label every `step` cells. `origin` is the cell at the image's
+/// top-left; `cell_px` how wide a cell is drawn.
+fn with_axes(img: &Image, cell_px: f32, origin: (i32, i32), step: i32) -> Image {
+    let mut out = Image::new(img.w + MARGIN_LEFT, img.h + MARGIN_TOP, AXIS_BG);
+    out.paste(img, MARGIN_LEFT, MARGIN_TOP);
+    let ticks = cell_px >= 4.0;
+    let mut x = origin.0;
+    while ((x - origin.0) as f32 * cell_px) < img.w as f32 {
+        let px = MARGIN_LEFT + ((x - origin.0) as f32 * cell_px) as i32;
+        if x % step == 0 {
+            out.fill_rect(px, MARGIN_TOP - 4, 1, 4, LABEL);
+            out.text(px + 2, 1, FONT, LABEL, &x.to_string());
+        } else if ticks {
+            out.fill_rect(px, MARGIN_TOP - 2, 1, 2, [120, 120, 120]);
+        }
+        x += 1;
+    }
+    let mut y = origin.1;
+    while ((y - origin.1) as f32 * cell_px) < img.h as f32 {
+        let py = MARGIN_TOP + ((y - origin.1) as f32 * cell_px) as i32;
+        if y % step == 0 {
+            out.fill_rect(MARGIN_LEFT - 4, py, 4, 1, LABEL);
+            let label = y.to_string();
+            out.text(MARGIN_LEFT - 6 - text_width(FONT, &label), py + 2, FONT, LABEL, &label);
+        } else if ticks {
+            out.fill_rect(MARGIN_LEFT - 2, py, 2, 1, [120, 120, 120]);
+        }
+        y += 1;
+    }
+    out
+}
+
+/// Labels at least ~48 px apart.
+fn label_step(cell_px: f32) -> i32 {
+    [4, 8, 16, 32, 64].into_iter().find(|&s| s as f32 * cell_px >= 48.0).unwrap_or(128)
+}
+
+// --- What changed ---------------------------------------------------------
+
+/// One line per row of cells, two characters a cell (ground, then what
+/// stands there), so runs can be compared (and read).
+fn cell_signature(map: &WorldMap) -> String {
+    let mut s = String::new();
+    for y in 0..map.height() {
+        for x in 0..map.width() {
+            s.push(match map.terrain(x, y) {
+                Terrain::DeepWater => '~',
+                Terrain::ShallowWater => '-',
+                Terrain::River => 'r',
+                Terrain::Sand => '.',
+                Terrain::Grass => ',',
+                Terrain::Highland => '^',
+                Terrain::CliffTop => 'e',
+                Terrain::Cliff => '|',
+            });
+            s.push(match map.feature(x, y) {
+                Feature::None => ' ',
+                Feature::Palm(_) => 'p',
+                Feature::Stump(_) => 's',
+                Feature::Broadleaf(_) => 'b',
+                Feature::BroadleafStump(_) => 'S',
+                Feature::Rock => 'o',
+                Feature::Bush => 'h',
+                Feature::Driftwood(_) => 'd',
+                Feature::Shell => 'c',
+                Feature::Flower => 'f',
+                Feature::Vine => 'v',
+                Feature::VineStake => 'V',
+                Feature::Ladder(_) => 'L',
+                Feature::Pine(_) => 'n',
+                Feature::PineStump(_) => 'N',
+                Feature::PineCone => 'k',
+            });
+        }
+        s.push('\n');
+    }
+    s
+}
+
+/// Cells whose signature differs (None when the island's size changed).
+fn changed_cells(old: &str, new: &str) -> Option<Vec<(i32, i32)>> {
+    let (old, new): (Vec<&str>, Vec<&str>) = (old.lines().collect(), new.lines().collect());
+    if old.len() != new.len() || old.iter().zip(&new).any(|(a, b)| a.len() != b.len()) {
+        return None;
+    }
+    let mut changed = Vec::new();
+    for (y, (a, b)) in old.iter().zip(&new).enumerate() {
+        for (x, (ca, cb)) in a.as_bytes().chunks(2).zip(b.as_bytes().chunks(2)).enumerate() {
+            if ca != cb {
+                changed.push((x as i32, y as i32));
+            }
+        }
+    }
+    Some(changed)
+}
+
+fn describe(what: &str, changed: &[(i32, i32)], against: &str) {
+    let (x0, x1) = (changed.iter().map(|c| c.0).min().unwrap(), changed.iter().map(|c| c.0).max().unwrap());
+    let (y0, y1) = (changed.iter().map(|c| c.1).min().unwrap(), changed.iter().map(|c| c.1).max().unwrap());
+    println!("{what}: {} cells changed since {against}, within x {x0}..={x1}, y {y0}..={y1} (see {what}-diff.png)", changed.len());
+}
+
+/// The map (the `size` px from `offset`) greyed out, with the changed
+/// cells in colour and an outline around each patch of them.
+fn highlight(img: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i32), offset: (i32, i32), size: (i32, i32)) -> Image {
+    let mut out = img.clone();
+    for y in offset.1..offset.1 + size.1 {
+        for x in offset.0..offset.0 + size.0 {
+            let p = img.get(x, y);
+            let grey = ((p[0] as u32 * 3 + p[1] as u32 * 6 + p[2] as u32) / 10 / 2 + 50) as u8;
+            out.set(x, y, [grey; 3]);
+        }
+    }
+    let set: std::collections::HashSet<(i32, i32)> = changed.iter().copied().collect();
+    let edge = |x: i32| offset.0 + ((x - origin.0) as f32 * cell_px).round() as i32;
+    let edge_y = |y: i32| offset.1 + ((y - origin.1) as f32 * cell_px).round() as i32;
+    for &(x, y) in changed {
+        for py in edge_y(y)..edge_y(y + 1) {
+            for px in edge(x)..edge(x + 1) {
+                if (0..img.w).contains(&px) && (0..img.h).contains(&py) {
+                    out.set(px, py, img.get(px, py));
+                }
+            }
+        }
+    }
+    for &(x, y) in changed {
+        let (l, r, t, b) = (edge(x), edge(x + 1), edge_y(y), edge_y(y + 1));
+        if !set.contains(&(x - 1, y)) {
+            out.fill_rect(l - 1, t - 1, 2, b - t + 2, CHANGED);
+        }
+        if !set.contains(&(x + 1, y)) {
+            out.fill_rect(r - 1, t - 1, 2, b - t + 2, CHANGED);
+        }
+        if !set.contains(&(x, y - 1)) {
+            out.fill_rect(l - 1, t - 1, r - l + 2, 2, CHANGED);
+        }
+        if !set.contains(&(x, y + 1)) {
+            out.fill_rect(l - 1, b - 1, r - l + 2, 2, CHANGED);
+        }
+    }
+    out
+}
+
+/// Before above after, each greyed out where nothing changed (`size` px of
+/// map from the margins), the changed cells in colour and outlined.
+fn before_after(old: &Image, new: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i32), size: (i32, i32)) -> Image {
+    let at = (MARGIN_LEFT, MARGIN_TOP);
+    let (before, after) = (highlight(old, changed, cell_px, origin, at, size), highlight(new, changed, cell_px, origin, at, size));
+    let mut out = Image::new(new.w, old.h + new.h + 32, AXIS_BG);
+    out.text(2, 2, FONT, LABEL, "BEFORE");
+    out.paste(&before, 0, 16);
+    out.text(2, old.h + 18, FONT, LABEL, "AFTER");
+    out.paste(&after, 0, old.h + 32);
+    out
+}
+
+/// Cells of the view with any pixel changed.
+fn changed_view_cells(old: &Image, new: &Image, cell_px: f32, origin: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut changed = std::collections::BTreeSet::new();
+    for y in MARGIN_TOP..new.h {
+        for x in MARGIN_LEFT..new.w {
+            if old.get(x, y) != new.get(x, y) {
+                let cx = origin.0 + ((x - MARGIN_LEFT) as f32 / cell_px) as i32;
+                let cy = origin.1 + ((y - MARGIN_TOP) as f32 / cell_px) as i32;
+                changed.insert((cy, cx));
+            }
+        }
+    }
+    changed.into_iter().map(|(y, x)| (x, y)).collect()
+}
+
+// --- Views drawn by the game ----------------------------------------------
+
+/// The cells `area` (inclusive) as the game draws them, a screen at a time.
+fn draw_view(game: &mut Game, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> Image {
+    let (left, top) = (x0 * TILE_SIZE, y0 * TILE_SIZE);
+    let (w, h) = ((x1 - x0 + 1) * TILE_SIZE, (y1 - y0 + 1) * TILE_SIZE);
+    let (sw, sh) = (SCREEN_W as i32, SCREEN_H as i32);
+    let mut img = Image::new(w, h, [0; 3]);
+    for oy in (0..h).step_by(sh as usize) {
+        for ox in (0..w).step_by(sw as usize) {
+            game.debug_render_view((left + ox, top + oy));
+            let rgba = game.rgba();
+            for y in 0..sh.min(h - oy) {
+                for x in 0..sw.min(w - ox) {
+                    let i = ((y * sw + x) * 4) as usize;
+                    img.set(ox + x, oy + y, [rgba[i], rgba[i + 1], rgba[i + 2]]);
+                }
+            }
+        }
+    }
+    img
+}
+
+/// A screen around each special place, three to a row, each named.
+fn spot_sheet(game: &mut Game, spots: &[(&str, char, Rgb, (i32, i32))]) -> Image {
+    let (sw, sh) = (SCREEN_W as i32, SCREEN_H as i32);
+    let (cols, gap, title) = (3, 6, 14);
+    let rows = (spots.len() as i32 + cols - 1) / cols;
+    let mut sheet = Image::new(cols * (sw + gap) + gap, rows * (sh + title + gap) + gap, AXIS_BG);
+    for (i, &(name, letter, c, (x, y))) in spots.iter().enumerate() {
+        let (col, row) = (i as i32 % cols, i as i32 / cols);
+        let (ox, oy) = (gap + col * (sw + gap), gap + row * (sh + title + gap));
+        let at = (x * TILE_SIZE + TILE_SIZE / 2 - sw / 2, y * TILE_SIZE + TILE_SIZE / 2 - sh / 2);
+        game.debug_render_view(at);
+        let rgba = game.rgba();
+        let mut screen = Image::new(sw, sh, [0; 3]);
+        for py in 0..sh {
+            for px in 0..sw {
+                let j = ((py * sw + px) * 4) as usize;
+                screen.set(px, py, [rgba[j], rgba[j + 1], rgba[j + 2]]);
+            }
+        }
+        // Corner marks around the place's cell.
+        let (cx, cy) = (x * TILE_SIZE - at.0, y * TILE_SIZE - at.1);
+        for (dx, dy, w, h) in [(-2, -2, 5, 1), (-2, -2, 1, 5), (13, -2, 5, 1), (17, -2, 1, 5), (-2, 17, 5, 1), (-2, 13, 1, 5), (13, 17, 5, 1), (17, 13, 1, 5)] {
+            screen.fill_rect(cx + dx, cy + dy, w, h, c);
+        }
+        sheet.paste(&screen, ox, oy + title);
+        sheet.text(ox, oy + 1, FONT, c, &format!("{letter} {name} ({x},{y})"));
+    }
+    sheet
+}
