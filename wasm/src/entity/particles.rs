@@ -55,7 +55,7 @@ impl Particles {
     }
 
     fn spawn(&mut self, kind: Kind, x: f32, y: f32, z: f32, v: (f32, f32, f32), life: i32) {
-        let phase = self.rand(0.0, 6.28);
+        let phase = self.rand(0.0, std::f32::consts::TAU);
         self.list.push(Particle { kind, x, y, z, vx: v.0, vy: v.1, vz: v.2, life, phase, bounced: false });
     }
 
