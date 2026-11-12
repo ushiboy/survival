@@ -413,7 +413,7 @@ pub fn thrust(view: View, stage: usize) -> Pose {
 /// pushing, 1 = hanging back and pulling. The hands stay where the trunk is
 /// while the body rocks, so the grip reads as fixed.
 pub fn shake(view: View, stage: usize) -> Pose {
-    let push = stage % 2 == 0;
+    let push = stage.is_multiple_of(2);
     match view {
         View::Side => {
             let grip = [(19.4, 16.4), (19.0, 16.8)];

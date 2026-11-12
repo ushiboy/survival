@@ -443,7 +443,7 @@ impl Player {
             if t == DRILL_CATCH {
                 return Some(Deed::LightFire(spot));
             }
-            return (t >= DRILL_SMOKE && t < DRILL_CATCH && t % 8 == 0).then_some(Deed::Smoulder(spot));
+            return ((DRILL_SMOKE..DRILL_CATCH).contains(&t) && t % 8 == 0).then_some(Deed::Smoulder(spot));
         }
         if let Action::Cook { t, food, dish, fire } = self.action {
             let t = t + 1;
@@ -639,7 +639,7 @@ impl Player {
             // other) when running toward the camera, so the body doesn't
             // hide it.
             let (fx, fy) = self.body.feet();
-            let side = if (self.walk_timer / DUST_EVERY) % 2 == 0 { -5 } else { 5 };
+            let side = if (self.walk_timer / DUST_EVERY).is_multiple_of(2) { -5 } else { 5 };
             Deed::KickDust(match self.facing {
                 Dir::Right => (fx - 7, fy),
                 Dir::Left => (fx + 7, fy),
@@ -1024,12 +1024,11 @@ impl Player {
             list.actor(depth + 1, ObjEntry::new(bx, sy - 18 + rise, sprites.eureka, OBJ_FX, prio).flipped(flip));
         }
 
-        if let Action::WakeUp { t, .. } = self.action {
-            if t < WAKE_KNEEL {
+        if let Action::WakeUp { t, .. } = self.action
+            && t < WAKE_KNEEL {
                 self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
                 return;
             }
-        }
 
         if self.action == Action::Collapsed {
             list.actor(depth, ObjEntry::new(sx - 15, sy + 6, sprites.player.sleeping, OBJ_PLAYER, prio));
@@ -1059,7 +1058,7 @@ impl Player {
                     continue;
                 }
                 let rise = (age / 3) as i32;
-                let sway = if (age / 8) % 2 == 0 { 0 } else { 1 };
+                let sway = if (age / 8).is_multiple_of(2) { 0 } else { 1 };
                 list.actor(depth + 1, ObjEntry::new(hx + rise / 2 + sway, hy - rise, sprites.snore, OBJ_FX, prio));
             }
             return;
@@ -1143,7 +1142,7 @@ impl Player {
             let body = ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip);
             let (dx, dy) = self.front_of_feet();
             let (fx, fy) = self.body.feet();
-            let saw = if t < DRILL_CATCH && t / DRILL_STROKE % 2 == 0 { 1 } else { -1 };
+            let saw = if t < DRILL_CATCH && (t / DRILL_STROKE).is_multiple_of(2) { 1 } else { -1 };
             let drill = ObjEntry::new(sx + 8 + (dx - fx) - 8 + saw, sy + SPRITE_H + (dy - fy) - 13, sprites.fire_drill, OBJ_FX, prio);
             if self.facing == Dir::Up {
                 list.actor(depth, body);

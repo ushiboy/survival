@@ -539,7 +539,7 @@ impl BagMenu {
         match held {
             Some(&(_, d)) => {
                 self.held_frames += 1;
-                let repeat = self.held_frames >= REPEAT_DELAY && (self.held_frames - REPEAT_DELAY) % REPEAT_EVERY == 0;
+                let repeat = self.held_frames >= REPEAT_DELAY && (self.held_frames - REPEAT_DELAY).is_multiple_of(REPEAT_EVERY);
                 repeat.then_some(d)
             }
             None => {

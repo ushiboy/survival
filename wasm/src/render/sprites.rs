@@ -35,7 +35,7 @@ impl DrawList {
     }
 
     pub fn flush(&mut self, oam: &mut Oam) {
-        self.actors.sort_by(|a, b| b.0.cmp(&a.0));
+        self.actors.sort_by_key(|&(depth, _)| std::cmp::Reverse(depth));
         for e in self.sky.iter().chain(self.actors.iter().map(|(_, e)| e)).chain(self.shadows.iter()) {
             oam.push(*e);
         }

@@ -478,7 +478,7 @@ pub fn icon_rope() -> PixelArt {
             let loop_at = (r - 0.42) / 0.58 * 2.0;
             let inside = loop_at.fract();
             let twist = (x + y + if loop_at < 1.0 { 0 } else { 2 }) % 4 == 0;
-            let c = if loop_at >= 0.95 && loop_at < 1.12 {
+            let c = if (0.95..1.12).contains(&loop_at) {
                 i('d')
             } else if twist {
                 i('w')
@@ -593,9 +593,7 @@ pub fn icon_stone_knife() -> PixelArt {
             }
             let c = if v > half - 0.9 {
                 if (x + y) % 2 == 0 { 'L' } else { 'M' }
-            } else if v < -half + 0.9 {
-                'm'
-            } else if (x * 3 + y) % 5 == 0 {
+            } else if v < -half + 0.9 || (x * 3 + y) % 5 == 0 {
                 'm'
             } else {
                 'M'

@@ -64,6 +64,11 @@ impl MetatileBank {
         self.tiles.len() - self.free.len()
     }
 
+    /// No blocks held.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Slots ever used: the next block made gets an id at or past this,
     /// unless a freed slot is reused.
     pub fn slots(&self) -> usize {
@@ -119,7 +124,7 @@ pub struct SpriteBank {
 
 impl SpriteBank {
     pub fn add(&mut self, art: &PixelArt) -> SpriteId {
-        assert!(art.w % 8 == 0 && art.h % 8 == 0, "sprite size must be a multiple of 8");
+        assert!(art.w.is_multiple_of(8) && art.h.is_multiple_of(8), "sprite size must be a multiple of 8");
         self.sprites.push(SpriteGfx { w: art.w, h: art.h, px: art.px.clone() });
         (self.sprites.len() - 1) as SpriteId
     }

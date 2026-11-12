@@ -129,7 +129,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         },
     };
     let in_grid = matches!(menu.mode, Mode::Browse | Mode::Commands { .. } | Mode::Holding(_));
-    if in_grid && (!blocked || clock / 6 % 2 == 0) {
+    if in_grid && (!blocked || (clock / 6).is_multiple_of(2)) {
         let (x0, y0) = cell_px(bx, by);
         let (x1, y1) = (x0 + bw * CELL - 8, y0 + bh * CELL - 8);
         for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {

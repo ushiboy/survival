@@ -222,7 +222,7 @@ fn leg(cv: &mut Canvas, limb: &Limb, view: View, outfit: &Outfit, group: u8, z: 
             (Mat::Skin, None)
         } else if !shorts || t < 0.78 {
             // Rolled cuff on shorts; faded fronts on jeans.
-            let tone = if shorts && t > 0.62 { Some(2) } else if jeans && u < 0.3 && t > 0.2 { Some(2) } else { None };
+            let tone = if (shorts && t > 0.62) || (jeans && u < 0.3 && t > 0.2) { Some(2) } else { None };
             (Mat::Bottom, tone)
         } else {
             (Mat::Skin, None)
@@ -455,7 +455,7 @@ fn headwear(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
             // Brim.
             ellipse(cv, (bx, hy - 2.0), 8.6, 2.5, group::HAT, z, |x, y, _, ny| {
                 let weave = (x + y) % 2 == 0;
-                Some((Mat::Accent, Some(if ny > 0.35 { 0 } else if weave && ny < -0.2 { 1 } else { 1 })))
+                Some((Mat::Accent, Some(if ny > 0.35 || (weave && ny < -0.2) { 0 } else { 1 })))
             });
             // Crown with a ribbon.
             ellipse(cv, (hx, hy - 4.6), 4.6, 3.2, group::HAT, z + 1, |x, y, _, ny| {
@@ -594,7 +594,7 @@ pub fn render(pose: &Pose, outfit: &Outfit) -> Rendered {
                 continue;
             }
             let near = |f: &dyn Fn(&Px) -> bool| {
-                [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| cv.get(x + dx, y + dy).is_some_and(|n| f(n)))
+                [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| cv.get(x + dx, y + dy).is_some_and(f))
             };
             if near(&|n| n.mat.is_some()) {
                 body.set(x as usize, y as usize, slot::OUTLINE);

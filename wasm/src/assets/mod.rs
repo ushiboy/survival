@@ -72,8 +72,11 @@ fn render_frame(pose: &Pose, outfit: &Outfit) -> [PixelArt; 4] {
     [r.body.clone(), r.body.keep_rows(0..wade), r.body.keep_rows(wade..r.body.h), r.hands]
 }
 
+/// The castaway's walk, chop and thrust poses, in each view.
+type PoseSets = ([[Pose; 4]; 3], [[Pose; 3]; 3], [[Pose; 2]; 3]);
+
 impl PlayerSprites {
-    fn poses() -> ([[Pose; 4]; 3], [[Pose; 3]; 3], [[Pose; 2]; 3]) {
+    fn poses() -> PoseSets {
         (
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::walk(v, i))),
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::chop(v, i))),

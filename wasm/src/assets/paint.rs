@@ -95,11 +95,10 @@ pub fn fill_ellipse(
         for x in x0..=x1 {
             let nx = (x as f32 + 0.5 - cx) / rx;
             let ny = (y as f32 + 0.5 - cy) / ry;
-            if nx * nx + ny * ny <= 1.0 {
-                if let Some(v) = shade(x, y, nx, ny) {
+            if nx * nx + ny * ny <= 1.0
+                && let Some(v) = shade(x, y, nx, ny) {
                     art.put(x, y, v);
                 }
-            }
         }
     }
 }
