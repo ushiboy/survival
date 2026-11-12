@@ -37,7 +37,7 @@ cd wasm && cargo run --release --example snapshot -- out.ppm "0200:90,0400:40"
 cd wasm && cargo run --release --example stream_check
 ```
 
-島の地図（設計図や島の作り方を変えたときの確認用。使い方は [docs/island.md](docs/island.md#確認ツール)）。`wasm/target/map/` に、設計の地図 `plan.png`、ゲームの見た目の全景 `view.png`、特別な場所の画面の一覧 `spots.png`、前と比べて変わった所 `plan-diff.png`・`view-diff.png` を書き出します。漂着地点から行ける範囲も出力します:
+島の地図（設計図や島の作り方を変えたときの確認用。使い方は [docs/island.md](docs/island.md#確認ツール)）。`wasm/target/map/` に、設計の地図 `plan.png`、ゲームの見た目の全景 `view.png`、特別な場所の画面の一覧 `spots.png`、前と比べて変わった所 `plan-diff.png`・`view-diff.png` を書き出します。漂着地点から行ける範囲と、島にある枯れ枝・石・蟹・魚・貝殻の数も出力します:
 
 ```bash
 pnpm map                          # すべて描く（数秒）

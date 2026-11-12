@@ -28,7 +28,9 @@
 //!   best; cells it didn't have (and cells the earlier view didn't cover)
 //!   are boxed in green.
 //!
-//! It also prints what can be reached from the landing, and what changed.
+//! It also prints what can be reached from the landing, how many branches,
+//! stones, crabs, fish and shells there are (they grow with the island),
+//! and what changed.
 
 #[path = "map_parts/image.rs"]
 mod image;
@@ -141,6 +143,7 @@ fn main() {
     // The plan map.
     let reach = reachable(&map, spots[0].3);
     report_reach(&map, &reach, &spots);
+    report_counts(&game);
     let cells = cell_signature(&map);
     let old_cells = std::fs::read_to_string(against.join("plan.cells")).ok();
     let old_plan = Image::load_png(&against.join("plan.png"));
@@ -237,6 +240,32 @@ fn main() {
         println!("kept this run as the base");
     }
     println!("in {}", o.out.display());
+}
+
+// --- How much there is ---------------------------------------------------
+
+/// Prints how many of the things whose number grows with the island (see
+/// `island::for_area`) there are on it, for keeping docs/README.md's
+/// counts right.
+fn report_counts(game: &Game) {
+    let save: serde_json::Value = serde_json::from_str(&game.debug_save_json()).expect("the save is JSON");
+    let island = &save["island"];
+    let lying = |kind: &str| island["items"].as_array().map_or(0, |v| v.iter().filter(|i| i["kind"] == kind).count());
+    let len = |key: &str| island[key].as_array().map_or(0, |v| v.len());
+    println!(
+        "on the island: {} branches, {} stones, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
+        lying("Branch"),
+        lying("Stone"),
+        len("crabs"),
+        len("fish"),
+        count_shells(game.map()),
+        game.debug_shells_per_morning(),
+        island["shell_cap"],
+    );
+}
+
+fn count_shells(map: &WorldMap) -> usize {
+    (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| map.feature(x, y) == Feature::Shell).count()
 }
 
 // --- What can be reached --------------------------------------------------

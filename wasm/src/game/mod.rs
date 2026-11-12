@@ -1343,6 +1343,12 @@ impl Game {
         true
     }
 
+    /// Dev tools: the most shells the tide leaves each morning (it grows
+    /// with the island).
+    pub fn debug_shells_per_morning(&self) -> usize {
+        island::for_area(&self.map, SHELLS_PER_DAY)
+    }
+
     /// Dev tools: the game as it stands, as a save (JSON).
     pub fn debug_save_json(&self) -> String {
         self.save_data().to_json()
