@@ -75,6 +75,10 @@ pub enum ItemKind {
     /// held in hand and stood against a cliff low enough for it to reach
     /// the top (B), where it stays.
     Ladder,
+    /// Two pine logs lashed side by side with rope: held in hand and laid
+    /// across the river where it runs narrow (B), where it stays and can be
+    /// walked over.
+    LogBridge,
     /// A pine cone, fallen from a pine: resinous, so it burns well, and
     /// small, so it's handier fuel to carry than a branch.
     PineCone,
@@ -126,7 +130,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 34] = [
+    pub const ALL: [ItemKind; 35] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -158,6 +162,7 @@ impl ItemKind {
         ItemKind::Fish,
         ItemKind::GrilledFish,
         ItemKind::Ladder,
+        ItemKind::LogBridge,
         ItemKind::PineCone,
         ItemKind::PineTimber,
         ItemKind::Bamboo,
@@ -170,7 +175,7 @@ impl ItemKind {
             ItemKind::Branch | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo => (1, 3),
-            ItemKind::Ladder => (1, 4),
+            ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
             ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter => (2, 2),
         }
     }
@@ -208,6 +213,7 @@ impl ItemKind {
             ItemKind::Fish => "FISH",
             ItemKind::GrilledFish => "GRILLED FISH",
             ItemKind::Ladder => "LADDER",
+            ItemKind::LogBridge => "LOG BRIDGE",
             ItemKind::PineCone => "PINE CONE",
             ItemKind::PineTimber => "PINE TIMBER",
             ItemKind::Bamboo => "BAMBOO",
@@ -249,6 +255,7 @@ impl ItemKind {
             ItemKind::Fish => "A FRESH FISH. FILLING, BUT BETTER COOKED.",
             ItemKind::GrilledFish => "CLEANED AND COOKED OVER A FIRE. FILLING, AND HEALS.",
             ItemKind::Ladder => "A LADDER OF LAUAN POLES AND BRANCHES, LASHED WITH ROPE.",
+            ItemKind::LogBridge => "TWO LONG PINE LOGS, LASHED SIDE BY SIDE WITH ROPE.",
             ItemKind::PineCone => "A RESINOUS PINE CONE. IT BURNS WELL.",
             ItemKind::PineTimber => "A LONG, STRAIGHT LENGTH OF PINE. LIGHT FOR ITS SIZE.",
             ItemKind::Bamboo => "A LENGTH OF BAMBOO. HOLLOW AND LIGHT.",
@@ -312,7 +319,7 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Ladder => Some(Slot::Hand),
+            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Ladder | ItemKind::LogBridge => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }
@@ -350,6 +357,12 @@ impl ItemKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_log_bridge_is_carried_in_hand_like_the_ladder() {
+        assert_eq!(ItemKind::LogBridge.slot(), ItemKind::Ladder.slot());
+        assert_eq!(ItemKind::LogBridge.max_stack(), 1);
+    }
 
     #[test]
     fn bamboo_is_light_enough_to_stack_unlike_timber() {

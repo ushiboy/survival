@@ -179,9 +179,10 @@ fn on_sheet(f: Feature) -> bool {
         | Feature::PineCone
         | Feature::Bamboo(_)
         | Feature::BambooStump(_) => true,
-        // Bare ground; and the ladder, drawn with the cliff it stands
-        // against (see `pnpm map`).
-        Feature::None | Feature::Ladder(_) => false,
+        // Bare ground; the ladder, drawn with the cliff it stands against,
+        // and the log bridge, drawn with the river it's laid across (see
+        // `pnpm map`, and `pnpm map --bridge`).
+        Feature::None | Feature::Ladder(_) | Feature::Bridge(_) => false,
     }
 }
 

@@ -205,6 +205,8 @@ pub struct BagSprites {
     pub fishing_rod: [SpriteId; 2],
     /// Upright, turned.
     pub ladder: [SpriteId; 2],
+    /// Upright, turned.
+    pub log_bridge: [SpriteId; 2],
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
     pub pine_cone: SpriteId,
@@ -255,6 +257,7 @@ impl BagSprites {
             ItemKind::Fish => (self.fish, palettes::OBJ_FX),
             ItemKind::GrilledFish => (self.grilled_fish, palettes::OBJ_CRAB),
             ItemKind::Ladder => (self.ladder[turned as usize], palettes::OBJ_FX),
+            ItemKind::LogBridge => (self.log_bridge[turned as usize], palettes::OBJ_CRAB),
             ItemKind::PineCone => (self.pine_cone, palettes::OBJ_CRAB),
             ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
             ItemKind::Bamboo => (self.bamboo, palettes::OBJ_FX),
@@ -281,6 +284,8 @@ pub struct SpriteIds {
     pub spear_side: SpriteId,
     /// A ladder lying on the ground.
     pub ladder_lying: SpriteId,
+    /// A log bridge lying on the ground.
+    pub log_bridge_lying: SpriteId,
     pub spear_up: SpriteId,
     pub spear_down: SpriteId,
     /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
@@ -566,6 +571,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let l = item_art::icon_ladder();
             [bank.add(&l), bank.add(&l.rotated_cw())]
         },
+        log_bridge: {
+            let b = item_art::icon_log_bridge();
+            [bank.add(&b), bank.add(&b.rotated_cw())]
+        },
         fish: bank.add(&item_art::icon_fish()),
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         torch: {
@@ -597,6 +606,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         axe_diag: bank.add(&axe_diag(stone_axe_side())),
         spear_side: bank.add(&spear_side()),
         ladder_lying: bank.add(&item_art::ladder_lying()),
+        log_bridge_lying: bank.add(&item_art::log_bridge_lying()),
         spear_up: bank.add(&spear_side().transposed().flipped_v()),
         spear_down: bank.add(&spear_side().transposed()),
         swoosh: swooshes().map(|a| bank.add(&a)),

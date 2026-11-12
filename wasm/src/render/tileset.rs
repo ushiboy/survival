@@ -361,9 +361,21 @@ impl Builder<'_> {
         if far_from_spot && (0..16).all(|py| (0..16).all(|px| !grassy(px, py))) {
             return self.sandy_bank(r, x, y);
         }
+        let art = self.grass_bank_art(map, f, r, x, y);
+        self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// A grassy river bank (grass palette), the water left clear for the
+    /// river drawn on BG2.
+    fn grass_bank_art(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> PixelArt {
+        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
+        let grassy = |px: usize, py: usize| {
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0
+        };
         let (g, s) = self.grass_and_sand(x, y);
         let ramp = grass::RAMP;
-        let art = compose(|px, py| {
+        compose(|px, py| {
             let i = py * 16 + px;
             let d = r.depth[i];
             if d > 0.0 {
@@ -410,7 +422,27 @@ impl Builder<'_> {
             } else {
                 grass_or_sand(f, &g, &s, x, y, px, py)
             }
-        });
+        })
+    }
+
+    /// A log bridge laid across the river (grass palette, in its earth and
+    /// sand browns, over the bank and the water left clear for BG2): `part`
+    /// `0` its west end on the bank, `1` over the water, `2` its east end.
+    fn bridge(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, part: u8) -> MetatileId {
+        let mut art = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        for py in 0..16 {
+            for px in 0..16 {
+                match bridge_pixel(px as i32, py as i32, part) {
+                    Some(v) => art.set(px, py, v),
+                    // Its shadow below it, dithered over the water.
+                    None if py as i32 == BRIDGE_ROWS.1 + 1 && bridge_pixel(px as i32, BRIDGE_ROWS.1, part).is_some() && (art.get(px, py) != 0 || (px + py) % 2 == 0) => art.set(px, py, grass::RAMP[0]),
+                    None => {}
+                }
+            }
+        }
         self.unique_art(PAL_GRASS, &art)
     }
 
@@ -1039,6 +1071,50 @@ fn crumbled_grass(tex: &TerrainTextures, cut: Cut, oy: i32, x: i32, y: i32) -> P
     })
 }
 
+/// Top and bottom rows of a laid log bridge in its cells.
+const BRIDGE_ROWS: (i32, i32) = (1, 14);
+
+/// The colour of a laid log bridge's pixel in its cell (grass palette), if
+/// it's on the bridge: two logs side by side running east to west, lit
+/// from above, cut ends showing on the banks, lashed with rope near them.
+fn bridge_pixel(px: i32, py: i32, part: u8) -> Option<u8> {
+    let (top, bottom) = BRIDGE_ROWS;
+    let mid = (top + bottom) / 2;
+    if !(top..=bottom).contains(&py) {
+        return None;
+    }
+    // The logs reach halfway onto the bank cells.
+    let (from, to) = match part {
+        0 => (6, 15),
+        2 => (0, 9),
+        _ => (0, 15),
+    };
+    if !(from..=to).contains(&px) {
+        return None;
+    }
+    // Row within its log, from the lit top.
+    let row = if py <= mid { py - top } else { py - mid - 1 };
+    let rows = mid - top + 1;
+    let last = row == rows - 1;
+    let end = (part == 0 && px == from) || (part == 2 && px == to);
+    let grain = (part == 0 && px == from + 1) || (part == 2 && px == to - 1);
+    let lashed = (part == 0 && (11..=12).contains(&px)) || (part == 2 && (3..=4).contains(&px));
+    Some(if end || last {
+        grass::RAMP[0]
+    } else if grain {
+        if row == 0 || row == rows - 2 { grass::SAND[0] } else if row == rows / 2 - 1 { grass::SAND[1] } else { grass::SAND[2] }
+    } else if lashed {
+        if (px + py) % 2 == 0 { grass::SAND[2] } else { grass::SOIL }
+    } else if row == 0 {
+        grass::SAND[1]
+    } else if row >= rows - 2 || (px * 7 + py * 3 + part as i32 * 5) % 11 == 0 {
+        // The shaded underside, and knots in the grain.
+        grass::SOIL
+    } else {
+        grass::SAND[0]
+    })
+}
+
 /// Row of the cliff's edge cell from which a stood ladder's tops stick up.
 const LADDER_TOP: usize = 9;
 
@@ -1560,6 +1636,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Vine => b.prop(17, &props.vine, x % 2 == 0, x, y),
         Feature::VineStake => b.prop(18, &props.vine_stake, x % 2 == 0, x, y),
         Feature::Ladder(part) => b.ladder(map, x, y, part),
+        Feature::Bridge(part) => b.bridge(map, river.as_ref(), x, y, part),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::None => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),

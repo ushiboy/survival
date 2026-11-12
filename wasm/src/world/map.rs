@@ -58,6 +58,22 @@ pub struct WorldMap {
 /// How many cells of rock face a ladder spans.
 pub const LADDER_ROWS: i32 = 2;
 
+/// How many cells of river a log bridge spans.
+pub const BRIDGE_CELLS: i32 = 2;
+
+/// How many rows up or down the river from the narrow's middle a log
+/// bridge can be held out and still go across it (at the middle).
+pub const BRIDGE_REACH: i32 = 3;
+
+/// Where a log bridge goes across the river: its row, and the bank cells
+/// its ends rest on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BridgeSpan {
+    pub row: i32,
+    pub west: i32,
+    pub east: i32,
+}
+
 /// Whether a ladder stood against a cliff would reach the top.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LadderFit {
@@ -270,6 +286,34 @@ impl WorldMap {
                 let cell = (x, y - rows + k);
                 self.set_feature(cell.0, cell.1, Feature::Ladder(k as u8));
                 cell
+            })
+            .collect()
+    }
+
+    /// Where a log bridge held out over the river cell (x, y) would go:
+    /// only across the narrow (`spots.bridge`), and from anywhere along it
+    /// (the row above or below too), across its middle row. Both ends must
+    /// rest on open ground and the water between be no wider than a log
+    /// bridge spans.
+    pub fn bridge_spot(&self, x: i32, y: i32) -> Option<BridgeSpan> {
+        let (bx, by) = self.spots.bridge?;
+        let river = |x: i32| self.terrain(x, by) == Terrain::River && self.feature(x, by) == Feature::None;
+        if self.terrain(x, y) != Terrain::River || (y - by).abs() > BRIDGE_REACH || (x - bx).abs() > BRIDGE_CELLS || !river(bx) {
+            return None;
+        }
+        let west = (1..).map(|k| bx - k).find(|&x| !river(x))?;
+        let east = (1..).map(|k| bx + k).find(|&x| !river(x))?;
+        let open = |x: i32| self.feature(x, by) == Feature::None && !self.props(x, by).solid;
+        (east - west - 1 <= BRIDGE_CELLS && open(west) && open(east)).then_some(BridgeSpan { row: by, west, east })
+    }
+
+    /// Lays a log bridge across `span`. Returns the cells it covers.
+    pub fn lay_bridge(&mut self, span: BridgeSpan) -> Vec<(i32, i32)> {
+        (span.west..=span.east)
+            .map(|x| {
+                let part = if x == span.west { 0 } else if x == span.east { 2 } else { 1 };
+                self.set_feature(x, span.row, Feature::Bridge(part));
+                (x, span.row)
             })
             .collect()
     }

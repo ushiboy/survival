@@ -148,6 +148,7 @@ impl Item {
             ItemKind::PineCone => (8, [sprites.pine_cone; 2], sprites.shadow_coconut),
             ItemKind::FishingRod => (32, [sprites.rod_side; 2], sprites.shadow_lying),
             ItemKind::Ladder => (32, [sprites.ladder_lying; 2], sprites.shadow_lying),
+            ItemKind::LogBridge => (32, [sprites.log_bridge_lying; 2], sprites.shadow_lying),
             ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),
             ItemKind::GrilledFish => (16, [sprites.grilled_fish; 2], sprites.shadow_crab),
             // Water and a burning torch never lie on the ground.

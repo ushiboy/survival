@@ -804,6 +804,47 @@ fn ladder_art(w: usize, h: usize) -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A log bridge standing upright, 16x64: two pine logs side by side, lit
+/// on the left, cut ends at the top, lashed with rope near both ends.
+pub fn icon_log_bridge() -> PixelArt {
+    log_bridge_art(64)
+}
+
+/// The log bridge lying on the ground, 32x16, logs running across.
+pub fn log_bridge_lying() -> PixelArt {
+    log_bridge_art(32).rotated_cw()
+}
+
+/// Two pine logs 16 wide and `h` tall (upright), in pine's item colours
+/// (see `as_pine`: `w` dark, `W` mid, `h` light, `f` end grain).
+fn log_bridge_art(h: usize) -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, h, 0);
+    let end = 3;
+    let lashings = [h / 6, h - 1 - h / 6];
+    for left in [1usize, 8] {
+        for y in 1..h - 1 {
+            for dx in 0..6 {
+                let c = if y < 1 + end {
+                    // The cut end: pale wood with a darker ring.
+                    if (dx == 1 || dx == 4) && y == 2 || (dx == 2 || dx == 3) && (y == 1 || y == end) { 'h' } else { 'f' }
+                } else if lashings.iter().any(|&l| (l..l + 2).contains(&y)) {
+                    // Rope wound round both logs.
+                    if (y + dx) % 2 == 0 { 'w' } else { 'd' }
+                } else {
+                    match dx {
+                        0 => 'h',
+                        1..=3 => if (y * 7 + left * 3 + dx * 5) % 11 == 0 { 'w' } else { 'W' },
+                        _ => 'w',
+                    }
+                };
+                a.set(left + dx, y, i(c));
+            }
+        }
+    }
+    a.outlined(i('o'))
+}
+
 /// A pine cone, 16x16: an egg of brown woody scales in rows, overlapping
 /// downward, lit from the top-left, with its stalk at the top.
 pub fn icon_pine_cone() -> PixelArt {

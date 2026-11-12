@@ -67,3 +67,12 @@ fn chunks_awake_when_saved_are_awake_on_carrying_on() {
     let sleep = |g: &Game| serde_json::from_str::<serde_json::Value>(&g.debug_save_json()).unwrap()["island"]["asleep_since"].clone();
     assert_eq!(sleep(&carried_on), sleep(&game));
 }
+
+#[test]
+fn a_bridge_laid_across_the_river_is_still_there_on_carrying_on() {
+    let mut game = new_game();
+    assert!(game.debug_lay_bridge(), "a bridge goes across the narrow");
+    let carried_on = Game::debug_continue(&game.debug_save_json()).expect("the save loads");
+    let (x, y) = carried_on.map().spots.bridge.expect("the river has a narrow");
+    assert!(matches!(carried_on.map().feature(x, y), survival_core::world::Feature::Bridge(_)));
+}

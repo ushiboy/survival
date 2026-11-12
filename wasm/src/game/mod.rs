@@ -38,6 +38,7 @@ use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, island};
+use crate::world::map::BridgeSpan;
 use menu::{BagMenu, Outcome};
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
@@ -531,6 +532,7 @@ impl Game {
             Some(Deed::Strike) => self.strike(),
             Some(Deed::ReelIn) => self.reel_in(),
             Some(Deed::StandLadder(foot, rows)) => self.stand_ladder(foot, rows),
+            Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             None => {}
         }
         if was_asleep && !self.player.is_asleep() {
@@ -706,6 +708,17 @@ impl Game {
         let mut changed = self.map.stand_ladder(foot, rows);
         // Its tops may stick up into the cell above (see `Tileset`).
         changed.push((foot.0, foot.1 - rows - 1));
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The log bridge in hand is laid across the river along `span`: it
+    /// leaves the bag and stays there.
+    fn lay_bridge(&mut self, span: BridgeSpan) {
+        if !self.inventory.bag.take_kind(ItemKind::LogBridge) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.lay_bridge(span);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
@@ -1310,6 +1323,17 @@ impl Game {
     /// Dev tools: the island's map, as the game holds it.
     pub fn map(&self) -> &WorldMap {
         &self.map
+    }
+
+    /// Dev tools: lays a log bridge across the river's narrow (as if one
+    /// were laid there), if it goes there. Whether it was laid.
+    pub fn debug_lay_bridge(&mut self) -> bool {
+        let Some(span) = self.map.spots.bridge.and_then(|(x, y)| self.map.bridge_spot(x, y)) else {
+            return false;
+        };
+        let changed = self.map.lay_bridge(span);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
     }
 
     /// Dev tools: the game as it stands, as a save (JSON).

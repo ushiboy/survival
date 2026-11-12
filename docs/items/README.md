@@ -44,6 +44,7 @@
 | [松明（TORCH）](torch.md) | 持ち物（バッグに入らない） | — | クラフト |
 | [釣り竿（FISHING ROD）](fishing-rod.md) | 道具（手） | 1×3 | クラフト |
 | [ハシゴ（LADDER）](ladder.md) | 道具（手） | 1×4 | クラフト |
+| [丸太橋（LOG BRIDGE）](log-bridge.md) | 道具（手） | 1×4 | クラフト |
 
 ## 食べ物・飲み物
 

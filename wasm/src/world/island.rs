@@ -98,6 +98,12 @@ const LOW_CLIFF_HEIGHT: i32 = 2;
 const LOW_CLIFF_STRAIGHT: i32 = 3;
 /// Radius (cells) of the clearing in the forest in front of the recess.
 const LOW_CLIFF_CLEARING: f32 = 3.7;
+/// Radius (cells, across the river) of the clearing on the banks at the
+/// narrow, so the narrowing reads from afar.
+const BRIDGE_CLEARING: f32 = 5.5;
+/// How much flatter than round the clearing at the narrow is (its height
+/// is the radius divided by this), keeping the bushes north of it.
+const BRIDGE_CLEARING_SQUASH: f32 = 1.3;
 
 /// Steepest the sea floor may fall below the shallows (height per cell),
 /// and the depth below which that is kept to.
@@ -405,7 +411,12 @@ pub fn generate(seed: u32) -> WorldMap {
     // of the recess in the cliff, drawing the eye to it.
     let clearing = map.spots.ladder.map(|(x, y)| (x as f32, y as f32 + 2.0));
     let in_clearing = |x: i32, y: i32| clearing.is_some_and(|(cx, cy)| (x as f32 - cx).hypot(y as f32 - cy) < LOW_CLIFF_CLEARING);
-    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y);
+    // The banks at the narrow are open too, so the river's narrowing shows.
+    let narrow = map.spots.bridge;
+    let at_narrow = |x: i32, y: i32| {
+        narrow.is_some_and(|(nx, ny)| ((x - nx) as f32).hypot((y - ny) as f32 * BRIDGE_CLEARING_SQUASH) < BRIDGE_CLEARING)
+    };
+    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y);
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
     place_pine(&mut map);
@@ -849,7 +860,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
-    use crate::world::map::LadderFit;
+    use crate::world::map::{BRIDGE_CELLS, BRIDGE_REACH, LadderFit};
 
     /// Cells that can be walked to from `start` (stepping diagonally only
     /// where both sides are open, as the castaway can).
@@ -959,6 +970,62 @@ mod tests {
         let bank = |side: i32| (1..8).map(|k| (bx + side * k, by)).find(|&(x, y)| walk.map.terrain(x, y) != Terrain::River).unwrap();
         let (west, east) = (walk.near(bank(-1)), walk.near(bank(1)));
         assert!(west != east, "one bank of the narrow is reached and the other isn't (west {west}, east {east})");
+    }
+
+    #[test]
+    fn a_bridge_laid_at_the_narrow_leads_to_the_far_bank() {
+        let mut map = island();
+        let (bx, by) = map.spots.bridge.expect("the river has a narrow");
+        let span = map.bridge_spot(bx, by).expect("a bridge goes across the narrow");
+        map.lay_bridge(span);
+        let walk = Walk::from_landing(map);
+        assert!(walk.can((span.west, span.row)) && walk.can((span.east, span.row)), "both ends of the bridge are reached");
+        assert!(!walk.reaches_high_ground(), "the bridge doesn't open a way up the cliff");
+    }
+
+    #[test]
+    fn a_bridge_goes_only_across_the_narrow() {
+        let map = island();
+        let (_, by) = map.spots.bridge.expect("the river has a narrow");
+        let elsewhere: Vec<_> = (0..map.height())
+            .filter(|&y| (y - by).abs() > BRIDGE_REACH)
+            .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| map.terrain(x, y) == Terrain::River && map.bridge_spot(x, y).is_some())
+            .collect();
+        assert!(elsewhere.is_empty(), "a bridge would go across the river away from the narrow at {elsewhere:?}");
+    }
+
+    #[test]
+    fn a_bridge_held_anywhere_along_the_narrow_goes_across_its_middle() {
+        let map = island();
+        let (bx, by) = map.spots.bridge.expect("the river has a narrow");
+        for y in by - BRIDGE_REACH..=by + BRIDGE_REACH {
+            let x = (bx - BRIDGE_CELLS..=bx + BRIDGE_CELLS).find(|&x| map.terrain(x, y) == Terrain::River).expect("the river runs by the narrow");
+            let span = map.bridge_spot(x, y).unwrap_or_else(|| panic!("no bridge held at row {y}"));
+            assert_eq!(span.row, by, "held at row {y}");
+        }
+    }
+
+    #[test]
+    fn a_bridge_can_be_held_out_from_along_the_banks_beyond_the_narrow() {
+        let map = island();
+        let (bx, by) = map.spots.bridge.expect("the river has a narrow");
+        let width = |y: i32| (bx - 4..=bx + 4).filter(|&x| map.terrain(x, y) == Terrain::River).count() as i32;
+        assert!(
+            (by - BRIDGE_REACH..=by + BRIDGE_REACH).any(|y| width(y) > BRIDGE_CELLS),
+            "a bridge can be held out only where the river is already narrow enough to span, which is too easy to miss"
+        );
+    }
+
+    #[test]
+    fn nothing_grows_on_the_banks_either_side_of_the_narrow() {
+        let map = island();
+        let (bx, by) = map.spots.bridge.expect("the river has a narrow");
+        let grown: Vec<_> = (by - BRIDGE_REACH..=by + BRIDGE_REACH)
+            .flat_map(|y| (bx - 4..=bx + 4).map(move |x| (x, y)))
+            .filter(|&(x, y)| map.terrain(x, y) != Terrain::River && map.feature(x, y) != Feature::None)
+            .collect();
+        assert!(grown.is_empty(), "the banks by the narrow are open ground, but these cells have something on them: {grown:?}");
     }
 
     #[test]

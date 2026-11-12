@@ -91,6 +91,7 @@ fn main() {
                 "fish" => ItemKind::Fish,
                 "grilledfish" => ItemKind::GrilledFish,
                 "ladder" => ItemKind::Ladder,
+                "log bridge" | "bridge" => ItemKind::LogBridge,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

@@ -10,7 +10,7 @@ use crate::common::math::{Dir, Rect};
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
-use crate::world::map::LadderFit;
+use crate::world::map::{BridgeSpan, LadderFit};
 use crate::world::{TILE_SIZE, WorldMap};
 use crate::items::{ItemKind, Use};
 use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
@@ -215,6 +215,11 @@ pub enum Action {
     /// Standing a ladder against the cliff face whose foot is at `foot`
     /// (a cell), `rows` cells tall.
     Pitch { t: u32, foot: (i32, i32), rows: i32 },
+    /// Stepping along the bank to the row a log bridge goes across
+    /// (`span`), to lay it there (`Lay`), facing `across`.
+    ToBridge { t: u32, span: BridgeSpan, across: Dir },
+    /// Laying a log bridge across the river along `span`.
+    Lay { t: u32, span: BridgeSpan, across: Dir },
     /// Something found has caught the eye (the pine cone fallen at the
     /// foot of the cliff's recess): looking up, then round about as on
     /// first coming to; then, if `climb`, stepping up to the rock to try
@@ -278,6 +283,8 @@ pub enum Deed {
     /// A ladder was stood against the face whose foot is at the cell,
     /// that many cells tall.
     StandLadder((i32, i32), i32),
+    /// A log bridge was laid across the river there.
+    LayBridge(BridgeSpan),
 }
 
 #[derive(Clone, Debug)]
@@ -490,6 +497,15 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Pitch { t, foot, rows } };
             return (t == PITCH_SET).then_some(Deed::StandLadder(foot, rows));
         }
+        if let Action::ToBridge { t, span, across } = self.action {
+            self.step_to_bridge(t + 1, span, across, map);
+            return None;
+        }
+        if let Action::Lay { t, span, across } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Lay { t, span, across } };
+            return (t == PITCH_SET).then_some(Deed::LayBridge(span));
+        }
         // On a ladder there's nothing to do but climb it.
         self.climbing = self.on_ladder(map);
         if self.climbing {
@@ -526,6 +542,9 @@ impl Player {
                         LadderFit::No => return None,
                     }
                 }
+                // A log bridge goes across the river ahead where it runs
+                // narrow: the castaway steps along to its middle first.
+                ItemKind::LogBridge => Action::ToBridge { t: 0, span: self.bridge_ahead(map)?, across: self.facing },
                 _ => Action::Chop { t: 0 },
             };
             self.moving = false;
@@ -595,6 +614,11 @@ impl Player {
                 self.action = Action::Scramble { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
+                return None;
+            }
+            // Looking across the narrow with no bridge in hand.
+            if tool != Some(ItemKind::LogBridge) && self.bridge_ahead(map).is_some() {
+                self.ponder();
                 return None;
             }
             if map.is_drinking_water(rx, ry) {
@@ -849,6 +873,47 @@ impl Player {
         self.moving = true;
         self.walk_timer += 1;
         self.action = Action::ToLadder { t, foot, rows };
+    }
+
+    /// Where a log bridge would go across the river just ahead, if
+    /// facing across it (it runs north to south).
+    fn bridge_ahead(&self, map: &WorldMap) -> Option<BridgeSpan> {
+        if !matches!(self.facing, Dir::Left | Dir::Right) {
+            return None;
+        }
+        let (rx, ry) = self.reach_point();
+        map.bridge_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
+    }
+
+    /// A frame of `Action::ToBridge`: walking along the bank until the
+    /// feet are in the middle of the row the bridge goes across, then
+    /// turning to the river to lay it. Stopped by something in the way
+    /// (or taking too long), the bridge isn't laid.
+    fn step_to_bridge(&mut self, t: u32, span: BridgeSpan, across: Dir, map: &WorldMap) {
+        let (_, fy) = self.body.feet();
+        let middle = span.row * TILE_SIZE + TILE_SIZE / 2;
+        if fy == middle {
+            self.facing = across;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Lay { t: 0, span, across };
+            return;
+        }
+        let step = (middle - fy).clamp(-1, 1);
+        // The last pixel exactly, so the feet land on the middle.
+        let dy = if (middle - fy).abs() * 256 < SPEED_WALK { (middle - fy) * 256 - self.body.y.rem_euclid(256) } else { step * SPEED_WALK };
+        let moved = self.body.move_by(0, dy, 0, &|r| map.is_solid_rect(r));
+        if !moved || t > TO_LADDER_FRAMES {
+            self.facing = across;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Idle;
+            return;
+        }
+        self.facing = if step < 0 { Dir::Up } else { Dir::Down };
+        self.moving = true;
+        self.walk_timer += 1;
+        self.action = Action::ToBridge { t, span, across };
     }
 
     /// Stops to think (something here needs what isn't carried).
@@ -1150,8 +1215,9 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } = self.action {
-            // Lifting the ladder, then leaning in to set it against the rock.
+        if let Action::Pitch { t, .. } | Action::Lay { t, .. } = self.action {
+            // Lifting the ladder (or bridge), then leaning in to set it
+            // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;
             list.actor(depth, ObjEntry::new(cx, cy, sprites.player.shake[view][stage], OBJ_PLAYER, prio).flipped(flip));
             if shadows {
@@ -1480,6 +1546,7 @@ fn is_water(map: &WorldMap, (x, y): (i32, i32)) -> bool {
 mod tests {
     use super::*;
     use crate::world::island;
+    use crate::world::map::BRIDGE_REACH;
 
     /// The island, and the ground cell at the foot of its low cliff's
     /// middle (where a ladder stands).
@@ -1544,6 +1611,55 @@ mod tests {
             let mut p = facing_the_rock_at(x + dx, y);
             press(&mut p, &map, Buttons::A, None, 1);
             assert!(matches!(p.action, Action::Scramble { .. }), "{dx} cells off the middle");
+        }
+    }
+
+    /// A castaway standing in the cell beside the river at row `y` by the
+    /// narrow, facing `across` it (`Left` from the east bank, `Right` from
+    /// the west).
+    fn facing_the_narrow_at(map: &WorldMap, y: i32, across: Dir) -> Player {
+        let (bx, _) = map.spots.bridge.expect("the river has a narrow");
+        let step = if across == Dir::Left { 1 } else { -1 };
+        let x = (0..).map(|k| bx + k * step).find(|&x| map.terrain(x, y) != crate::world::Terrain::River).unwrap();
+        let mut p = facing_the_rock_at(x, y);
+        p.facing = across;
+        p
+    }
+
+    #[test]
+    fn a_bridge_laid_anywhere_along_the_narrow_goes_across_its_middle() {
+        let map = island::generate(1);
+        let (_, by) = map.spots.bridge.expect("the river has a narrow");
+        for across in [Dir::Left, Dir::Right] {
+            for y in by - BRIDGE_REACH..=by + BRIDGE_REACH {
+                let mut p = facing_the_narrow_at(&map, y, across);
+                let deeds = press(&mut p, &map, Buttons::B, Some(ItemKind::LogBridge), 240);
+                let laid: Vec<_> = deeds.iter().filter_map(|d| if let Deed::LayBridge(span) = d { Some(span.row) } else { None }).collect();
+                assert_eq!(laid, vec![by], "laid from row {y} facing {across:?}");
+                assert_eq!(p.body.feet().1.div_euclid(TILE_SIZE), by, "the castaway steps along to the middle to lay it");
+            }
+        }
+    }
+
+    #[test]
+    fn a_bridge_wont_go_across_the_river_beyond_the_narrow() {
+        let map = island::generate(1);
+        let (_, by) = map.spots.bridge.expect("the river has a narrow");
+        for y in [by - BRIDGE_REACH - 2, by + BRIDGE_REACH + 2] {
+            let mut p = facing_the_narrow_at(&map, y, Dir::Left);
+            let deeds = press(&mut p, &map, Buttons::B, Some(ItemKind::LogBridge), 240);
+            assert!(!deeds.iter().any(|d| matches!(d, Deed::LayBridge(..))), "{y}");
+        }
+    }
+
+    #[test]
+    fn reaching_across_the_narrow_without_a_bridge_makes_the_castaway_think() {
+        let map = island::generate(1);
+        let (_, by) = map.spots.bridge.expect("the river has a narrow");
+        for y in by - BRIDGE_REACH..=by + BRIDGE_REACH {
+            let mut p = facing_the_narrow_at(&map, y, Dir::Left);
+            press(&mut p, &map, Buttons::A, None, 1);
+            assert!(matches!(p.action, Action::Ponder { .. }), "row {y}");
         }
     }
 

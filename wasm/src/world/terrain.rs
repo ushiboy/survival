@@ -186,6 +186,10 @@ pub enum Feature {
     /// then `1`, `2`, ... down the rock face. It can be climbed up and
     /// down, so these cells aren't solid.
     Ladder(u8),
+    /// A log bridge laid across the river: `0` on the west bank at its
+    /// end, `1` over the water, `2` on the east bank. It can be walked
+    /// over, so these cells aren't solid.
+    Bridge(u8),
     Pine(PinePart),
     /// What's left of a felled pine.
     PineStump(StumpPart),
@@ -219,7 +223,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         _ => false,
     };
     TileProps {
-        solid: !matches!(feature, Feature::Ladder(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff()),
+        solid: !matches!(feature, Feature::Ladder(_) | Feature::Bridge(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff()),
         wading: terrain == Terrain::ShallowWater,
     }
 }
