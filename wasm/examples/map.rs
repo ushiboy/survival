@@ -23,7 +23,10 @@
 //!   creatures; at midday), 16 px a cell, with cell coordinates.
 //! - `spots.png`: a screen of each special place, as the game draws it.
 //! - `plan-diff.png` / `view-diff.png`: what changed since the base (or the
-//!   last run), in colour over the rest greyed out, the cells boxed.
+//!   last run), in colour over the rest greyed out, the cells boxed. If the
+//!   island changed size, the earlier one is lined up where it matches
+//!   best; cells it didn't have (and cells the earlier view didn't cover)
+//!   are boxed in green.
 //!
 //! It also prints what can be reached from the landing, and what changed.
 
@@ -41,6 +44,9 @@ use survival_core::world::island::PLAN_BLOCK;
 use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
 
 const CHANGED: Rgb = [255, 0, 255];
+/// Cells the earlier run didn't have (the island grew, or the view
+/// covers more).
+const ADDED: Rgb = [0, 230, 120];
 const AXIS_BG: Rgb = [24, 24, 32];
 const LABEL: Rgb = [235, 235, 235];
 /// Font pixel size of labels.
@@ -142,22 +148,31 @@ fn main() {
     plan.save_png(&o.out.join("plan.png"));
     std::fs::write(o.out.join("plan.cells"), &cells).expect("write plan.cells");
     let plan_diff = o.out.join("plan-diff.png");
-    match old_cells.as_deref().map(|old| changed_cells(old, &cells)) {
-        Some(Some(changed)) if !changed.is_empty() => {
-            describe("plan", &changed, against_name);
-            let size = (map.width() * o.scale, map.height() * o.scale);
-            match old_plan.filter(|p| p.w == plan.w && p.h == plan.h) {
-                Some(old) => before_after(&old, &plan, &changed, o.scale as f32, (0, 0), size),
-                None => highlight(&plan, &changed, o.scale as f32, (0, 0), (MARGIN_LEFT, MARGIN_TOP), size),
+    let diff = old_cells.as_deref().map(|old| diff_cells(old, &cells));
+    if let Some(d) = &diff {
+        if d.old_size != (map.width(), map.height()) {
+            println!(
+                "plan: the island was {}x{} cells in {against_name}; its cells are compared {},{} cells over ({} new, {} gone)",
+                d.old_size.0, d.old_size.1, d.shift.0, d.shift.1, d.added.len(), d.removed
+            );
+        }
+        if d.changed.is_empty() && d.added.is_empty() {
+            println!("plan: no cell changed since {against_name}");
+            let _ = std::fs::remove_file(&plan_diff);
+        } else {
+            describe("plan", &d.changed, against_name);
+            let s = o.scale;
+            let size = (map.width() * s, map.height() * s);
+            // The earlier plan, moved to where its cells are now.
+            match old_plan.filter(|p| p.w == d.old_size.0 * s + MARGIN_LEFT) {
+                Some(old) => {
+                    let old = align(&old, &plan, (d.old_size.0 * s, d.old_size.1 * s), (d.shift.0 * s, d.shift.1 * s), size);
+                    before_after(&old, &plan, &d.changed, &d.added, s as f32, (0, 0), size)
+                }
+                None => highlight(&plan, &d.changed, &d.added, s as f32, (0, 0), (MARGIN_LEFT, MARGIN_TOP), size),
             }
             .save_png(&plan_diff);
         }
-        Some(Some(_)) => {
-            println!("plan: no cell changed since {against_name}");
-            let _ = std::fs::remove_file(&plan_diff);
-        }
-        Some(None) => println!("plan: the island's size changed since {against_name}; no diff"),
-        None => {}
     }
     println!("wrote plan.png ({} ms)", t.elapsed().as_millis());
 
@@ -168,27 +183,44 @@ fn main() {
         let area = (area.0.max(0), area.1.max(0), area.2.min(map.width() - 1), area.3.min(map.height() - 1));
         let meta = format!("area {},{},{},{} shrink {}\n", area.0, area.1, area.2, area.3, o.shrink);
         let old_meta = std::fs::read_to_string(against.join("view.txt")).ok();
-        let old_view = (old_meta.as_deref() == Some(meta.as_str())).then(|| Image::load_png(&against.join("view.png"))).flatten();
+        let old_view = old_meta.as_deref().and_then(parse_view_meta).filter(|&(_, shrink)| shrink == o.shrink).and_then(|(a, _)| Image::load_png(&against.join("view.png")).map(|img| (a, img)));
         let raw = draw_view(&mut game, area).shrink(o.shrink);
         let cell_px = TILE_SIZE as f32 / o.shrink as f32;
         let view = with_axes(&raw, cell_px, (area.0, area.1), label_step(cell_px));
         view.save_png(&o.out.join("view.png"));
         std::fs::write(o.out.join("view.txt"), &meta).expect("write view.txt");
         let view_diff = o.out.join("view-diff.png");
-        match old_view {
-            Some(old) if old.w == view.w && old.h == view.h => {
-                let changed = changed_view_cells(&old, &view, cell_px, (area.0, area.1));
-                if changed.is_empty() {
+        // The earlier view's cells, where they are now (the island may
+        // have grown since), and how far its pixels move to get there.
+        let shift = diff.as_ref().map_or((0, 0), |d| d.shift);
+        let lined_up = old_view.and_then(|(a, old)| {
+            let a = (a.0 + shift.0, a.1 + shift.1, a.2 + shift.0, a.3 + shift.1);
+            let (px, py) = ((a.0 - area.0) * TILE_SIZE, (a.1 - area.1) * TILE_SIZE);
+            let overlaps = a.0 <= area.2 && area.0 <= a.2 && a.1 <= area.3 && area.1 <= a.3;
+            (overlaps && px % o.shrink == 0 && py % o.shrink == 0).then(|| {
+                let old = align(&old, &view, (old.w - MARGIN_LEFT, old.h - MARGIN_TOP), (px / o.shrink, py / o.shrink), (raw.w, raw.h));
+                (a, old)
+            })
+        });
+        match lined_up {
+            Some((a, old)) => {
+                let covered = |(x, y): (i32, i32)| (a.0..=a.2).contains(&x) && (a.1..=a.3).contains(&y);
+                let added: Vec<_> = (area.1..=area.3).flat_map(|y| (area.0..=area.2).map(move |x| (x, y))).filter(|&c| !covered(c)).collect();
+                let changed = changed_view_cells(&old, &view, cell_px, (area.0, area.1), &covered);
+                if !added.is_empty() {
+                    println!("view: {} cells weren't in {against_name}'s view", added.len());
+                }
+                if changed.is_empty() && added.is_empty() {
                     println!("view: nothing changed since {against_name}");
                     let _ = std::fs::remove_file(&view_diff);
                 } else {
                     describe("view", &changed, against_name);
-                    before_after(&old, &view, &changed, cell_px, (area.0, area.1), (raw.w, raw.h)).save_png(&view_diff);
+                    before_after(&old, &view, &changed, &added, cell_px, (area.0, area.1), (raw.w, raw.h)).save_png(&view_diff);
                 }
             }
-            _ => {
+            None => {
                 if old_meta.is_some() {
-                    println!("view: not compared ({against_name} drew another area or size)");
+                    println!("view: not compared ({against_name} drew another part of the island, or at another size)");
                 }
                 let _ = std::fs::remove_file(&view_diff);
             }
@@ -437,32 +469,88 @@ fn cell_signature(map: &WorldMap) -> String {
     s
 }
 
-/// Cells whose signature differs (None when the island's size changed).
-fn changed_cells(old: &str, new: &str) -> Option<Vec<(i32, i32)>> {
-    let (old, new): (Vec<&str>, Vec<&str>) = (old.lines().collect(), new.lines().collect());
-    if old.len() != new.len() || old.iter().zip(&new).any(|(a, b)| a.len() != b.len()) {
-        return None;
-    }
-    let mut changed = Vec::new();
-    for (y, (a, b)) in old.iter().zip(&new).enumerate() {
-        for (x, (ca, cb)) in a.as_bytes().chunks(2).zip(b.as_bytes().chunks(2)).enumerate() {
-            if ca != cb {
-                changed.push((x as i32, y as i32));
+/// How a run's cells differ from an earlier run's.
+struct CellDiff {
+    /// The earlier island's size, in cells.
+    old_size: (i32, i32),
+    /// Where the earlier island's cells are now: cell (x, y) then is
+    /// (x + dx, y + dy) now (the island grew on the west or north).
+    shift: (i32, i32),
+    /// Cells (now) that differ from the cell they were.
+    changed: Vec<(i32, i32)>,
+    /// Cells (now) the earlier island didn't have.
+    added: Vec<(i32, i32)>,
+    /// How many of the earlier island's cells are gone.
+    removed: usize,
+}
+
+/// Compares two cell signatures. When the island's size changed, the
+/// earlier one is lined up where it matches best: moved by anything from
+/// nothing to all the cells it grew or shrank by, along each side.
+fn diff_cells(old: &str, new: &str) -> CellDiff {
+    let grid = |s: &str| -> Vec<Vec<[u8; 2]>> { s.lines().map(|l| l.as_bytes().chunks(2).map(|c| [c[0], c.get(1).copied().unwrap_or(b' ')]).collect()).collect() };
+    let (old, new) = (grid(old), grid(new));
+    let size = |g: &Vec<Vec<[u8; 2]>>| (g.iter().map(|r| r.len()).max().unwrap_or(0) as i32, g.len() as i32);
+    let (old_size, new_size) = (size(&old), size(&new));
+    let at = |g: &Vec<Vec<[u8; 2]>>, x: i32, y: i32| -> Option<[u8; 2]> { g.get(usize::try_from(y).ok()?)?.get(usize::try_from(x).ok()?).copied() };
+    let span = |d: i32| d.min(0)..=d.max(0);
+    let same = |(dx, dy): (i32, i32)| (0..old_size.1).flat_map(|y| (0..old_size.0).map(move |x| (x, y))).filter(|&(x, y)| at(&old, x, y).is_some() && at(&old, x, y) == at(&new, x + dx, y + dy)).count();
+    let shift = span(new_size.0 - old_size.0)
+        .flat_map(|dx| span(new_size.1 - old_size.1).map(move |dy| (dx, dy)))
+        .max_by_key(|&(dx, dy)| (same((dx, dy)), -(dx.abs() + dy.abs())))
+        .unwrap_or((0, 0));
+    let (mut changed, mut added) = (Vec::new(), Vec::new());
+    for y in 0..new_size.1 {
+        for x in 0..new_size.0 {
+            match at(&old, x - shift.0, y - shift.1) {
+                None => added.push((x, y)),
+                Some(c) if Some(c) != at(&new, x, y) => changed.push((x, y)),
+                Some(_) => {}
             }
         }
     }
-    Some(changed)
+    let removed = (0..old_size.1).flat_map(|y| (0..old_size.0).map(move |x| (x, y))).filter(|&(x, y)| at(&old, x, y).is_some() && at(&new, x + shift.0, y + shift.1).is_none()).count();
+    CellDiff { old_size, shift, changed, added, removed }
+}
+
+/// The view's area and shrink, from the `view.txt` a run wrote.
+fn parse_view_meta(meta: &str) -> Option<((i32, i32, i32, i32), i32)> {
+    let mut words = meta.split_whitespace();
+    let (_, area, _, shrink) = (words.next()?, words.next()?, words.next()?, words.next()?);
+    let v: Vec<i32> = area.split(',').map(|n| n.parse().ok()).collect::<Option<_>>()?;
+    (v.len() == 4).then_some(((v[0], v[1], v[2], v[3]), shrink.parse().ok()?))
+}
+
+/// `old` (a map `old_size` px from the margins) moved `shift` px, in the
+/// frame of `new` (its map `size` px): where the earlier run's map isn't,
+/// it's blank.
+fn align(old: &Image, new: &Image, old_size: (i32, i32), shift: (i32, i32), size: (i32, i32)) -> Image {
+    let mut out = new.clone();
+    out.fill_rect(MARGIN_LEFT, MARGIN_TOP, size.0, size.1, AXIS_BG);
+    for y in 0..old_size.1 {
+        for x in 0..old_size.0 {
+            let (nx, ny) = (x + shift.0, y + shift.1);
+            if (0..size.0).contains(&nx) && (0..size.1).contains(&ny) {
+                out.set(MARGIN_LEFT + nx, MARGIN_TOP + ny, old.get(MARGIN_LEFT + x, MARGIN_TOP + y));
+            }
+        }
+    }
+    out
 }
 
 fn describe(what: &str, changed: &[(i32, i32)], against: &str) {
+    if changed.is_empty() {
+        println!("{what}: no cell changed since {against} (see {what}-diff.png for the new ones)");
+        return;
+    }
     let (x0, x1) = (changed.iter().map(|c| c.0).min().unwrap(), changed.iter().map(|c| c.0).max().unwrap());
     let (y0, y1) = (changed.iter().map(|c| c.1).min().unwrap(), changed.iter().map(|c| c.1).max().unwrap());
     println!("{what}: {} cells changed since {against}, within x {x0}..={x1}, y {y0}..={y1} (see {what}-diff.png)", changed.len());
 }
 
 /// The map (the `size` px from `offset`) greyed out, with the changed
-/// cells in colour and an outline around each patch of them.
-fn highlight(img: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i32), offset: (i32, i32), size: (i32, i32)) -> Image {
+/// and added cells in colour and an outline around each patch of them.
+fn highlight(img: &Image, changed: &[(i32, i32)], added: &[(i32, i32)], cell_px: f32, origin: (i32, i32), offset: (i32, i32), size: (i32, i32)) -> Image {
     let mut out = img.clone();
     for y in offset.1..offset.1 + size.1 {
         for x in offset.0..offset.0 + size.0 {
@@ -471,10 +559,9 @@ fn highlight(img: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i3
             out.set(x, y, [grey; 3]);
         }
     }
-    let set: std::collections::HashSet<(i32, i32)> = changed.iter().copied().collect();
     let edge = |x: i32| offset.0 + ((x - origin.0) as f32 * cell_px).round() as i32;
     let edge_y = |y: i32| offset.1 + ((y - origin.1) as f32 * cell_px).round() as i32;
-    for &(x, y) in changed {
+    for &(x, y) in changed.iter().chain(added) {
         for py in edge_y(y)..edge_y(y + 1) {
             for px in edge(x)..edge(x + 1) {
                 if (0..img.w).contains(&px) && (0..img.h).contains(&py) {
@@ -483,29 +570,33 @@ fn highlight(img: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i3
             }
         }
     }
-    for &(x, y) in changed {
-        let (l, r, t, b) = (edge(x), edge(x + 1), edge_y(y), edge_y(y + 1));
-        if !set.contains(&(x - 1, y)) {
-            out.fill_rect(l - 1, t - 1, 2, b - t + 2, CHANGED);
-        }
-        if !set.contains(&(x + 1, y)) {
-            out.fill_rect(r - 1, t - 1, 2, b - t + 2, CHANGED);
-        }
-        if !set.contains(&(x, y - 1)) {
-            out.fill_rect(l - 1, t - 1, r - l + 2, 2, CHANGED);
-        }
-        if !set.contains(&(x, y + 1)) {
-            out.fill_rect(l - 1, b - 1, r - l + 2, 2, CHANGED);
+    for (cells, colour) in [(added, ADDED), (changed, CHANGED)] {
+        let set: std::collections::HashSet<(i32, i32)> = cells.iter().copied().collect();
+        for &(x, y) in cells {
+            let (l, r, t, b) = (edge(x), edge(x + 1), edge_y(y), edge_y(y + 1));
+            if !set.contains(&(x - 1, y)) {
+                out.fill_rect(l - 1, t - 1, 2, b - t + 2, colour);
+            }
+            if !set.contains(&(x + 1, y)) {
+                out.fill_rect(r - 1, t - 1, 2, b - t + 2, colour);
+            }
+            if !set.contains(&(x, y - 1)) {
+                out.fill_rect(l - 1, t - 1, r - l + 2, 2, colour);
+            }
+            if !set.contains(&(x, y + 1)) {
+                out.fill_rect(l - 1, b - 1, r - l + 2, 2, colour);
+            }
         }
     }
     out
 }
 
 /// Before above after, each greyed out where nothing changed (`size` px of
-/// map from the margins), the changed cells in colour and outlined.
-fn before_after(old: &Image, new: &Image, changed: &[(i32, i32)], cell_px: f32, origin: (i32, i32), size: (i32, i32)) -> Image {
+/// map from the margins), the changed and added cells in colour and
+/// outlined. `old` is lined up with `new` (see `align`).
+fn before_after(old: &Image, new: &Image, changed: &[(i32, i32)], added: &[(i32, i32)], cell_px: f32, origin: (i32, i32), size: (i32, i32)) -> Image {
     let at = (MARGIN_LEFT, MARGIN_TOP);
-    let (before, after) = (highlight(old, changed, cell_px, origin, at, size), highlight(new, changed, cell_px, origin, at, size));
+    let (before, after) = (highlight(old, changed, added, cell_px, origin, at, size), highlight(new, changed, added, cell_px, origin, at, size));
     let mut out = Image::new(new.w, old.h + new.h + 32, AXIS_BG);
     out.text(2, 2, FONT, LABEL, "BEFORE");
     out.paste(&before, 0, 16);
@@ -514,14 +605,15 @@ fn before_after(old: &Image, new: &Image, changed: &[(i32, i32)], cell_px: f32, 
     out
 }
 
-/// Cells of the view with any pixel changed.
-fn changed_view_cells(old: &Image, new: &Image, cell_px: f32, origin: (i32, i32)) -> Vec<(i32, i32)> {
+/// Cells of the view with any pixel changed, among those `covered` by
+/// the earlier view.
+fn changed_view_cells(old: &Image, new: &Image, cell_px: f32, origin: (i32, i32), covered: &dyn Fn((i32, i32)) -> bool) -> Vec<(i32, i32)> {
     let mut changed = std::collections::BTreeSet::new();
     for y in MARGIN_TOP..new.h {
         for x in MARGIN_LEFT..new.w {
-            if old.get(x, y) != new.get(x, y) {
-                let cx = origin.0 + ((x - MARGIN_LEFT) as f32 / cell_px) as i32;
-                let cy = origin.1 + ((y - MARGIN_TOP) as f32 / cell_px) as i32;
+            let cx = origin.0 + ((x - MARGIN_LEFT) as f32 / cell_px) as i32;
+            let cy = origin.1 + ((y - MARGIN_TOP) as f32 / cell_px) as i32;
+            if covered((cx, cy)) && old.get(x, y) != new.get(x, y) {
                 changed.insert((cy, cx));
             }
         }
