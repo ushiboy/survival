@@ -166,6 +166,8 @@ pub struct Game {
     camera: Camera,
     clock: GameClock,
     vitals: Vitals,
+    /// Frames of the minute going by spent running (it tires faster).
+    ran_frames: u32,
     inventory: Inventory,
     input: InputState,
     paused: bool,
@@ -265,6 +267,7 @@ impl Game {
             camera: Camera::new(0),
             clock,
             vitals: save.map_or_else(Vitals::new, |s| s.vitals.clone()),
+            ran_frames: 0,
             inventory: Inventory::default(),
             input: InputState::default(),
             paused: false,
@@ -474,8 +477,12 @@ impl Game {
             self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
             self.sleep_on();
         } else {
+            if self.player.running {
+                self.ran_frames += 1;
+            }
             if self.clock.tick() {
-                self.vitals.on_minute(Rest::Awake);
+                self.vitals.on_minute(Rest::Awake { ran: self.ran_frames });
+                self.ran_frames = 0;
             }
         }
         if self.vitals.collapsed() {
@@ -1450,6 +1457,11 @@ impl Game {
 
     pub fn clock(&self) -> &GameClock {
         &self.clock
+    }
+
+    /// Health, hunger and thirst.
+    pub fn vitals(&self) -> &Vitals {
+        &self.vitals
     }
 
     /// VRAM needed for the current screen: the unique background tiles in

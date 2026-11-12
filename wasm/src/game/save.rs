@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 6;
+pub const SAVE_VERSION: u32 = 7;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -237,6 +237,18 @@ fn v1_to_v2(save: &mut Value) {
     shift(&mut save["castaway"]["at"], PX);
 }
 
+/// Version 7: hunger and thirst are counted in finer steps of effort (a
+/// minute awake is 24 of them, not 12), so sleeping under a shelter can
+/// slow hunger further. How far each gauge is toward its next notch is
+/// kept in those steps, so it doubles.
+fn v6_to_v7(save: &mut Value) {
+    for key in ["food_spent", "water_spent"] {
+        if let Some(spent) = save["vitals"][key].as_u64() {
+            save["vitals"][key] = Value::from(spent * 2);
+        }
+    }
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -377,6 +389,7 @@ mod tests {
         include_str!("save_samples/v4.json"),
         include_str!("save_samples/v5.json"),
         include_str!("save_samples/v6.json"),
+        include_str!("save_samples/v7.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -531,5 +544,16 @@ mod tests {
     #[test]
     fn version_6_starts_every_chunk_awake() {
         assert!(load(5).island.asleep_since.is_empty());
+    }
+
+    #[test]
+    fn version_7_keeps_how_far_hunger_and_thirst_are_toward_their_next_notch() {
+        let (old, s) = (sample(6), load(6));
+        let vitals = serde_json::to_value(&s.vitals).unwrap();
+        for key in ["food_spent", "water_spent"] {
+            let was = old["vitals"][key].as_u64().unwrap();
+            assert!(was > 0, "the sample is part way to a notch");
+            assert_eq!(vitals[key].as_u64().unwrap(), was * 2, "{key}");
+        }
     }
 }

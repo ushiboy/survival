@@ -58,10 +58,19 @@ impl GameClock {
 /// them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rest {
-    Awake,
+    /// Up and about: `ran` is how many of the minute's frames were spent
+    /// running (out of `FRAMES_PER_MINUTE`).
+    Awake { ran: u32 },
     Asleep,
     /// Asleep under a shelter.
     Sheltered,
+}
+
+impl Rest {
+    /// A minute awake, walking (or standing about).
+    pub const AWAKE: Self = Self::Awake { ran: 0 };
+    /// A minute awake spent running the whole time.
+    pub const RUNNING: Self = Self::Awake { ran: FRAMES_PER_MINUTE };
 }
 
 /// Health, hunger and thirst: three gauges, health running from `max_hp`
@@ -88,6 +97,10 @@ pub struct Vitals {
     /// Health worn away and mended, in points, not yet a whole one.
     wear: f32,
     mend: f32,
+    /// Frames of running not yet a whole minute's extra tiredness (not
+    /// kept: never more than a minute's worth).
+    #[serde(skip)]
+    run_tired: u32,
 }
 
 impl Vitals {
@@ -96,9 +109,10 @@ impl Vitals {
     const FOOD_DECAY_MINUTES: u32 = 15;
     const WATER_DECAY_MINUTES: u32 = 10;
     /// Effort of a minute awake. Asleep, hunger grows a sixth as fast
-    /// (under a shelter a twelfth), thirst half as fast (a third): breath
-    /// still takes water.
-    const AWAKE_EFFORT: u32 = 12;
+    /// (under a shelter a twenty-fourth), thirst half as fast (a sixth):
+    /// breath still takes water, but out of the sun and wind a shelter
+    /// keeps most of it in.
+    const AWAKE_EFFORT: u32 = 24;
     /// Minutes for a sixty-fourth of health to wear away: awake (about a
     /// fifth of it in a 16-hour day), with no water, with no food.
     const TIRE_MINUTES: f32 = 75.0;
@@ -110,9 +124,11 @@ impl Vitals {
     const SHELTER_MEND_MINUTES: f32 = 10.0;
     /// Minutes of tiredness one minute of sleep pays back.
     const SLEEP_PAYS: u32 = 2;
+    /// How many times as tiring a minute running is as a minute walking.
+    const RUN_TIRE: u32 = 2;
 
     pub fn new() -> Self {
-        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0 }
+        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0, run_tired: 0 }
     }
 
     /// Nothing left to eat: too weak to run.
@@ -140,8 +156,8 @@ impl Vitals {
     /// it.
     pub fn on_minute(&mut self, rest: Rest) {
         let (food_effort, water_effort) = match rest {
-            Rest::Awake => (Self::AWAKE_EFFORT, Self::AWAKE_EFFORT),
-            Rest::Asleep => (2, 6),
+            Rest::Awake { .. } => (Self::AWAKE_EFFORT, Self::AWAKE_EFFORT),
+            Rest::Asleep => (4, 12),
             Rest::Sheltered => (1, 4),
         };
         self.food_spent += food_effort;
@@ -163,9 +179,13 @@ impl Vitals {
             wear += self.points(1.0, Self::HUNGER_MINUTES);
         }
         let mut mend = 0.0;
-        if rest == Rest::Awake {
-            self.tired += 1;
-            wear += self.points(1.0, Self::TIRE_MINUTES);
+        if let Rest::Awake { ran } = rest {
+            // Running tires faster, and is slept off like any tiredness.
+            let extra = (Self::RUN_TIRE - 1) * ran.min(FRAMES_PER_MINUTE);
+            self.run_tired += extra;
+            self.tired += 1 + self.run_tired / FRAMES_PER_MINUTE;
+            self.run_tired %= FRAMES_PER_MINUTE;
+            wear += self.points(1.0 + extra as f32 / FRAMES_PER_MINUTE as f32, Self::TIRE_MINUTES);
         } else {
             let paid = self.tired.min(Self::SLEEP_PAYS);
             self.tired -= paid;
@@ -365,7 +385,7 @@ mod tests {
     /// A castaway worn by a long day awake, but fed and watered.
     fn tired_out() -> Vitals {
         let mut v = Vitals::new();
-        pass(&mut v, 16 * HOUR, Rest::Awake);
+        pass(&mut v, 16 * HOUR, Rest::AWAKE);
         v.eat(Vitals::MAX);
         v.drink(Vitals::MAX);
         v
@@ -398,7 +418,7 @@ mod tests {
     #[test]
     fn a_day_awake_wears_health_hunger_and_thirst() {
         let mut v = Vitals::new();
-        pass(&mut v, 4 * HOUR, Rest::Awake);
+        pass(&mut v, 4 * HOUR, Rest::AWAKE);
         assert!(v.hp < v.max_hp);
         assert!(v.food < Vitals::MAX);
         assert!(v.water < Vitals::MAX);
@@ -412,9 +432,9 @@ mod tests {
             pass(&mut v, 8 * HOUR, rest);
             (Vitals::MAX - v.food, Vitals::MAX - v.water)
         };
-        let (awake, asleep, sheltered) = (used(Rest::Awake), used(Rest::Asleep), used(Rest::Sheltered));
+        let (awake, asleep, sheltered) = (used(Rest::AWAKE), used(Rest::Asleep), used(Rest::Sheltered));
         assert!(asleep.0 < awake.0 && asleep.1 < awake.1);
-        assert!(sheltered.0 <= asleep.0 && sheltered.1 < asleep.1);
+        assert!(sheltered.0 < asleep.0 && sheltered.1 < asleep.1);
     }
 
     #[test]
@@ -448,6 +468,42 @@ mod tests {
     }
 
     #[test]
+    fn running_wears_health_faster_than_walking() {
+        let worn = |rest| {
+            let mut v = Vitals::new();
+            pass(&mut v, 4 * HOUR, rest);
+            v.max_hp - v.hp
+        };
+        let some_running = Rest::Awake { ran: FRAMES_PER_MINUTE / 2 };
+        assert!(worn(some_running) > worn(Rest::AWAKE), "running some of the time");
+        assert!(worn(Rest::RUNNING) > worn(some_running), "running all the time");
+    }
+
+    #[test]
+    fn running_doesnt_make_the_castaway_hungrier_or_thirstier() {
+        let used = |rest| {
+            let mut v = Vitals::new();
+            pass(&mut v, 8 * HOUR, rest);
+            (v.food, v.water)
+        };
+        assert_eq!(used(Rest::RUNNING), used(Rest::AWAKE));
+    }
+
+    #[test]
+    fn tiredness_from_running_is_slept_off_too() {
+        // Hungry, sleep gives back only what tiredness took.
+        let slept_back = |rest| {
+            let mut v = Vitals::new();
+            v.food = 0;
+            pass(&mut v, 4 * HOUR, rest);
+            let before = v.hp;
+            pass(&mut v, 6 * HOUR, Rest::Asleep);
+            v.hp - before
+        };
+        assert!(slept_back(Rest::RUNNING) > slept_back(Rest::AWAKE));
+    }
+
+    #[test]
     fn going_without_water_wears_health_faster_than_without_food() {
         // Each hour the castaway eats and drinks what they aren't going without.
         let lost = |food: bool, water: bool| {
@@ -455,7 +511,7 @@ mod tests {
             for _ in 0..12 {
                 v.food = if food { Vitals::MAX } else { 0 };
                 v.water = if water { Vitals::MAX } else { 0 };
-                pass(&mut v, HOUR, Rest::Awake);
+                pass(&mut v, HOUR, Rest::AWAKE);
             }
             v.max_hp - v.hp
         };
@@ -473,7 +529,7 @@ mod tests {
             if v.collapsed() {
                 break;
             }
-            v.on_minute(Rest::Awake);
+            v.on_minute(Rest::AWAKE);
         }
         assert!(v.collapsed());
         assert!(v.starving());
