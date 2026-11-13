@@ -7,7 +7,7 @@
 | 材料（使い切る） | [ラワン材](../items/lauan-timber.md) ×2、[枯れ枝](../items/branch.md) ×3、[ロープ](../items/rope.md) ×2 |
 | 道具（減らない） | [石斧](../items/stone-axe.md) |
 | 作る場所 | どこでも |
-| 一覧での順番 | 17 |
+| 一覧での順番 | 18 |
 
 ## メモ
 

@@ -244,7 +244,7 @@ impl ItemKind {
             ItemKind::BoiledWater => "SAFE TO DRINK. EASES THIRST, AND HEALS.",
             ItemKind::PackFrame => "WORN ON THE BACK, IT GIVES THE BAG 12 MORE ROOM.",
             ItemKind::Husk => "LEFT FROM A COCONUT. ITS FIBRE MAKES ROPE.",
-            ItemKind::Rope => "TWISTED COCONUT FIBRE. STRONGER THAN VINE.",
+            ItemKind::Rope => "TWISTED PLANT FIBRE. STRONGER THAN VINE.",
             ItemKind::PalmFrond => "A LONG PALM LEAF. WOVEN TOGETHER, FRONDS KEEP OFF RAIN.",
             ItemKind::Thatch => "PALM FRONDS WOVEN WITH VINE INTO A PIECE OF ROOF.",
             ItemKind::Shelter => "A LEAN-TO, ROLLED UP. SLEEP UNDER IT TO HEAL FASTER AND TIRE LESS.",

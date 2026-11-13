@@ -136,7 +136,8 @@ pub enum Mode {
     /// (`choice` is a place in that list).
     Crafting { choice: usize },
     /// Looking over one recipe (index into `RECIPES`), with MAKE (0) or
-    /// BACK (1) chosen.
+    /// BACK (1) chosen. Left and right change to another way of making the
+    /// same thing.
     Recipe { recipe: usize, choice: usize },
     /// On a gear slot (index into `Slot::ALL`).
     Gear { slot: usize },
@@ -432,14 +433,28 @@ impl BagMenu {
     /// One recipe: MAKE or BACK. Making keeps the recipe open so more can
     /// be made, unless it's cooked at the fire (the bag closes) or there's
     /// no room for it (it's held to be placed).
-    fn update_recipe(&mut self, input: &InputState, inv: &mut Inventory, index: usize, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
-        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
-            choice = (choice as i32 + dy).rem_euclid(2) as usize;
-            self.mode = Mode::Recipe { recipe: index, choice };
+    fn update_recipe(&mut self, input: &InputState, inv: &mut Inventory, mut index: usize, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        match step {
+            Some((0, dy)) => choice = (choice as i32 + dy).rem_euclid(2) as usize,
+            // Another way of making the same thing, if there is one.
+            Some((dx, _)) => {
+                let ways = inv.recipes.ways(index);
+                let at = ways.iter().position(|&i| i == index).unwrap_or(0) as i32;
+                if let Some(&next) = ways.get((at + dx).clamp(0, ways.len() as i32 - 1) as usize)
+                    && next != index
+                {
+                    index = next;
+                    inv.recipes.looked_at(index);
+                    self.notice = None;
+                }
+            }
+            None => {}
         }
+        self.mode = Mode::Recipe { recipe: index, choice };
         let back = input.pressed(Buttons::B) || (input.pressed(Buttons::A) && choice == 1);
         if back {
-            let place = inv.recipes.listed().iter().position(|&i| i == index).unwrap_or(0);
+            let makes = RECIPES[index].makes;
+            let place = inv.recipes.listed().iter().position(|&i| RECIPES[i].makes == makes).unwrap_or(0);
             self.mode = Mode::Crafting { choice: place };
             self.notice = None;
             return Outcome::Stay;
@@ -457,6 +472,7 @@ impl BagMenu {
             self.notice = Some("NEEDS A FIRE");
             return Outcome::Stay;
         }
+        inv.recipes.made(index);
         if recipe.at_fire {
             // Cooked over the fire, outside the bag.
             return Outcome::Cook(index);

@@ -224,7 +224,7 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
-        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, menu.near_fire, recipe, choice),
+        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, book, menu.near_fire, recipe, choice),
         Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, Some(choice)),
         _ => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, None),
     }
@@ -252,13 +252,14 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
         if choice == Some(place) {
             text(bg3, tiles, GRID_COL, row, ">");
         }
-        let ready = bag.can_make(r) && (!r.at_fire || near_fire);
+        // Bright if it can be made now, whichever way.
+        let ready = book.ways(i).iter().any(|&w| bag.can_make(&RECIPES[w]) && (!RECIPES[w].at_fire || near_fire));
         let name = r.makes.name();
         text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {
             text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
         }
-        if book.is_fresh(i) {
+        if book.item_fresh(i) {
             text_in(bg3, tiles, GRID_COL + 4 + name.len(), row, "!", HUD_FOOD);
         }
     }
@@ -283,9 +284,11 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
 
 /// One recipe opened: what it makes and what that's for, the materials
 /// with how many are needed and carried (short ones greyed), the tools it
-/// takes, whether it needs a fire, and MAKE / BACK.
+/// takes, whether it needs a fire, and MAKE / BACK. An item made more than
+/// one way shows which way this is (`< 1/2 >` by NEEDS), with a `!` on
+/// the side of a way not yet looked at.
 #[allow(clippy::too_many_arguments)]
-fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, near_fire: bool, index: usize, choice: usize) {
+fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, near_fire: bool, index: usize, choice: usize) {
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);
@@ -301,6 +304,22 @@ fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprite
 
     let top = GRID_ROW + 7;
     text(bg3, tiles, GRID_COL, top, "NEEDS");
+    let ways = book.ways(index);
+    if ways.len() > 1 {
+        let at = ways.iter().position(|&w| w == index).unwrap_or(0);
+        let (left, right) = (&ways[..at], &ways[at + 1..]);
+        let col = GRID_COL + 7;
+        let label = format!("{}/{}", at + 1, ways.len());
+        text_in(bg3, tiles, col, top, "<", if left.is_empty() { HUD_DIM } else { HUD_TEXT });
+        text(bg3, tiles, col + 2, top, &label);
+        text_in(bg3, tiles, col + 3 + label.len(), top, ">", if right.is_empty() { HUD_DIM } else { HUD_TEXT });
+        if left.iter().any(|&w| book.is_fresh(w)) {
+            text_in(bg3, tiles, col - 1, top, "!", HUD_FOOD);
+        }
+        if right.iter().any(|&w| book.is_fresh(w)) {
+            text_in(bg3, tiles, col + 4 + label.len(), top, "!", HUD_FOOD);
+        }
+    }
     text_in(bg3, tiles, NEED_COL - 2, top, "NEED", HUD_DIM);
     text_in(bg3, tiles, HAVE_COL - 2, top, "HAVE", HUD_DIM);
     for (i, &(kind, n)) in recipe.needs.iter().enumerate() {

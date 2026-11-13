@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 7;
+pub const SAVE_VERSION: u32 = 8;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -249,6 +249,18 @@ fn v6_to_v7(save: &mut Value) {
     }
 }
 
+/// Version 8: an item can be made more than one way (rope from husks or
+/// from bark), so recipes are saved by their own names, not by what they
+/// make, and the way last made of each item is kept. The first way of
+/// making an item is named after it, so the recipes a version 7 save
+/// knows keep their names (the rope known was the husk rope); none has
+/// been made a chosen way yet.
+fn v7_to_v8(save: &mut Value) {
+    if let Some(recipes) = save["inventory"]["recipes"].as_object_mut() {
+        recipes.insert("chosen".into(), Value::Array(Vec::new()));
+    }
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -377,6 +389,7 @@ impl SaveData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crafting::RECIPES;
     use crate::world::terrain::StumpPart;
 
     /// A save of each version, from the first to the current one (see
@@ -390,6 +403,7 @@ mod tests {
         include_str!("save_samples/v5.json"),
         include_str!("save_samples/v6.json"),
         include_str!("save_samples/v7.json"),
+        include_str!("save_samples/v8.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -555,5 +569,15 @@ mod tests {
             assert!(was > 0, "the sample is part way to a notch");
             assert_eq!(vitals[key].as_u64().unwrap(), was * 2, "{key}");
         }
+    }
+
+    #[test]
+    fn version_8_reads_the_rope_known_as_the_one_made_from_husks() {
+        let s = load(7);
+        let rope = RECIPES.iter().position(|r| r.makes == ItemKind::Rope && r.needs.iter().any(|&(k, _)| k == ItemKind::Husk)).unwrap();
+        let book = &s.inventory.recipes;
+        assert!(book.listed().contains(&rope));
+        assert_eq!(book.ways(rope), vec![rope], "the bark rope isn't known");
+        assert!(book.is_fresh(rope));
     }
 }

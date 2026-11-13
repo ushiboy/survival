@@ -19,7 +19,7 @@
 
 ## 使い道
 
-- レシピの材料: [樹皮の鍋](../recipes/bark-container.md)、[背負子](../recipes/pack-frame.md)
+- レシピの材料: [樹皮の鍋](../recipes/bark-container.md)、[背負子](../recipes/pack-frame.md)、[ロープ（樹皮から）](../recipes/rope-from-bark.md)
 
 ## メモ
 

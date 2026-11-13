@@ -17,7 +17,7 @@
 
 ## 使い道
 
-- レシピの材料: [ロープ](../recipes/rope.md)（2つ）、[松明](../recipes/torch.md)（1つ）
+- レシピの材料: [ロープ（椰子の殻から）](../recipes/rope.md)（2つ）、[松明](../recipes/torch.md)（1つ）
 
 ## メモ
 
