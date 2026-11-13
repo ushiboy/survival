@@ -335,7 +335,8 @@ pub struct Carried {
 pub struct IslandState {
     /// Cells whose feature differs from the island as made.
     pub features: Vec<((i32, i32), Feature)>,
-    /// Coconuts on each palm and bark on each broadleaf tree, by anchor.
+    /// Coconuts on each palm or cones on each pine (`fruit`), and bark on
+    /// each broadleaf tree, by anchor.
     pub fruit: Vec<((i32, i32), u8)>,
     pub bark: Vec<((i32, i32), u8)>,
     /// Trees being worked and bushes picked.

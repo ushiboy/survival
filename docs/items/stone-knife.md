@@ -20,10 +20,10 @@
 - バッグに入っていれば、次のことができる
   - 広葉樹から[樹皮](bark.md)を剥ぐ
   - ツル植物から[ツル](vine.md)を取る
-  - [椰子の実](coconut.md)を割る（レシピの道具）
-  - [蟹](crab.md)や[魚](fish.md)をさばいて焼く（レシピの道具）
-  - [貝殻](sea-shell.md)を削って釣り針にする（レシピの道具）
-  - [樹皮](bark.md)を裂いてロープにする（レシピの道具）
+  - [椰子の実](coconut.md)を割る（レシピの道具: [割った椰子の実](../recipes/opened-coconut.md)）
+  - [蟹](crab.md)や[魚](fish.md)をさばいて焼く（レシピの道具: [焼き蟹](../recipes/grilled-crab.md)、[焼き魚](../recipes/grilled-fish.md)）
+  - [貝殻](sea-shell.md)を削って釣り針にする（レシピの道具: [貝の釣り針](../recipes/shell-hook.md)）
+  - [樹皮](bark.md)を裂いてロープにする（レシピの道具: [ロープ（樹皮から）](../recipes/rope-from-bark.md)）
 
 ## メモ
 
