@@ -1508,6 +1508,9 @@ impl Game {
         if let Some(b) = map.spots.bridge {
             v.push(("川の狭い所", b));
         }
+        if let Some(m) = map.spots.mill {
+            v.push(("水車小屋の予定地", m));
+        }
         if let Some(l) = map.spots.ladder {
             v.push(("崖のくぼみ（ハシゴ）", l));
             // North from the recess across the high ground to the lake.

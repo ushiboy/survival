@@ -120,6 +120,9 @@ fn spots(map: &WorldMap) -> Vec<(&'static str, char, Rgb, (i32, i32))> {
     if let Some(f) = map.spots.falls {
         v.push(("FALLS POOL", 'F', [120, 200, 255], f));
     }
+    if let Some(m) = map.spots.mill {
+        v.push(("MILL SITE", 'M', [200, 120, 255], m));
+    }
     if let Some(b) = map.spots.bridge {
         v.push(("RIVER NARROW", 'N', [255, 60, 60], b));
     }

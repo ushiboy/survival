@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 12;
+pub const SAVE_VERSION: u32 = 13;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -426,6 +426,44 @@ fn v11_to_v12(save: &mut Value) {
     save["vitals"]["drunk_raw_water"] = Value::Bool(false);
 }
 
+/// Cells (x, y) along the river from the pool under the falls down to the
+/// sea, whose changes are dropped in version 13.
+const RIVER_REDRAWN: (std::ops::Range<i32>, std::ops::Range<i32>) = (44..64, 82..116);
+
+/// Version 13: out of the pool the river now runs straight south, bends
+/// once over to the narrow and runs straight through it (its bends below
+/// mirrored), and ground is kept open on its west bank below the pool for
+/// a water mill. So what changed along it (`RIVER_REDRAWN`) in a version 12
+/// save is dropped, with what lay or walked where the river now runs and
+/// the fish left on what is now dry land. The island is made from the
+/// save's seed.
+fn v12_to_v13(save: &mut Value) {
+    let seed = save["seed"].as_u64().unwrap_or(1) as u32;
+    let island = crate::world::island::generate(seed);
+    let redrawn = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => {
+            let (x, y) = (x as i32, y as i32);
+            !island.is_high(x, y) && RIVER_REDRAWN.0.contains(&x) && RIVER_REDRAWN.1.contains(&y)
+        }
+        _ => false,
+    };
+    drop_changes_where(save, redrawn, |_| false);
+    let px = |at: &Value| at[0].as_i64().zip(at[1].as_i64()).map(|(x, y)| (x as i32, y as i32));
+    let dry = |at: &Value| px(at).is_none_or(|(x, y)| island.terrain(x / 16, y / 16) != crate::world::Terrain::River);
+    let lying = &mut save["island"];
+    if let Some(Value::Array(items)) = lying.get_mut("items") {
+        items.retain(|i| dry(&i["at"]));
+    }
+    if let Some(Value::Array(crabs)) = lying.get_mut("crabs") {
+        crabs.retain(|c| dry(c));
+    }
+    if let Some(Value::Array(fish)) = lying.get_mut("fish") {
+        // Only those by the redrawn river: elsewhere the water is as it was.
+        let by_river = |(x, y): (i32, i32)| RIVER_REDRAWN.0.contains(&(x / 16)) && RIVER_REDRAWN.1.contains(&(y / 16));
+        fish.retain(|f| px(f).is_none_or(|at| !by_river(at) || crate::entity::fish::swimmable(&island, at)));
+    }
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -574,6 +612,7 @@ mod tests {
         include_str!("save_samples/v10.json"),
         include_str!("save_samples/v11.json"),
         include_str!("save_samples/v12.json"),
+        include_str!("save_samples/v13.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -642,7 +681,7 @@ mod tests {
         assert_eq!(s.castaway.at, (512 + E_PX, 296 + 384 + N_PX));
         assert_eq!(s.island.items[0].at, (500 + E_PX, 300 + 384 + N_PX));
         assert_eq!((s.island.fires[0].x, s.island.fires[0].y), (100 + E_PX, 200 + 384 + N_PX));
-        assert_eq!(s.island.crabs, vec![(300 + E_PX, 400 + 384 + N_PX)]);
+        assert_eq!(s.island.crabs, vec![(500 + E_PX, 400 + 384 + N_PX)]);
         assert_eq!(out_of_lake(&s), vec![(600 + E_PX, 700 + 384 + N_PX)]);
         assert!(has_feature(&s, (20 + E, 30 + 24 + N), Feature::VineStake));
         assert_eq!(s.island.bark, vec![((30 + E, 40 + 24 + N), 2)]);
@@ -674,9 +713,9 @@ mod tests {
     fn version_3_drops_changes_by_the_redrawn_cliff() {
         let s = load(2);
         assert!(!has_feature(&s, (60 + E, 20 + N), Feature::Rock));
-        assert!(has_feature(&s, (20 + E, 50 + N), Feature::VineStake));
+        assert!(has_feature(&s, (40 + E, 50 + N), Feature::VineStake));
         assert!(s.island.bark.is_empty());
-        assert_eq!(s.island.harvest.damage, vec![((20 + E, 50 + N), 1)]);
+        assert_eq!(s.island.harvest.damage, vec![((40 + E, 50 + N), 1)]);
     }
 
     #[test]
@@ -691,7 +730,7 @@ mod tests {
     fn version_4_drops_other_changes_by_the_redrawn_cliff() {
         let s = load(3);
         assert!(!has_feature(&s, (70 + E, 30 + N), Feature::Rock));
-        assert!(has_feature(&s, (20 + E, 50 + N), Feature::VineStake));
+        assert!(has_feature(&s, (40 + E, 50 + N), Feature::VineStake));
         assert!(s.island.harvest.damage.is_empty());
     }
 
@@ -873,5 +912,40 @@ mod tests {
         let s = load(12);
         assert!(s.vitals.has(crate::game::state::Ailment::UpsetStomach), "the sample has one");
         assert!(s.vitals.drunk_raw_water);
+    }
+
+    /// A version 12 save with a stump left at each of `cells`, a stone
+    /// lying at each of `items` and a fish at each of `fish` (world px).
+    fn version_12_with(cells: &[(i32, i32)], items: &[(i32, i32)], fish: &[(i32, i32)]) -> SaveData {
+        let mut v = sample(12);
+        let stump = serde_json::to_value(Feature::BroadleafStump(StumpPart { flip: false })).unwrap();
+        v["island"]["features"] = Value::Array(cells.iter().map(|&(x, y)| serde_json::json!([[x, y], stump])).collect());
+        v["island"]["items"] = Value::Array(items.iter().map(|&(x, y)| serde_json::json!({"kind": "Stone", "at": [x, y], "count": 1})).collect());
+        v["island"]["fish"] = Value::Array(fish.iter().map(|&(x, y)| serde_json::json!([x, y])).collect());
+        SaveData::from_json(&v.to_string()).unwrap()
+    }
+
+    #[test]
+    fn version_13_drops_changes_along_the_river_below_the_falls() {
+        let (by_river, away) = ((55, 90), (100, 100));
+        let s = version_12_with(&[by_river, away], &[], &[]);
+        assert!(!s.island.features.iter().any(|&(at, _)| at == by_river), "the river below the falls was redrawn");
+        assert!(s.island.features.iter().any(|&(at, _)| at == away), "changes away from it stay");
+    }
+
+    #[test]
+    fn version_13_drops_what_lay_where_the_river_now_runs_and_fish_now_on_land() {
+        let island = crate::world::island::generate(1);
+        let river = |(x, y): (i32, i32)| island.terrain(x, y) == crate::world::Terrain::River;
+        let px = |(x, y): (i32, i32)| (x * 16 + 8, y * 16 + 8);
+        // On row 92 the river moved east: a cell it runs over now, and one
+        // it ran over before that is dry land now.
+        let row: Vec<(i32, i32)> = (40..70).map(|x| (x, 92)).collect();
+        let wet = *row.iter().find(|&&c| river(c)).expect("the river crosses row 92");
+        let dry = (wet.0 - 3, 92);
+        assert!(!river(dry));
+        let s = version_12_with(&[], &[px(wet), px(dry)], &[px(wet), px(dry)]);
+        assert_eq!(s.island.items.iter().map(|i| i.at).collect::<Vec<_>>(), vec![px(dry)], "only what lies on dry land stays");
+        assert_eq!(s.island.fish, vec![px(wet)], "only the fish still in the water stays");
     }
 }

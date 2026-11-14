@@ -142,6 +142,15 @@ const BRIDGE_CLEARING: f32 = 6.0;
 /// How much flatter than round the clearing at the narrow is (its height
 /// is the radius divided by this), keeping the bushes north of it.
 const BRIDGE_CLEARING_SQUASH: f32 = 1.3;
+/// The row (first area's cells) where the water mill is to stand, on the
+/// river's west bank below the pool, where the stream runs out of the pool
+/// straight and fast.
+const MILL_ROW: i32 = 0;
+/// The clearing kept for the mill and its house, west of the bank: round
+/// patches of open ground, each its middle (from the mill site) and radius
+/// (cells). The second carries it south-west, through the bushes there,
+/// toward the open banks at the narrow.
+const MILL_CLEARING: [((f32, f32), f32); 2] = [((-3.0, 0.0), 6.5), ((-7.0, 7.0), 4.5)];
 
 /// Steepest the sea floor may fall below the shallows (height per cell),
 /// and the depth below which that is kept to.
@@ -413,6 +422,14 @@ fn lay_river(map: &mut WorldMap, river: &River) {
             }
         }
     }
+}
+
+/// Where the water mill is to stand: the ground just west of the river on
+/// `MILL_ROW`.
+fn mill_site(map: &WorldMap) -> Option<(i32, i32)> {
+    let y = at((0, MILL_ROW)).1;
+    let river = (0..map.width()).find(|&x| map.terrain(x, y) == Terrain::River)?;
+    Some((river - 1, y))
 }
 
 /// Picks a bank of the pool under the falls, on the grass of the clearing
@@ -766,6 +783,7 @@ pub fn generate(seed: u32) -> WorldMap {
         bridge: Some(nearest_on_river(&river, at_f(BRIDGE_AT))),
         ladder: low_cliff_foot(&map),
         falls: river.pool().map(|((x, y), _)| (x.round() as i32, y.round() as i32)),
+        mill: mill_site(&map),
         slope: None,
         slope_span: None,
     };
@@ -782,12 +800,17 @@ pub fn generate(seed: u32) -> WorldMap {
     let at_narrow = |x: i32, y: i32| {
         narrow.is_some_and(|(nx, ny)| ((x - nx) as f32).hypot((y - ny) as f32 * BRIDGE_CLEARING_SQUASH) < BRIDGE_CLEARING)
     };
+    // So is the ground kept for the mill, west of the bank it stands on.
+    let mill = map.spots.mill;
+    let at_mill = |x: i32, y: i32| {
+        mill.is_some_and(|(mx, my)| MILL_CLEARING.iter().any(|&((dx, dy), r)| (x as f32 - (mx as f32 + dx)).hypot(y as f32 - (my as f32 + dy)) < r))
+    };
     raise_crags(&mut map, &field);
     cut_slope(&mut map);
     // The way up the slope is kept clear.
     let slope_clear: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| by_slope(&map, x, y)).collect();
     let near_spawn = |x: i32, y: i32| {
-        (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y) || ((0..w).contains(&x) && (0..h).contains(&y) && slope_clear[(y * w + x) as usize])
+        (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y) || at_mill(x, y) || ((0..w).contains(&x) && (0..h).contains(&y) && slope_clear[(y * w + x) as usize])
     };
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 

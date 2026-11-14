@@ -19,9 +19,17 @@ use crate::common::rng::hash_unit;
 const HALF_WIDTH: (f32, f32) = (1.1, 1.6);
 /// Half-width of the stream above the pool, over the falls.
 const HEAD_HALF_WIDTH: f32 = 1.0;
-/// How far the course swings from a straight line (cells).
-const MEANDER: f32 = 3.0;
+/// How far the course swings from a straight line (cells); its sign picks
+/// which way the bends swing. Above the narrow the course is laid straight
+/// instead (see `River::narrowed`), so this shapes the river below it.
+const MEANDER: f32 = -3.0;
 const PATH_STEPS: usize = 64;
+/// How far either side of the narrow the course runs straight (cells
+/// along it), and how far beyond that it eases back into its bends.
+const STRAIGHT_REACH: (f32, f32) = (4.0, 14.0);
+/// How far above the narrow (cells along the course) the river, straight
+/// down from the pool until then, starts its bend over to the narrow.
+const BEND_REACH: f32 = 9.0;
 /// Spacing of the points along straight stretches (cells).
 const STRAIGHT_STEP: f32 = 0.5;
 
@@ -132,7 +140,10 @@ impl River {
     }
 
     /// Narrows the channel to `half` around the point of the course
-    /// nearest `at`, over `reach` cells up and down stream.
+    /// nearest `at`, over `reach` cells up and down stream, and lines the
+    /// course up north to south through it: straight down from the pool,
+    /// one bend over to the narrow, straight through it, then back into
+    /// the bends (see `STRAIGHT_REACH` and `BEND_REACH`).
     pub fn narrowed(mut self, at: (f32, f32), half: f32, reach: f32) -> Self {
         let along = self.nearest(at.0, at.1).along;
         for (w, l) in self.widths.iter_mut().zip(&self.lengths) {
@@ -143,6 +154,33 @@ impl River {
                 *w += (half - *w) * k;
             }
         }
+        // The course runs straight north to south through the narrow, so
+        // its few cells across line up on a row (a log bridge spans them).
+        // Above it, from the pool down, the river runs straight too, then
+        // swings over to the narrow in one bend just before it; below it,
+        // the bends ease back in on the way to the sea.
+        let mid = self.lengths.iter().enumerate().min_by(|a, b| (a.1 - along).abs().total_cmp(&(b.1 - along).abs())).map_or(0, |(i, _)| i);
+        let x = self.path[mid].0;
+        let below_pool = self.pool.map_or(f32::MIN, |((_, py), r)| py + r);
+        let start = self.path.iter().position(|p| p.1 >= below_pool).unwrap_or(0);
+        let top = self.path[start].0;
+        let ease = |t: f32| 0.5 - 0.5 * (t.clamp(0.0, 1.0) * PI).cos();
+        for (i, (p, l)) in self.path.iter_mut().zip(&self.lengths).enumerate() {
+            let d = l - along;
+            if d < -STRAIGHT_REACH.0 {
+                if i >= start {
+                    // Straight down from the pool, then the bend over.
+                    let t = (d + BEND_REACH) / (BEND_REACH - STRAIGHT_REACH.0);
+                    p.0 = top + (x - top) * ease(t);
+                }
+            } else if d < STRAIGHT_REACH.0 {
+                p.0 = x;
+            } else if d < STRAIGHT_REACH.1 {
+                let k = 1.0 - ease((d - STRAIGHT_REACH.0) / (STRAIGHT_REACH.1 - STRAIGHT_REACH.0));
+                p.0 += (x - p.0) * k;
+            }
+        }
+        self.measure();
         self
     }
 

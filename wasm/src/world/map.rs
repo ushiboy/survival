@@ -22,6 +22,9 @@ pub struct Spots {
     pub ladder: Option<(i32, i32)>,
     /// The middle of the pool under the falls.
     pub falls: Option<(i32, i32)>,
+    /// Where a water mill is to stand: the river's west bank below the
+    /// pool, with open ground kept behind it for the mill house.
+    pub mill: Option<(i32, i32)>,
     /// The foot of the slope up the west cliff (its middle row).
     pub slope: Option<(i32, i32)>,
     /// How far the slope reaches across itself, from its foot to its top,
