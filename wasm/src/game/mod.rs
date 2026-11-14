@@ -1392,6 +1392,75 @@ impl Game {
         self.camera.follow(self.player.center(), self.map.pixel_size());
     }
 
+    /// Whether the castaway can stand on the cell.
+    fn standable(&self, (x, y): (i32, i32)) -> bool {
+        self.map.in_bounds(x, y) && !self.map.props(x, y).solid && !matches!(self.map.terrain(x, y), Terrain::DeepWater | Terrain::River)
+    }
+
+    /// Debug: moves the castaway to the cell, or the nearest one they can
+    /// stand on; keeps which way they face and their torch, and reels in
+    /// any line. Returns the cell moved to, if any was found.
+    pub fn debug_move_to(&mut self, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+        let to = (0..=24).find_map(|r: i32| {
+            (-r..=r)
+                .flat_map(|dy| (-r..=r).map(move |dx| (dx, dy)))
+                .filter(|&(dx, dy)| dx.abs().max(dy.abs()) == r)
+                .map(|(dx, dy)| (x + dx, y + dy))
+                .filter(|&c| self.standable(c))
+                .min_by_key(|&(cx, cy)| (cx - x).pow(2) + (cy - y).pow(2))
+        })?;
+        let (facing, torch) = (self.player.facing, self.player.torch);
+        self.line = None;
+        self.player = Player::at_feet(to.0 * TILE_SIZE, to.1 * TILE_SIZE);
+        self.player.facing = facing;
+        self.player.torch = torch;
+        self.camera.follow(self.player.center(), self.map.pixel_size());
+        Some(to)
+    }
+
+    /// Debug: places worth going to, by name, as cells (`debug_move_to`
+    /// finds ground to stand on near each).
+    pub fn debug_places(&self) -> Vec<(&'static str, (i32, i32))> {
+        let cell = |(x, y): (i32, i32)| (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE));
+        let map = &self.map;
+        let mut v = vec![("漂着地点", cell(map.spawn))];
+        for &w in &map.water_spots {
+            let (x, y) = cell(w);
+            let name = if map.is_high(x, y) {
+                "崖の上の水汲み場"
+            } else if map.spots.falls.is_some_and(|(fx, _)| x < fx) {
+                "滝壺の西の水汲み場"
+            } else {
+                "滝壺の東の水汲み場"
+            };
+            v.push((name, (x, y)));
+        }
+        if let Some(b) = map.spots.bridge {
+            v.push(("川の狭い所", b));
+        }
+        if let Some(l) = map.spots.ladder {
+            v.push(("崖のくぼみ（ハシゴ）", l));
+            // North from the recess across the high ground to the lake.
+            let shore = (0..l.1).rev().map(|y| (l.0, y)).take_while(|&(x, y)| !map.terrain(x, y).is_water()).last();
+            if let Some(s) = shore {
+                v.push(("湖の南岸", s));
+            }
+        }
+        if let Some(s) = map.spots.slope {
+            v.push(("西の草の坂", s));
+        }
+        // The high ground's east end, where the ridge closes it off, and the
+        // cape below it.
+        let east_end = |y: i32| (0..map.width()).rev().find(|&x| map.is_high(x, y) && map.terrain(x, y) == Terrain::Highland).map(|x| (x, y));
+        if let Some(c) = east_end(map.height() / 2 + 20) {
+            v.push(("東の尾根の前", c));
+        }
+        if let Some(c) = (0..map.height()).rev().find_map(east_end) {
+            v.push(("東の岬", c));
+        }
+        v
+    }
+
     /// Debug: cycles outfit presets until equipment exists.
     pub fn debug_cycle_outfit(&mut self) {
         let presets = Outfit::PRESETS;

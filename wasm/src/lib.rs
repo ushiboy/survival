@@ -96,6 +96,22 @@ impl GameHandle {
         self.game.debug_set_vitals(v(hp), v(food), v(water));
     }
 
+    /// Debug: moves the castaway to the cell `(x, y)`, or the nearest one
+    /// they can stand on; returns the cell moved to (empty if none).
+    pub fn debug_move_to(&mut self, x: i32, y: i32) -> Vec<i32> {
+        self.game.debug_move_to((x, y)).map_or_else(Vec::new, |(x, y)| vec![x, y])
+    }
+
+    /// Debug: the names of places worth going to.
+    pub fn debug_place_names(&self) -> Vec<String> {
+        self.game.debug_places().into_iter().map(|(name, _)| name.to_string()).collect()
+    }
+
+    /// Debug: the cells of `debug_place_names`, as `[x0, y0, x1, y1, ...]`.
+    pub fn debug_place_cells(&self) -> Vec<i32> {
+        self.game.debug_places().into_iter().flat_map(|(_, (x, y))| [x, y]).collect()
+    }
+
     /// Debug: makes every recipe known.
     pub fn debug_learn_recipes(&mut self) {
         self.game.debug_learn_recipes();

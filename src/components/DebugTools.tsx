@@ -16,10 +16,12 @@ const VITALS: [string, string, number, number, number][] = [
   ['瀕死', '体力を1にしました', 1, -1, -1],
 ];
 
-/** Debug tools, shown with `?debug=true`: put any item in the bag. */
+/** Debug tools, shown with `?debug=true`: put any item in the bag, move anywhere. */
 export function DebugTools({ core }: Props) {
   const items = useMemo(() => core.debugItems(), [core]);
+  const places = useMemo(() => core.debugPlaces(), [core]);
   const [index, setIndex] = useState(0);
+  const [cell, setCell] = useState({ x: 0, y: 0 });
   const [count, setCount] = useState(1);
   const [message, setMessage] = useState<string | null>(null);
   const item = items[index];
@@ -34,6 +36,11 @@ export function DebugTools({ core }: Props) {
           ? `${item.name} ×${given} を持たせました（${n - given} 個は入りきりません）`
           : `バッグに ${item.name} が入る場所がありません`,
     );
+  };
+
+  const moveTo = (x: number, y: number, name?: string) => {
+    const at = core.debugMoveTo(x, y);
+    setMessage(at ? `${name ?? `(${x}, ${y})`} の (${at[0]}, ${at[1]}) へ移しました` : `(${x}, ${y}) の近くに立てる所がありません`);
   };
 
   // Let go of the button so Enter and the arrows go back to the game.
@@ -97,6 +104,47 @@ export function DebugTools({ core }: Props) {
           }}
         >
           全レシピを解放
+        </button>
+      </div>
+      <div className="row">
+        <span>移動</span>
+        <select
+          value=""
+          onChange={(e) => {
+            const place = places[Number(e.target.value)];
+            if (place) moveTo(place.x, place.y, place.name);
+            e.currentTarget.blur();
+          }}
+        >
+          <option value="" disabled>
+            場所を選ぶ
+          </option>
+          {places.map((p, i) => (
+            <option key={p.name} value={i}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="row">
+        <span>マス</span>
+        {(['x', 'y'] as const).map((k) => (
+          <input
+            key={k}
+            type="number"
+            className="count"
+            aria-label={k}
+            value={cell[k]}
+            onChange={(e) => setCell({ ...cell, [k]: Math.floor(Number(e.target.value)) || 0 })}
+          />
+        ))}
+        <button
+          onClick={(e) => {
+            moveTo(cell.x, cell.y);
+            release(e);
+          }}
+        >
+          移す
         </button>
       </div>
       <div className="row">

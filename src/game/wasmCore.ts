@@ -23,6 +23,13 @@ export interface DebugItem {
   maxStack: number;
 }
 
+/** A place the debug panel can move the castaway to (cells). */
+export interface DebugPlace {
+  name: string;
+  x: number;
+  y: number;
+}
+
 /** Thin, typed wrapper over the wasm module so React never touches raw pointers. */
 export interface GameCore {
   readonly width: number;
@@ -41,6 +48,10 @@ export interface GameCore {
   debugGive(index: number, count: number): number;
   /** Debug: makes every recipe known. */
   debugLearnRecipes(): void;
+  /** Debug: moves the castaway to the cell, or the nearest one they can stand on; returns where, or null. */
+  debugMoveTo(x: number, y: number): [number, number] | null;
+  /** Debug: places worth going to. */
+  debugPlaces(): DebugPlace[];
   /** Debug: sets health, food and water (0–64); a negative value leaves it as it is. */
   debugSetVitals(hp: number, food: number, water: number): void;
   dispose(): void;
@@ -103,6 +114,14 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     debugItems: () => debug_item_names().map((name, index) => ({ index, name, maxStack: debug_item_max_stack(index) })),
     debugGive: (index, count) => handle.debug_give(index, count),
     debugLearnRecipes: () => handle.debug_learn_recipes(),
+    debugMoveTo: (x, y) => {
+      const at = handle.debug_move_to(x, y);
+      return at.length === 2 ? [at[0], at[1]] : null;
+    },
+    debugPlaces: () => {
+      const cells = handle.debug_place_cells();
+      return handle.debug_place_names().map((name, i) => ({ name, x: cells[i * 2], y: cells[i * 2 + 1] }));
+    },
     debugSetVitals: (hp, food, water) => handle.debug_set_vitals(hp, food, water),
     dispose: () => handle.free(),
   };

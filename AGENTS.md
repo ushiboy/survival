@@ -100,4 +100,4 @@ pnpm art             # 島に置く物とアイテムの絵の一覧（と前と
   4. 終わったら `pnpm art --clear-base` で、比べる元を直前の実行に戻す。
   - 新しい資源（島の配置物 `Feature`）は、絵を詰める前に `wasm/examples/art.rs` の `on_sheet` と `specimens` に足してシートに出す（`Feature` を足すと、ここに足すまでコンパイルできない）。新しいアイテムは `ItemKind::ALL` に足せばシートに出る。
 - ゲームの画面での見え方の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
-- ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したりできる。
+- ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したり、主人公を好きなマスや決まった場所（水汲み場・湖の南岸など）へ移したりできる。
