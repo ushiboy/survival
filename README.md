@@ -26,6 +26,8 @@ URL に `?debug=true` を付けると（例: `http://localhost:5173/?debug=true`
 
 スマートフォンやタブレット（`pointer: coarse` の端末）では、ゲーム画面と仮想コントローラだけの画面になります。PC でこの画面を確かめるには URL に `?touch=true` を付けます（マウスでもボタンを押せます）。`?touch=false` で逆に PC の画面にできます。同じ LAN のスマートフォンから開くには `pnpm dev --host` で起動します。
 
+ページは PWA としてインストールでき、オフラインでも遊べます。マニフェストは `public/manifest.webmanifest`、Service Worker は `scripts/service-worker.js` が元で、`vite build` のときに `scripts/pwa.ts`（Vite のプラグイン）がページとビルドの全ファイルの一覧と版（それらの中身のハッシュ）を書き込んで `dist/sw.js` にします。開発サーバー（`pnpm dev`）では Service Worker を登録しないので、インストールやオフラインを確かめるときは `pnpm build` のあと `pnpm preview` で開きます。
+
 Rust 単体でフレームを PPM に書き出す確認用ツール（入力スクリプト = `ボタン(16進):フレーム数` の列）:
 
 ```bash
@@ -89,10 +91,13 @@ src/                    React / TS (表示と入力のみ)
   game/touch.ts         画面上の仮想コントローラのマルチタッチ → ボタンword
   game/touchMode.ts     タッチ用レイアウトにするかの判定 (pointer: coarse / ?touch=)
   game/gameLoop.ts      60.1Hz 固定ステップのループ
+  game/serviceWorker.ts Service Worker の登録（本番ビルドのときだけ）
   components/           画面・仮想コントローラ・操作説明（PC のパネルとタッチ端末のダイアログ）・デバッグパネル
   i18n/                 ページの文言の日本語・英語（use-intl）。messages/ja.ts が元で、en.ts は同じ項目をそろえる。navigator.language で切り替え
-public/                 そのまま配る物: favicon（favicon.svg が元の 16×16 ドット絵。favicon.ico と
-                        ホーム画面用の apple-touch-icon.png は同じ絵を整数倍に拡大したもの）
+public/                 そのまま配る物: favicon（favicon.svg が元の 16×16 ドット絵。favicon.ico、
+                        ホーム画面用の apple-touch-icon.png、PWA 用の icon-192/512.png は同じ絵を整数倍に
+                        拡大したもの。icon-maskable-512.png は丸く切り抜かれてもよいよう周りに海を足したもの）
+                        と PWA のマニフェスト（manifest.webmanifest）
 wasm/src/               Rust コア
   lib.rs                JS向けファサード (wasm_bindgen はここだけ)
   common/               固定小数点・乱数・入力
@@ -104,7 +109,8 @@ wasm/src/               Rust コア
   entity/               プレイヤー(移動・斧アクション)・カニ・カモメ・パーティクル・移動/衝突
   game/                 全体の進行 (step / render)
 wasm/examples/          開発用ツール (スナップショット, 島の地図, 絵の一覧, ストリーミングの確認など)
-scripts/                開発用スクリプト (島の地図・絵の一覧を描き直す見張り)
+scripts/                開発用スクリプト (島の地図・絵の一覧を描き直す見張り) と、ビルドで dist/sw.js を作る
+                        Service Worker の元（service-worker.js）と Vite のプラグイン（pwa.ts）
 ```
 
 ## SFC (Mode 1) 準拠の制約
