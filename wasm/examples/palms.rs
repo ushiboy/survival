@@ -1,4 +1,4 @@
-//! Dev tool: lists the water-drawing spot, and the palms (with their
+//! Dev tool: lists the water-drawing spots, and the palms (with their
 //! coconuts), bushes, vines, boulders, driftwood, shells and broadleaf trees nearest the spawn point.
 //! Usage: cargo run --release --example palms -- [seed]
 use survival_core::world::terrain::PalmPart;
@@ -9,7 +9,7 @@ fn main() {
     let map = island::generate(seed);
     let spawn = (map.spawn.0 / TILE_SIZE, map.spawn.1 / TILE_SIZE);
     println!("spawn cell {spawn:?}");
-    if let Some((sx, sy)) = map.water_spot {
+    for &(sx, sy) in &map.water_spots {
         println!("water-drawing spot cell {:?}", (sx / TILE_SIZE, sy / TILE_SIZE));
     }
     let mut palms = Vec::new();

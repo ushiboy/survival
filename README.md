@@ -69,7 +69,7 @@ pnpm art:watch                    # wasm/src が変わるたびに描き直す�
 ```bash
 cd wasm && cargo run --release --example charsheet -- chars.ppm 4
 ```
-水汲み場のセルと、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数・茂み・ツル植物・大岩・流木・貝殻・広葉樹のセル:
+水汲み場のセル（すべて）と、スポーン地点に近いヤシの木（幹の根元のセル）・残りの椰子の実の数・茂み・ツル植物・大岩・流木・貝殻・広葉樹のセル:
 
 ```bash
 cd wasm && cargo run --release --example palms -- 1

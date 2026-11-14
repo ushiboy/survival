@@ -3,7 +3,7 @@
 //! uses the slice matching its position modulo 4.
 
 use super::paint::{TileNoise, bayer, noise_px, rand_int, ramp};
-use super::palettes::{deep, grass, sand, shore};
+use super::palettes::{deep, grass, rock, sand, shore};
 use crate::ppu::pattern::PixelArt;
 use std::f32::consts::TAU;
 
@@ -13,6 +13,8 @@ pub const VARIANTS: i32 = TEX / 16;
 #[derive(Clone, Debug)]
 pub struct TerrainTextures {
     pub sand: PixelArt,
+    /// Wet soil of the lake's shore (rock palette's earth browns).
+    pub mud: PixelArt,
     pub grass: PixelArt,
     pub shallow: PixelArt,
     pub deep: PixelArt,
@@ -20,7 +22,7 @@ pub struct TerrainTextures {
 
 impl TerrainTextures {
     pub fn generate() -> Self {
-        Self { sand: sand_canvas(), grass: grass_canvas(), shallow: shallow_canvas(), deep: deep_canvas() }
+        Self { sand: sand_canvas(), mud: mud_canvas(), grass: grass_canvas(), shallow: shallow_canvas(), deep: deep_canvas() }
     }
 }
 
@@ -69,6 +71,40 @@ fn sand_canvas() -> PixelArt {
         put_wrap(&mut a, x + 1, y, sand::PEBBLE[2]);
         put_wrap(&mut a, x, y + 1, sand::PEBBLE[0]);
         put_wrap(&mut a, x + 1, y + 1, sand::RAMP[0]);
+    }
+    a
+}
+
+/// Damp, dark earth (rock palette): mottled browns, darker where it's
+/// wetter, with moss and a few small stones.
+fn mud_canvas() -> PixelArt {
+    let n = TileNoise::new(41, TEX);
+    let earth = [rock::WOOD[0], rock::WOOD[1], rock::WOOD[2]];
+    let mut a = canvas(|x, y| {
+        let t = 0.45 + n.fbm(x as f32, y as f32, 32, 3) * 0.35;
+        let r = noise_px(x, y, 0x3D1D);
+        if r < 0.03 {
+            rock::MOSS
+        } else if r < 0.05 {
+            rock::WOOD[0]
+        } else {
+            ramp(&earth[..2], t, x, y, 0.6)
+        }
+    });
+    // Little stones bedded in it, lit from the top-left.
+    for k in 0..7 {
+        let (x, y) = (rand_int(k, 1, 0x3D2E, TEX as u32), rand_int(k, 2, 0x3D2E, TEX as u32));
+        put_wrap(&mut a, x, y, rock::STONE[4]);
+        put_wrap(&mut a, x + 1, y, rock::STONE[3]);
+        put_wrap(&mut a, x, y + 1, rock::STONE[2]);
+        put_wrap(&mut a, x + 1, y + 1, rock::STONE[1]);
+    }
+    // Tufts of moss.
+    for k in 0..10 {
+        let (x, y) = (rand_int(k, 3, 0x3D3F, TEX as u32), rand_int(k, 4, 0x3D3F, TEX as u32));
+        put_wrap(&mut a, x, y, rock::MOSS);
+        put_wrap(&mut a, x + 1, y, rock::MOSS);
+        put_wrap(&mut a, x, y + 1, rock::WOOD[0]);
     }
     a
 }

@@ -891,7 +891,7 @@ impl Game {
                 break;
             }
             let (x, y) = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
-            let open = self.map.terrain(x, y) == Terrain::Sand && self.map.feature(x, y) == Feature::None && !self.map.is_riverside(x, y);
+            let open = self.map.terrain(x, y) == Terrain::Sand && !self.map.is_high(x, y) && self.map.feature(x, y) == Feature::None && !self.map.is_riverside(x, y);
             if open && near_water(&self.map, x, y) {
                 self.map.set_feature(x, y, Feature::Shell);
                 changed.push((x, y));

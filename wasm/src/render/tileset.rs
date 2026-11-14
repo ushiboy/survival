@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::assets::palettes::{PAL_DEEP, PAL_GRASS, PAL_ROCK, PAL_SAND, PAL_SHORE, deep, grass, rock, sand, shore};
+use crate::assets::palettes::{PAL_DEEP, PAL_FOLIAGE, PAL_GRASS, PAL_ROCK, PAL_SAND, PAL_SHORE, deep, foliage, grass, rock, sand, shore};
 use crate::common::rng::hash_unit;
 use crate::assets::paint::{bayer, noise_px};
 use crate::assets::props::{Ground, PropTile, composite};
@@ -24,7 +24,7 @@ use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::map::LADDER_ROWS;
 use crate::world::noise::value_noise;
 use crate::world::harvest::BARK_STRIPS;
-use crate::world::terrain::{BroadleafPart, PalmPart, PinePart};
+use crate::world::terrain::{BroadleafPart, PalmPart, PinePart, Soil};
 use crate::world::{CHUNK_CELLS, CHUNK_PX, ChunkId, Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
@@ -137,7 +137,7 @@ impl RiverField {
             r.max = r.max.max(r.depth[i]);
         }
         // Cells the trampled landing reaches are drawn as bank too.
-        let near_spot = map.water_spot.is_some_and(|(sx, sy)| {
+        let near_spot = map.water_spots.iter().any(|&(sx, sy)| {
             let (dx, dy) = ((cx * TILE_SIZE + 8 - sx) as f32, (cy * TILE_SIZE + 8 - sy) as f32);
             dx.abs() < LANDING_RADIUS + 8.0 && dy.abs() < LANDING_RADIUS + 8.0
         });
@@ -197,13 +197,18 @@ enum Key {
     Interior(Terrain, i32, i32),
     /// A cliff face: row from the top, rows in all, open to the left and
     /// right, water at its foot, and the column.
-    Cliff { row: i32, rows: i32, left: bool, right: bool, wet: bool, vx: i32 },
+    Cliff { row: i32, rows: i32, left: bool, right: bool, wet: bool, grassy: bool, vx: i32 },
     /// The edge of the high ground: which sides drop away (N, E, S, W).
     CliffTop { open: [bool; 4], vx: i32, vy: i32 },
     /// The side of the high ground seen from above, dropping away to the
     /// left or right.
     CliffSide { left: bool, right: bool, vx: i32, vy: i32 },
     Prop { kind: u8, flip: bool, vx: i32, vy: i32 },
+    /// The lake shore's wet soil, away from the water and the grass.
+    Mud(i32, i32),
+    /// The top of a crag: which sides drop away (N, E, S, W), its tier, and
+    /// which of its sides (N, W) a higher tier shades.
+    Crag { open: [bool; 4], tier: u8, shade: [bool; 2], slope: [bool; 2], vx: i32, vy: i32 },
 }
 
 struct Builder<'a> {
@@ -243,7 +248,7 @@ impl Builder<'_> {
             Terrain::ShallowWater => bank.add_art(PAL_SHORE, &slice(&tex.shallow, vx, vy)),
             Terrain::Sand => bank.add_art(PAL_SAND, &slice(&tex.sand, vx, vy)),
             Terrain::Grass | Terrain::Highland | Terrain::CliffTop => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
-            Terrain::Cliff => bank.add_art(PAL_ROCK, &PixelArt::filled(16, 16, rock::STONE[2])),
+            Terrain::Cliff | Terrain::Crag => bank.add_art(PAL_ROCK, &PixelArt::filled(16, 16, SANDSTONE[2])),
             // Transparent: the river is drawn on BG2.
             Terrain::River => bank.add_art(PAL_DEEP, &PixelArt::filled(16, 16, 0)),
         })
@@ -352,13 +357,16 @@ impl Builder<'_> {
             // Out on the beach the river runs into the surf.
             return self.coast(f, x, y, Some(r));
         }
-        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
+        let spot = map.nearest_water_spot((x * 16 + 8) as f32, (y * 16 + 8) as f32);
         let grassy = |px: usize, py: usize| {
             let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
             (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0
         };
         let far_from_spot = spot.is_none_or(|(sx, sy)| (sx - (x * 16 + 8) as f32).abs().max((sy - (y * 16 + 8) as f32).abs()) > 40.0);
         if far_from_spot && (0..16).all(|py| (0..16).all(|px| !grassy(px, py))) {
+            if map.is_high(x, y) && near_mud(map, x, y) {
+                return self.muddy_bank(r, x, y);
+            }
             return self.sandy_bank(r, x, y);
         }
         let art = self.grass_bank_art(map, f, r, x, y);
@@ -368,12 +376,17 @@ impl Builder<'_> {
     /// A grassy river bank (grass palette), the water left clear for the
     /// river drawn on BG2.
     fn grass_bank_art(&mut self, map: &WorldMap, f: &CellField, r: &RiverField, x: i32, y: i32) -> PixelArt {
-        let spot = map.water_spot.map(|(sx, sy)| (sx as f32, sy as f32));
+        let spot = map.nearest_water_spot((x * 16 + 8) as f32, (y * 16 + 8) as f32);
         let grassy = |px: usize, py: usize| {
             let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
             (f.at(px, py) - SAND_BELOW) * PX_PER_UNIT + noise_px(wx, wy, 0x6EED) * 1.6 >= 0.0
         };
         let (g, s) = self.grass_and_sand(x, y);
+        // Through the lake's shore the bank is soil, not sand.
+        let muddy = map.is_high(x, y) && near_mud(map, x, y);
+        let s = if muddy { s.map(|_| grass::SOIL) } else { s };
+        // The bank's lip: dark soil by the lake, sand elsewhere.
+        let lip = if muddy { [grass::RAMP[0], grass::SOIL] } else { [grass::SAND[0], grass::SAND[1]] };
         let ramp = grass::RAMP;
         compose(|px, py| {
             let i = py * 16 + px;
@@ -410,10 +423,10 @@ impl Builder<'_> {
                 };
             }
             if d > -1.5 {
-                if grassy { grass::SOIL } else { grass::SAND[0] }
+                if grassy { grass::SOIL } else { lip[0] }
             } else if !grassy && river_wet(d, wx, wy) > -WET_BANK {
-                // Sand soaked by the river.
-                if river_wet(d, wx, wy) > -2.5 || b < 0.5 { grass::SAND[0] } else { grass::SAND[1] }
+                // Sand (or soil) soaked by the river.
+                if river_wet(d, wx, wy) > -2.5 || b < 0.5 { lip[0] } else { lip[1] }
             } else if grassy && d > -3.0 {
                 // The turf overhangs the cut bank in a dark edge.
                 if b < 0.5 { ramp[0] } else { ramp[1] }
@@ -449,6 +462,86 @@ impl Builder<'_> {
     /// Beach along the river, inland of the surf (sand palette): a cut lip
     /// at the water, sand darkened by the wet in a ragged band, and
     /// pebbles the river has washed down.
+    /// The lake's water where the stream's current runs out across it
+    /// (shore palette): clear where the current is, for BG2's river.
+    fn lake_current(&mut self, f: &CellField, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let water = slice(&self.tex.shallow, x, y);
+        let art = compose(|px, py| if r.depth[py * 16 + px] > 0.0 { 0 } else { lake_edge_pixel(f, &water, false, px, py) });
+        self.unique_art(PAL_SHORE, &art)
+    }
+
+    /// Where the river runs out of the lake (shore palette): the lake's
+    /// calm water, with the stream running out over the shore in the same
+    /// water; the shore's soil left clear for BG2 (returned too), as along
+    /// the rest of the lake.
+    fn lake_mouth(&mut self, f: &CellField, r: &RiverField, x: i32, y: i32) -> (MetatileId, MetatileId) {
+        let soil = self.mud_under(f, x, y);
+        if f.min < 0.0 {
+            // Where the lake reaches in (shore palette), its shallows
+            // darken into the stream's mouth.
+            let water = slice(&self.tex.shallow, x, y);
+            let art = compose(|px, py| {
+                let d = r.depth[py * 16 + px];
+                let h = f.at(px, py);
+                if d > 0.0 {
+                    // The stream's current, in the blue it starts in (see
+                    // `lake_blend_at`).
+                    shore::WATER[0]
+                } else if h < 0.0 {
+                    lake_edge_pixel(f, &water, true, px, py)
+                } else {
+                    0
+                }
+            });
+            return (self.unique_art(PAL_SHORE, &art), soil);
+        }
+        // Deep palette: it has the river's colours, so the stream runs on
+        // unbroken out of the lake.
+        let art = compose(|px, py| {
+            let d = r.depth[py * 16 + px];
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            if d > 0.0 {
+                if lake_blend_at(r.along[py * 16 + px], bayer(wx, wy)) {
+                    deep::SHELF[0]
+                } else if d < 2.0 {
+                    deep::RIVER_SHADE
+                } else if noise_px(wx / 2, (wy - r.along[py * 16 + px] as i32) / 4, 0x5E1A) < 0.2 {
+                    deep::RIVER_FLOW[1]
+                } else {
+                    deep::RIVER_BODY
+                }
+            } else {
+                // The shore's soil (BG2).
+                0
+            }
+        });
+        (self.unique_art(PAL_DEEP, &art), soil)
+    }
+
+    /// The river's bank where it runs out of the lake through the shore's
+    /// wet soil (rock palette): the soil darkening to the water.
+    fn muddy_bank(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
+        let tex = slice(&self.tex.mud, x, y);
+        let art = compose(|px, py| {
+            let d = r.depth[py * 16 + px];
+            if d > 0.0 {
+                return 0;
+            }
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            let b = bayer(wx, wy);
+            if let Some(shade) = pebble(d, wx, wy) {
+                return rock::STONE[2 + shade];
+            }
+            let wet = river_wet(d, wx, wy);
+            if d > -1.5 || wet > -3.0 || (wet > -6.0 && b < 0.5) {
+                rock::WOOD[0]
+            } else {
+                tex.get(px, py)
+            }
+        });
+        self.unique_art(PAL_ROCK, &art)
+    }
+
     fn sandy_bank(&mut self, r: &RiverField, x: i32, y: i32) -> MetatileId {
         let tex = slice(&self.tex.sand, x, y);
         let art = compose(|px, py| {
@@ -537,14 +630,10 @@ impl Builder<'_> {
                 return 0;
             }
             let (row, rows) = face_rows(map, x + beside(ix, iy), y);
+            // The rock runs down to the ground with no rubble, darkened
+            // where it meets it.
             let v = cliff_pixel(row, rows, false, false, false, vx * 16 + ix, iy);
-            // Rubble along the slanting foot, as along the face's foot.
-            if d < 2 {
-                let n = noise_px(vx * 16 + ix, iy, 0xF007);
-                if n < 0.3 { rock::STONE[3] } else { rock::STONE[1] }
-            } else {
-                v
-            }
+            if d < 1 { SANDSTONE[1] } else { v }
         });
         Some((self.unique_art(palette, &soil), self.unique_art(PAL_ROCK, &rock)))
     }
@@ -563,7 +652,7 @@ impl Builder<'_> {
         // Out past the beach the current is sea water: as dark as the deep
         // sea, so it reads as too deep to wade.
         let f = CellField::sample(map, x, y);
-        let sea = (f.min < SEA_CURRENT_FROM).then(|| slice(&self.tex.deep, x, y));
+        let sea = (f.min < SEA_CURRENT_FROM && !map.is_high(x, y)).then(|| slice(&self.tex.deep, x, y));
         let art = compose(|px, py| {
             let i = py * 16 + px;
             let d = r.depth[i];
@@ -571,6 +660,11 @@ impl Builder<'_> {
             let b = bayer(wx, wy);
             if d <= 0.0 {
                 return 0;
+            }
+            // Out of the lake the stream starts in the lake's own blue,
+            // turning to the river's colours over its mouth.
+            if lake_blend(map, x, y, r.along[i], b) {
+                return deep::SHELF[0];
             }
             if let Some(tex) = &sea {
                 // Fades in from the river over a stretch of the shallows.
@@ -663,17 +757,40 @@ impl Builder<'_> {
     /// the foot. Where the falls come down the face is left open for the
     /// water behind it on BG2.
     fn cliff_face(&mut self, map: &WorldMap, x: i32, y: i32, river: Option<&RiverField>) -> MetatileId {
+        self.cliff_face_on(map, x, y, river, false)
+    }
+
+    /// The face's foot meets the grass below it: the grass grows up over the
+    /// foot (BG1 left clear there, the grass drawn on BG2 under it).
+    fn grassy_foot(map: &WorldMap, x: i32, y: i32) -> bool {
+        map.terrain(x, y + 1) != Terrain::Cliff
+            && matches!(map.terrain(x, y + 1), Terrain::Grass | Terrain::Highland)
+            && map.foot_fill(x, y + 1) == [false, false]
+            && dip(map, x, y).is_none()
+    }
+
+    /// A cliff face; with `under` (BG2 free beneath it), a foot standing on
+    /// grass lets the grass grow up over it.
+    fn cliff_face_on(&mut self, map: &WorldMap, x: i32, y: i32, river: Option<&RiverField>, under: bool) -> MetatileId {
         let (row, rows) = face_rows_drawn(map, x, y);
         // A side opens onto lower ground, unless the rock is carried on
         // into the corner there (see `WorldMap::foot_fill`).
+        // A crag's face stands on the ground, so it opens onto the ground
+        // beside it too.
+        let under_crag = (1..=CLIFF_ROWS).any(|k| map.terrain(x, y - k) == Terrain::Crag);
         let open = |dx: i32| {
-            !matches!(map.terrain(x + dx, y), Terrain::Cliff | Terrain::CliffTop | Terrain::Highland)
-                && !map.foot_fill(x + dx, y)[if dx < 0 { 1 } else { 0 }]
+            let beside = map.terrain(x + dx, y);
+            if under_crag {
+                return !matches!(beside, Terrain::Cliff | Terrain::Crag);
+            }
+            !matches!(beside, Terrain::Cliff | Terrain::CliffTop | Terrain::Highland) && !map.foot_fill(x + dx, y)[if dx < 0 { 1 } else { 0 }]
         };
         let wet = map.terrain(x, y + 1).holds_water() && row == rows;
         let (left, right) = (open(-1), open(1));
+        let grassy = under && river.is_none() && row == rows && Self::grassy_foot(map, x, y);
+
         let vx = x.rem_euclid(4);
-        let draw = move |px: usize, py: usize| cliff_pixel(row, rows, left, right, wet, vx * 16 + px as i32, py as i32);
+        let draw = move |px: usize, py: usize| sandstone_pixel(row, rows, left, right, wet, grassy, vx * 16 + px as i32, py as i32);
         if let Some((cut, oy)) = dip(map, x, y) {
             let art = compose(|px, py| crumbled_pixel(cut, x * 16 + px as i32, py as i32, oy, draw(px, py)));
             return self.unique_art(PAL_ROCK, &art);
@@ -683,7 +800,7 @@ impl Builder<'_> {
                 let art = compose(|px, py| if r.channel[py * 16 + px] > 0.0 { 0 } else { draw(px, py) });
                 self.unique_art(PAL_ROCK, &art)
             }
-            None => self.get(Key::Cliff { row, rows, left, right, wet, vx }, |_, bank| bank.add_art(PAL_ROCK, &compose(draw))),
+            None => self.get(Key::Cliff { row, rows, left, right, wet, grassy, vx }, |_, bank| bank.add_art(PAL_ROCK, &compose(draw))),
         }
     }
 
@@ -762,7 +879,7 @@ impl Builder<'_> {
                 || {
                     let shade = ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px)
                         || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px);
-                    if shade && rock != 0 { rock::STONE[0] } else { rock }
+                    if shade && rock != 0 { SANDSTONE[0] } else { rock }
                 },
                 |(_, v)| v,
             )
@@ -784,13 +901,116 @@ impl Builder<'_> {
 
     /// Ground tile for a cell without props.
     fn terrain(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        self.ground(map, x, y, false).0
+    }
+
+    /// Ground tile for a cell, and (where `under` allows it) one for BG2
+    /// beneath it: the lake's shore is wet soil in the rock palette's
+    /// browns, which the water's and the grass's palettes don't have, so
+    /// where it meets either the soil is drawn on BG2 and shows through
+    /// BG1's transparent pixels. Without BG2 the soil there is drawn in
+    /// the nearest colour BG1's palette has.
+    fn ground(&mut self, map: &WorldMap, x: i32, y: i32, under: bool) -> (MetatileId, Option<MetatileId>) {
         let t = map.terrain(x, y);
+        if t == Terrain::Crag {
+            return self.crag(map, x, y, under);
+        }
+        if t == Terrain::Cliff {
+            let face = self.cliff_face_on(map, x, y, None, under);
+            let (row, rows) = face_rows_drawn(map, x, y);
+            let grass = (under && row == rows && Self::grassy_foot(map, x, y)).then(|| self.interior(Terrain::Grass, x, y));
+            return (face, grass);
+        }
+        if map.is_high(x, y) && !matches!(t, Terrain::Cliff | Terrain::CliffTop) && near_mud(map, x, y) {
+            let t = if t == Terrain::Highland { Terrain::Grass } else { t };
+            let f = CellField::sample(map, x, y);
+            match t {
+                Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => {
+                    let water = slice(&self.tex.shallow, x, y);
+                    let art = compose(|px, py| lake_edge_pixel(&f, &water, under, px, py));
+                    let soil = under.then(|| self.mud_under(&f, x, y));
+                    return (self.unique_art(PAL_SHORE, &art), soil);
+                }
+                Terrain::Sand | Terrain::Grass if f.crosses(SAND_BELOW, 0.35, 0.3) => {
+                    let (g, _) = self.grass_and_sand(x, y);
+                    let art = compose(|px, py| {
+                        let v = grass_or_sand(&f, &g, &PixelArt::filled(16, 16, 0), x, y, px, py);
+                        if v == 0 && !under { grass::SOIL } else { v }
+                    });
+                    let soil = under.then(|| self.mud_under(&f, x, y));
+                    return (self.unique_art(PAL_GRASS, &art), soil);
+                }
+                Terrain::Sand => {
+                    let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+                    return (self.get(Key::Mud(vx, vy), |tex, bank| bank.add_art(PAL_ROCK, &slice(&tex.mud, vx, vy))), None);
+                }
+                _ => {}
+            }
+        }
+        (self.plain_ground(map, x, y), None)
+    }
+
+    /// Wet soil for BG2 under a lake-shore cell: darker and wetter toward
+    /// the water.
+    fn mud_under(&mut self, f: &CellField, x: i32, y: i32) -> MetatileId {
+        let mud = slice(&self.tex.mud, x, y);
+        let art = compose(|px, py| {
+            let h = f.at(px, py);
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            if h < 0.35 || (h < 0.9 && bayer(wx, wy) < 0.5) { rock::WOOD[0] } else { mud.get(px, py) }
+        });
+        self.unique_art(PAL_ROCK, &art)
+    }
+
+    /// A cell of a crag: its top, or, just below a higher tier, the face
+    /// that tier rises in, its foot (with `under`) sunk in the scrub of the
+    /// tier below (drawn on BG2).
+    fn crag(&mut self, map: &WorldMap, x: i32, y: i32, under: bool) -> (MetatileId, Option<MetatileId>) {
+        let Some(row) = tier_face_row(map, x, y) else {
+            return (self.crag_top(map, x, y), None);
+        };
+        let open = |dx: i32| map.terrain(x + dx, y) != Terrain::Crag || tier_face_row(map, x + dx, y).is_none();
+        let (left, right) = (open(-1), open(1));
+        let grassy = under && row == TIER_FACE;
+        let vx = x.rem_euclid(4);
+        let key = Key::Cliff { row, rows: TIER_FACE, left, right, wet: false, grassy, vx };
+        let face = self.get(key, |_, bank| {
+            bank.add_art(PAL_ROCK, &compose(|px, py| sandstone_pixel(row, TIER_FACE, left, right, false, grassy, vx * 16 + px as i32, py as i32)))
+        });
+        (face, grassy.then(|| self.crag_top(map, x, y)))
+    }
+
+    /// The top of a crag (foliage palette): a mound grown over with trees
+    /// and scrub, seen from above as heaped clumps of leaves.
+    fn crag_top(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let drop = |dx: i32, dy: i32| map.terrain(x + dx, y + dy) != Terrain::Crag || map.rise(x + dx, y + dy) < map.rise(x, y);
+        let open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
+        let tier = map.rise(x, y);
+        let higher = |dx: i32, dy: i32| map.terrain(x + dx, y + dy) == Terrain::Crag && map.rise(x + dx, y + dy) > tier;
+        let shade = [higher(0, -1) && tier_face_row(map, x, y).is_none(), higher(-1, 0)];
+        // This tier's own slopes down to a lower one, west (lit) and east
+        // (in shade).
+        let lower = |dx: i32| map.terrain(x + dx, y) == Terrain::Crag && map.rise(x + dx, y) < tier;
+        let slope = [lower(-1), lower(1)];
+        let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+        self.get(Key::Crag { open, tier, shade, slope, vx, vy }, |_, bank| {
+            bank.add_art(PAL_FOLIAGE, &compose(|px, py| crag_pixel(open, tier, shade, slope, vx * 16 + px as i32, vy * 16 + py as i32)))
+        })
+    }
+
+    fn plain_ground(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let t = map.terrain(x, y);
+        if t == Terrain::Crag {
+            return self.crag_top(map, x, y);
+        }
         match t {
             Terrain::Cliff => return self.cliff_face(map, x, y, None),
             Terrain::CliffTop => return self.cliff_top(map, x, y),
-            Terrain::Highland => return self.interior(Terrain::Grass, x, y),
             _ => {}
         }
+        // The high ground is grass, meeting the lake's shore as the grass
+        // below meets the beach.
+        let t = if t == Terrain::Highland { Terrain::Grass } else { t };
         let f = CellField::sample(map, x, y);
         match t {
             Terrain::Sand | Terrain::ShallowWater if f.crosses(0.0, 0.75, 0.45) => self.coast(&f, x, y, None),
@@ -804,6 +1024,216 @@ impl Builder<'_> {
             Terrain::Sand | Terrain::Grass if f.crosses(SAND_BELOW, 0.35, 0.3) => self.grass_edge(&f, x, y),
             _ => self.interior(t, x, y),
         }
+    }
+}
+
+/// How many cells of rock face each tier of a crag rises in.
+const TIER_FACE: i32 = 2;
+
+/// Which row (from 1 at the top) of a higher tier's face a crag cell is,
+/// if one rises just north of it.
+/// Only where the higher tier's edge runs on along (it and the cells
+/// either side of it are higher) does a face rise: where the edge turns or
+/// slants, the tier shows only by its shaded rim.
+fn tier_face_row(map: &WorldMap, x: i32, y: i32) -> Option<i32> {
+    let tier = map.rise(x, y);
+    let higher = |x: i32, y: i32| map.terrain(x, y) == Terrain::Crag && map.rise(x, y) > tier;
+    (1..=TIER_FACE).find(|&k| higher(x, y - k)).filter(|&k| (-1..=1).all(|dx| higher(x + dx, y - k) && (1..k).all(|j| !higher(x + dx, y - j))))
+}
+
+/// A pixel of a crag's top (foliage palette) at world px within the 64 px
+/// texture: round clumps of leaves heaped over one another, lit from the
+/// top-left, dark in the gaps between them and along the sides that drop
+/// away.
+fn crag_pixel(open: [bool; 4], tier: u8, shade: [bool; 2], slope: [bool; 2], wx: i32, wy: i32) -> u8 {
+    let l = foliage::LEAF;
+    let (x, y) = (wx.rem_euclid(64), wy.rem_euclid(64));
+    let (px, py) = (x.rem_euclid(16), y.rem_euclid(16));
+    const G: i32 = 16;
+    // The clump nearest the viewer (the lowest centre) that covers the
+    // pixel, on a jittered grid that repeats every 64 px.
+    let mut best: Option<(f32, f32, f32, f32)> = None;
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            let (gx, gy) = (x.div_euclid(G) + ox, y.div_euclid(G) + oy);
+            let (hx, hy) = (gx.rem_euclid(64 / G), gy.rem_euclid(64 / G));
+            let cx = (gx * G) as f32 + 3.0 + hash_unit(hx, hy, 0xC1A1) * 10.0;
+            let cy = (gy * G) as f32 + 3.0 + hash_unit(hx, hy, 0xC1A2) * 10.0;
+            let r = 8.0 + hash_unit(hx, hy, 0xC1A3) * 4.0;
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            if dx * dx + dy * dy < r * r && best.is_none_or(|b| cy > b.1) {
+                best = Some((cx, cy, dx / r, dy / r));
+            }
+        }
+    }
+    let b = bayer(wx, wy);
+    let mut v = match best {
+        None => l[0],
+        Some((_, _, dx, dy)) => {
+            // Higher tiers stand nearer the sun.
+            let light = -(dx + dy) + tier as f32 * 0.35 - 0.3;
+            let rim = (dx * dx + dy * dy).sqrt();
+            // Leaves breaking up each clump's shading.
+            let leaf = noise_px(wx.div_euclid(2), wy.div_euclid(2), 0xC1A4) - 0.5;
+            let light = light + leaf * 0.7;
+            if rim > 0.88 && light < 0.2 {
+                l[1]
+            } else if light > 0.9 {
+                if b < 0.5 { l[5] } else { l[4] }
+            } else if light > 0.3 {
+                l[4]
+            } else if light > -0.3 {
+                if b < 0.5 { l[3] } else { l[2] }
+            } else if light > -0.8 {
+                l[2]
+            } else {
+                l[1]
+            }
+        }
+    };
+    let rag = |k: i32| (noise_px(k, 0, 0xC7A8) * 2.5) as i32;
+    // Slopes down to a lower tier: lit facing west, shaded facing east.
+    if slope[0] && px < 4 + rag(wy + 17) {
+        v = if px < 2 || b < 0.5 { l[5] } else { l[4] };
+    } else if slope[1] && px > 11 - rag(wy + 19) {
+        v = if px > 13 || b < 0.5 { l[0] } else { l[1] };
+    }
+    // The shadow a higher tier casts down and to the right over this one.
+    if (shade[1] && px < 4 + rag(wy + 11)) || (shade[0] && py < 4 + rag(wx + 13)) {
+        v = match v {
+            x if x == l[5] || x == l[4] => l[2],
+            x if x == l[3] || x == l[2] => l[1],
+            _ => l[0],
+        };
+    }
+    if (open[3] && px < 1 + rag(wy)) || (open[0] && py < 1 + rag(wx + 7)) || (open[1] && px > 14 - rag(wy + 3)) {
+        v = if b < 0.5 { l[0] } else { l[1] };
+    }
+    v
+}
+
+/// A pixel of a crag's face (rock palette): sandstone in soft layers,
+/// streaked down by the rain, with dark hollows near the foot, scrub
+/// hanging over the top and rubble (or the lake's lapping) at the foot.
+#[allow(clippy::too_many_arguments)]
+fn sandstone_pixel(row: i32, rows: i32, left: bool, right: bool, wet: bool, grassy: bool, wx: i32, py: i32) -> u8 {
+    let s = rock::STONE;
+    // Everything repeats every 64 px along, so faces can share blocks.
+    let wx = wx.rem_euclid(64);
+    let sand = rock::SAND;
+    let fy = (row - 1) * 16 + py;
+    let depth = rows * 16;
+    let b = bayer(wx, fy);
+    // Layers, wavering a little along the face.
+    let band = (fy as f32 + noise_px(wx.div_euclid(8).rem_euclid(8), 0, 0x5A01) * 5.0) / 6.0;
+    let layer = band.floor() as i32;
+    let tone = hash_unit(layer, 0, 0x5A02);
+    let mut v = if band.fract() < 0.15 {
+        rock::SAND_SHADOW
+    } else if tone < 0.35 {
+        sand[0]
+    } else if tone < 0.8 {
+        if b < 0.3 { sand[0] } else { sand[1] }
+    } else {
+        if b < 0.5 { sand[1] } else { sand[2] }
+    };
+    // Rain streaks running down from the top, each its own length.
+    let col = wx.div_euclid(2).rem_euclid(32);
+    let streak = noise_px(col, 0, 0x5A03);
+    let reach = (noise_px(col, 1, 0x5A04) * depth as f32) as i32;
+    if streak < 0.22 && fy < reach {
+        v = if streak < 0.08 { rock::WOOD[1] } else { rock::WOOD[2] };
+    }
+    // Hollows weathered out low on the face: soft-edged, darkest inside.
+    let a = wx as f32 / 64.0 * std::f32::consts::TAU;
+    let hollow = value_noise(a.cos() * 1.2 + fy as f32 / 5.0, a.sin() * 1.2 + fy as f32 / 9.0, 0x5A05) - (depth - fy) as f32 / depth as f32 * 0.5;
+    if hollow > 0.62 {
+        v = rock::WOOD[0];
+    } else if hollow > 0.55 {
+        v = if b < 0.5 { rock::WOOD[0] } else { rock::SAND_SHADOW };
+    }
+    // Scrub spilling over the top in rounded clumps, shading the rock
+    // under it.
+    let clump = wx.div_euclid(8);
+    let cx = clump * 8 + 4;
+    let reach = 3.0 + hash_unit(clump.rem_euclid(8), 0, 0x5A06) * 9.0;
+    let dx = (wx - cx) as f32 / 4.0;
+    let hang = (reach * (1.0 - dx * dx).max(0.0).sqrt()) as i32 + 2;
+    if fy < hang - 1 {
+        v = if fy >= hang - 3 && b < 0.5 { rock::WOOD[0] } else { rock::MOSS };
+    } else if fy < hang + 2 {
+        v = rock::WOOD[0];
+    } else if fy < hang + 4 && b < 0.5 {
+        v = rock::SAND_SHADOW;
+    }
+    // Grass growing up over the foot (left clear for the grass on BG2),
+    // the rock in its shade just above.
+    if grassy && row == rows {
+        let blade = noise_px(wx.div_euclid(2).rem_euclid(32), 5, 0x5A10);
+        let tall = 2 + (blade * 5.0) as i32;
+        if py >= 16 - tall {
+            return 0;
+        }
+        if py >= 14 - tall {
+            return if py == 15 - tall || bayer(wx, py) < 0.5 { rock::WOOD[0] } else { rock::SAND_SHADOW };
+        }
+    }
+    // Along the foot: the lake (or the sea) lapping where it stands in
+    // water; on dry ground no rubble, only the rock darkening into it.
+    if row == rows && wet && py >= 12 {
+        let n = noise_px(wx, py, 0xF008);
+        if n < 0.5 {
+            v = s[5];
+        } else if n < 0.75 {
+            v = s[4];
+        }
+    } else if row == rows && !grassy && py >= 14 {
+        v = if py == 15 || bayer(wx, py) < 0.5 { rock::SAND_SHADOW } else { v };
+    }
+    let px = wx.rem_euclid(16);
+    if (left && px == 0) || (right && px == 15) {
+        v = rock::WOOD[0];
+    } else if (left && px == 1) || (right && px == 14) {
+        v = rock::SAND_SHADOW;
+    }
+    v
+}
+
+/// How far (px) down the stream from the lake its water turns from the
+/// lake's blue to the river's colours.
+const LAKE_BLEND_PX: f32 = 56.0;
+
+/// Whether a pixel of the stream this far (`along`, px) out of the lake is
+/// still drawn in the lake's blue (dithered by `b` as it turns).
+fn lake_blend_at(along: f32, b: f32) -> bool {
+    along < LAKE_BLEND_PX && b >= along / LAKE_BLEND_PX
+}
+
+/// `lake_blend_at`, only up on the high ground (the stream out of the lake).
+fn lake_blend(map: &WorldMap, x: i32, y: i32, along: f32, b: f32) -> bool {
+    map.is_high(x, y) && lake_blend_at(along, b)
+}
+
+/// Whether a cell is on or by the lake's wet soil.
+fn near_mud(map: &WorldMap, x: i32, y: i32) -> bool {
+    (-1..=1).any(|dy| (-1..=1).any(|dx| map.soil(x + dx, y + dy) == Soil::Mud))
+}
+
+/// A pixel of the lake's water meeting its shore (shore palette): calm,
+/// with no surf, only a pale line where it laps the soil. The soil is left
+/// clear for BG2 (or, without it, drawn wet).
+fn lake_edge_pixel(f: &CellField, water: &PixelArt, under: bool, px: usize, py: usize) -> u8 {
+    let h = f.at(px, py);
+    let d = -h * PX_PER_UNIT;
+    let (ix, iy) = (px as i32, py as i32);
+    if h >= 0.0 {
+        if under { 0 } else { shore::WET_DARK }
+    } else if d < 1.2 {
+        shore::WATER[3]
+    } else if d < 2.4 {
+        if bayer(ix, iy) < 0.5 { shore::WATER[3] } else { shore::WATER[2] }
+    } else {
+        shallow_depth(water.get(px, py), h, ix, iy)
     }
 }
 
@@ -961,10 +1391,10 @@ fn crumbled_pixel(cut: Cut, wx: i32, py: i32, oy: i32, rock: u8) -> u8 {
             return rock;
         }
         if (1..=CRUMBLE_WALL).any(|k| outside(-k)) {
-            return rock::STONE[0];
+            return SANDSTONE[0];
         }
         if let Some(k) = (1..=CRUMBLE_WALL).find(|&k| outside(k)) {
-            return if k == 1 { rock::STONE[4] } else if k == 2 || b < 0.5 { rock::STONE[3] } else { rock::STONE[2] };
+            return if k == 1 { SANDSTONE[4] } else if k == 2 || b < 0.5 { SANDSTONE[3] } else { SANDSTONE[2] };
         }
         return 0;
     }
@@ -978,7 +1408,7 @@ fn crumbled_pixel(cut: Cut, wx: i32, py: i32, oy: i32, rock: u8) -> u8 {
     // Shadow cast down on the rock just under the turf (fainter along the
     // slanting ends).
     let shade = if crumble_amount(cut, wx) < 0.95 { 0.2 } else { 0.5 };
-    if y < depth + 2.0 && b < shade { rock::STONE[0] } else { rock }
+    if y < depth + 2.0 && b < shade { SANDSTONE[0] } else { rock }
 }
 
 /// The high ground's edge cell above a crumbled face (grass palette):
@@ -1250,11 +1680,15 @@ fn rock_at(x: i32, y: i32) -> (i32, i32) {
     best.1
 }
 
+/// The cliffs' sandstone (rock palette) as a ramp, dark to light, in place
+/// of the stones' greys.
+const SANDSTONE: [u8; 6] = [rock::WOOD[0], rock::SAND_SHADOW, rock::SAND[0], rock::SAND[1], rock::SAND[2], rock::SAND[2]];
+
 /// One pixel of the side of the high ground seen from above (rock
-/// palette): the rocks of its face, with grass hanging over the top edge on
-/// the high side and a dark drop on the open side.
+/// palette): the sandstone of its face, with grass hanging over the top
+/// edge on the high side and a dark drop on the open side.
 fn cliff_side_pixel(left: bool, right: bool, wx: i32, wy: i32) -> u8 {
-    let s = rock::STONE;
+    let s = SANDSTONE;
     let (x, y) = (wx.rem_euclid(64), wy.rem_euclid(64));
     // The rocks lie the other way round: in columns down the side.
     let here = rock_at(y, x);
@@ -1288,57 +1722,7 @@ fn cliff_side_pixel(left: bool, right: bool, wx: i32, wy: i32) -> u8 {
 /// top of a face `rows` cells tall; `wx` runs along the face (px, repeating
 /// every 64), `py` down the cell.
 fn cliff_pixel(row: i32, rows: i32, left: bool, right: bool, wet: bool, wx: i32, py: i32) -> u8 {
-    let s = rock::STONE;
-    let fy = (row - 1) * 16 + py;
-    let wx = wx.rem_euclid(64);
-    let here = rock_at(wx, fy);
-    let b = bayer(wx, fy);
-    // Lit from the top-left: a bright rim where a rock begins above or to
-    // the left, dark cracks where the next begins below or to the right.
-    let crack = rock_at(wx + 1, fy) != here || rock_at(wx, fy + 1) != here;
-    let lit = rock_at(wx - 1, fy) != here || rock_at(wx, fy - 1) != here;
-    let tone = hash_unit(here.0, here.1, 0xC122);
-    let mut v = if crack {
-        s[0]
-    } else if lit {
-        if tone < 0.5 { s[4] } else { s[3] }
-    } else if rock_at(wx + 2, fy) != here || rock_at(wx, fy + 2) != here {
-        s[1]
-    } else if b < 0.2 + tone * 0.6 {
-        s[3]
-    } else {
-        s[2]
-    };
-    // Moss on the upper rocks' ledges.
-    if lit && fy < 20 && hash_unit(here.0, here.1, 0x3055) < 0.45 {
-        v = rock::MOSS;
-    }
-    // In shadow right under the edge, and darker toward the foot.
-    let depth = rows * 16;
-    if fy < 2 || (fy < 4 && b < 0.5) {
-        v = s[0];
-    } else if fy > depth - 6 && b < 0.5 && v != s[0] {
-        v = s[1];
-    }
-    // Rubble or surf along the foot.
-    if row == rows && py >= 14 {
-        let n = noise_px(wx, py, 0xF007);
-        v = if wet {
-            if n < 0.5 { s[5] } else if n < 0.75 { s[4] } else { v }
-        } else if n < 0.3 {
-            s[3]
-        } else {
-            s[1]
-        };
-    }
-    // The face's own edges where it ends beside lower ground.
-    let px = wx.rem_euclid(16);
-    if (left && px == 0) || (right && px == 15) {
-        v = s[0];
-    } else if (left && px == 1) || (right && px == 14) {
-        v = s[1];
-    }
-    v
+    sandstone_pixel(row, rows, left, right, wet, false, wx, py)
 }
 
 /// How far around the screen (px) ground must be ready before it is drawn,
@@ -1640,13 +2024,41 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::None => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),
-            (Some(r), _) => b.river_bank(map, &CellField::sample(map, x, y), r, x, y),
+            (Some(r), _) => {
+                let f = CellField::sample(map, x, y);
+                let lake_shore = f.min < 0.6 && f.max > 0.0 && map.is_high(x, y) && map.terrain(x, y) != Terrain::DeepWater && near_mud(map, x, y);
+                if map.is_high(x, y) && f.max <= 0.0 {
+                    // The stream's current across the lake's shallows: the
+                    // lake (shore palette) clear where the current runs, for
+                    // it to show on BG2.
+                    b.lake_current(&f, r, x, y)
+                } else if lake_shore && (r.max > 0.0 || map.terrain(x, y) == Terrain::River) {
+                    let (mouth, soil) = b.lake_mouth(&f, r, x, y);
+                    overhead = BgCell { tile: soil, hflip: false, high: false };
+                    mouth
+                } else if lake_shore {
+                    // Beside the mouth, the shore as anywhere along the lake.
+                    let (ground, soil) = b.ground(map, x, y, true);
+                    if let Some(soil) = soil {
+                        overhead = BgCell { tile: soil, hflip: false, high: false };
+                    }
+                    ground
+                } else {
+                    b.river_bank(map, &f, r, x, y)
+                }
+            }
             (None, _) => match b.cliff_foot(map, x, y) {
                 Some((ground, scree)) => {
                     overhead = BgCell::new(scree);
                     ground
                 }
-                None => b.terrain(map, x, y),
+                None => {
+                    let (ground, under) = b.ground(map, x, y, true);
+                    if let Some(u) = under {
+                        overhead = BgCell { tile: u, hflip: false, high: false };
+                    }
+                    ground
+                }
             },
         },
     };

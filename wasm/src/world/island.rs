@@ -14,6 +14,10 @@
 //! | `T` | forest |
 //! | `^` | high ground above a cliff |
 //! | `B` | bamboo grove (on grassland) |
+//! | `W` | the lake's deep water (on the high ground) |
+//! | `w` | the lake's shallows (on the high ground) |
+//! | `s` | the lake's shore (on the high ground) |
+//! | `R` | rocks closing off the high ground (boulders packed close) |
 //!
 //! Each character sets a height for its block; heights are smoothed between
 //! blocks and roughened with noise, so coasts and the jungle's edge curve
@@ -28,7 +32,7 @@ use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Terrain};
+use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Soil, Terrain};
 use crate::common::rng::{Rng, hash_unit};
 
 /// The island's plan, and the cells each of its characters stands for.
@@ -58,7 +62,7 @@ const AREA_LAND: i32 = 1531;
 /// given in the first area's cells (as they were before the map grew north),
 /// and details are scattered by those cells, so the first area stays as it
 /// was drawn.
-const ORIGIN: (i32, i32) = (32, 24);
+const ORIGIN: (i32, i32) = (32, 88);
 /// Where the castaway washes up (a cell on the lower beach; the nearest
 /// clear spot to it is used).
 const LANDING: (i32, i32) = (32, 19);
@@ -68,7 +72,11 @@ const RIVER_SOURCE: (f32, f32) = (27.46, -4.0);
 const RIVER_MOUTH: (f32, f32) = (17.92, 29.14);
 /// The stream rises on the high ground beyond the north edge and falls
 /// over the cliff into a pool (centre and radius, cells).
-const SPRING: (f32, f32) = (POOL.0, -30.0);
+const SPRING: (f32, f32) = (POOL.0, -42.0);
+/// How much wider each side the stream's mouth is where it leaves the
+/// lake, and over how many cells it narrows to the stream.
+const MOUTH_FLARE: f32 = 2.2;
+const MOUTH_FLARE_REACH: f32 = 4.0;
 const POOL: (f32, f32) = (26.5, -6.3);
 const POOL_RADIUS: f32 = 2.9;
 /// Where the river narrows (a place a bridge could span) and how narrow.
@@ -127,13 +135,31 @@ fn plan_height(c: char) -> f32 {
     }
 }
 
+/// Height of a character of the high ground's layer: the lake sits in it
+/// as the sea does below, its shallows and shore drawn the same way.
+fn upper_height(c: char) -> f32 {
+    match c {
+        'W' => -8.0,
+        'w' => -2.5,
+        's' => 3.5,
+        _ => 12.0,
+    }
+}
+
+/// Characters of the high ground's layer.
+fn is_upper(c: char) -> bool {
+    matches!(c, '^' | 'W' | 'w' | 's' | 'R')
+}
+
 /// The plan read into blocks: the height of the land, and which blocks
-/// are high ground, forest and bamboo grove.
+/// are high ground (and its height there), forest, bamboo grove and rocks.
 struct Plan {
     w: i32,
     h: i32,
     heights: Vec<f32>,
     high: Vec<f32>,
+    upper: Vec<f32>,
+    rocks: Vec<f32>,
     forest: Vec<f32>,
     bamboo: Vec<f32>,
 }
@@ -147,11 +173,11 @@ impl Plan {
         // Under the high ground the land (or sea) is the nearest drawn
         // beside it, so it meets the cliff as it would carry on.
         let mut low = chars.clone();
-        let mut left = low.iter().filter(|&&c| c == '^').count();
+        let mut left = low.iter().filter(|&&c| is_upper(c)).count();
         while left > 0 {
             let before = low.clone();
             for i in 0..low.len() {
-                if before[i] != '^' {
+                if !is_upper(before[i]) {
                     continue;
                 }
                 let (x, y) = (i as i32 % w, i as i32 / w);
@@ -161,7 +187,7 @@ impl Plan {
                     .map(|&(dx, dy)| (x + dx, y + dy))
                     .filter(|&(nx, ny)| (0..w).contains(&nx) && (0..h).contains(&ny))
                     .map(|(nx, ny)| before[(ny * w + nx) as usize])
-                    .find(|&c| c != '^');
+                    .find(|&c| !is_upper(c));
                 if let Some(c) = near {
                     low[i] = c;
                     left -= 1;
@@ -170,7 +196,16 @@ impl Plan {
             assert!(low != before, "the island plan is all high ground");
         }
         let mark = |want: char| chars.iter().map(|&c| if c == want { 1.0 } else { 0.0 }).collect();
-        Self { w, h, heights: low.iter().map(|&c| plan_height(c)).collect(), high: mark('^'), forest: mark('T'), bamboo: mark('B') }
+        Self {
+            w,
+            h,
+            heights: low.iter().map(|&c| plan_height(c)).collect(),
+            high: chars.iter().map(|&c| if is_upper(c) { 1.0 } else { 0.0 }).collect(),
+            upper: chars.iter().map(|&c| upper_height(c)).collect(),
+            rocks: mark('R'),
+            forest: mark('T'),
+            bamboo: mark('B'),
+        }
     }
 
     /// Smooth value of `blocks` at a cell, passing through each block's
@@ -216,6 +251,20 @@ impl HeightField {
     fn is_high(&self, x: i32, y: i32) -> bool {
         let (nx, ny) = ((x - ORIGIN.0) as f32, (y - ORIGIN.1) as f32);
         self.plan.smooth(&self.plan.high, x as f32, y as f32) + fbm(nx * 0.13, ny * 0.13, self.seed ^ 0x41C4, 2) * 0.4 > 0.5
+    }
+
+    /// Height of the high ground's layer at a cell (below 0 is the lake),
+    /// roughened like the land below.
+    fn upper_at(&self, x: i32, y: i32) -> f32 {
+        let base = self.plan.smooth(&self.plan.upper, x as f32, y as f32);
+        let (nx, ny) = ((x - ORIGIN.0) as f32, (y - ORIGIN.1) as f32);
+        base + fbm(nx * 0.11, ny * 0.11, self.seed ^ 0x1A4E, 3) * 3.0
+    }
+
+    /// Whether a cell is in the rocks closing off the high ground.
+    fn is_rocks(&self, x: i32, y: i32) -> bool {
+        let (nx, ny) = ((x - ORIGIN.0) as f32, (y - ORIGIN.1) as f32);
+        self.plan.smooth(&self.plan.rocks, x as f32, y as f32) + fbm(nx * 0.21, ny * 0.21, self.seed ^ 0x40C5, 2) * 0.35 > 0.5
     }
 
     /// Whether a cell is in a bamboo grove (its edge roughened).
@@ -269,9 +318,9 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
     // Around the low stretch the edge runs straight, at the row it has
     // over the stretch's first cell.
     let around = LOW_CLIFF_X - LOW_CLIFF_STRAIGHT..LOW_CLIFF_X + LOW_CLIFF.1 + LOW_CLIFF_STRAIGHT;
-    if let Some(edge) = (0..h / 2).find(|&y| high[idx(LOW_CLIFF_X, y)] && !high[idx(LOW_CLIFF_X, y + 1)]) {
+    if let Some(edge) = (0..h - 1).find(|&y| high[idx(LOW_CLIFF_X, y)] && !high[idx(LOW_CLIFF_X, y + 1)]) {
         for x in around {
-            for y in 0..h / 2 {
+            for y in edge - LOW_CLIFF_STRAIGHT..ORIGIN.1 {
                 high[idx(x, y)] = y <= edge;
             }
         }
@@ -291,7 +340,7 @@ fn raise_high_ground(map: &mut WorldMap, field: &HeightField) -> Vec<bool> {
             let edge = (-1..=1).any(|dy| (-1..=1).any(|dx| !is_high(x + dx, y + dy)));
             terrain.push((x, y, if edge { Terrain::CliffTop } else { Terrain::Highland }));
             if !is_high(x, y + 1) {
-                let low = (LOW_CLIFF_X..LOW_CLIFF_X + LOW_CLIFF.1).contains(&x) && y < h / 2;
+                let low = (LOW_CLIFF_X..LOW_CLIFF_X + LOW_CLIFF.1).contains(&x) && y < ORIGIN.1;
                 let drop = if low { LOW_CLIFF_HEIGHT } else { CLIFF_HEIGHT };
                 for k in 1..=drop {
                     if map.in_bounds(x, y + k) && !is_high(x, y + k) {
@@ -312,10 +361,20 @@ fn lay_river(map: &mut WorldMap, river: &River) {
     let ts = TILE_SIZE as f32;
     for y in 0..map.height() {
         for x in 0..map.width() {
+            let t = map.terrain(x, y);
             let depth = river.depth_px((x as f32 + 0.5) * ts, (y as f32 + 0.5) * ts);
+            // In the lake the stream is lost in the lake's water: it starts
+            // at the shore, where the shallows across its mouth run with its
+            // current (too strong to wade, as off the sea's river mouth).
+            if map.is_high(x, y) && t.is_water() {
+                if t == Terrain::ShallowWater && depth > -2.0 {
+                    map.set_terrain(x, y, Terrain::River);
+                    map.set_riverside(x, y, true);
+                }
+                continue;
+            }
             // Anything within half a cell's diagonal (+ the bank lip) of the water.
             map.set_riverside(x, y, depth > -24.0);
-            let t = map.terrain(x, y);
             // On land the banks are cut back to the water; out at sea the
             // current is too strong to wade where it runs out to the deep
             // (every cell it reaches into, as it is drawn to the pixel).
@@ -343,6 +402,222 @@ fn water_spot(map: &WorldMap, river: &River) -> Option<(i32, i32)> {
         }
     }
     None
+}
+
+/// Fills the lake on the high ground: where the layer's height dips below
+/// the waterline there is deep water, shallows and a shore, ordered as by
+/// the sea (deep water never meets dry ground). Their heights are kept,
+/// so they are drawn as the sea's are.
+fn fill_lake(map: &mut WorldMap, field: &HeightField, high: &[bool], heights: &mut [f32]) -> Option<i32> {
+    let w = map.width();
+    let mut lake = Vec::new();
+    for y in 0..map.height() {
+        for x in 0..w {
+            if map.terrain(x, y) != Terrain::Highland {
+                continue;
+            }
+            let mut e = field.upper_at(x, y);
+            // In the rocks the lake is deep right up to them.
+            if e < 0.0 && (-1..=1).any(|d| field.is_rocks(x + d, y) || field.is_rocks(x, y + d)) {
+                e = e.min(DEEP_BELOW - 0.5);
+            }
+            heights[(y * w + x) as usize] = e;
+        }
+    }
+    // Where the stream leaves the lake: the shore below its source.
+    let (sx, sy) = at_f(SPRING);
+    let col = sx.floor() as i32;
+    let mouth = (sy as i32..map.height()).find(|&y| heights[(y * w + col) as usize] >= 0.0);
+    for y in 0..map.height() {
+        for x in 0..w {
+            if map.terrain(x, y) != Terrain::Highland {
+                continue;
+            }
+            let e = heights[(y * w + x) as usize];
+            if e < SAND_BELOW {
+                lake.push((x, y, classify(e)));
+            }
+        }
+    }
+    // One lake: puddles cut off from it by the noise are left dry.
+    let wet: std::collections::HashSet<(i32, i32)> = lake.iter().filter(|l| l.2.is_water()).map(|&(x, y, _)| (x, y)).collect();
+    let mut body: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    for &(x, y, _) in lake.iter().filter(|l| l.2.is_water()) {
+        if body.contains(&(x, y)) {
+            continue;
+        }
+        let mut part = vec![(x, y)];
+        let mut seen: std::collections::HashSet<(i32, i32)> = part.iter().copied().collect();
+        let mut i = 0;
+        while i < part.len() {
+            let (cx, cy) = part[i];
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let n = (cx + dx, cy + dy);
+                if wet.contains(&n) && seen.insert(n) {
+                    part.push(n);
+                }
+            }
+            i += 1;
+        }
+        if part.len() > body.len() {
+            body = seen;
+        }
+    }
+    for &(x, y, t) in &lake {
+        if !t.is_water() || body.contains(&(x, y)) {
+            map.set_terrain(x, y, t);
+        } else {
+            // A puddle's bed is the shore's sand.
+            map.set_terrain(x, y, Terrain::Sand);
+            heights[(y * w + x) as usize] = SAND_BELOW - 2.0;
+        }
+    }
+    let snapshot = map.clone();
+    let near = |x: i32, y: i32, pred: &dyn Fn(Terrain) -> bool| {
+        (-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && snapshot.in_bounds(x + dx, y + dy) && pred(snapshot.terrain(x + dx, y + dy))))
+    };
+    for y in 0..map.height() {
+        for x in 0..w {
+            if !high[(y * w + x) as usize] {
+                continue;
+            }
+            // Against the rocks the water stays deep: no shallows to wade
+            // around the lake's ends.
+            let shore = |x: i32, y: i32| {
+                (-1..=1).any(|dy| {
+                    (-1..=1).any(|dx| {
+                        let (nx, ny) = (x + dx, y + dy);
+                        snapshot.in_bounds(nx, ny) && matches!(snapshot.terrain(nx, ny), Terrain::Highland | Terrain::Sand | Terrain::CliffTop) && !field.is_rocks(nx, ny)
+                    })
+                })
+            };
+            let at_rocks = |x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| field.is_rocks(x + dx, y + dy)));
+            match snapshot.terrain(x, y) {
+                Terrain::DeepWater if shore(x, y) && !at_rocks(x, y) => map.set_terrain(x, y, Terrain::ShallowWater),
+                Terrain::Highland if near(x, y, &|t| t.is_water()) => {
+                    map.set_terrain(x, y, Terrain::Sand);
+                    let e = &mut heights[(y * w + x) as usize];
+                    *e = e.min(SAND_BELOW - 0.8);
+                }
+                _ => {}
+            }
+        }
+    }
+    // The shore and the bed are wet soil, not the sea's sand.
+    for y in 0..map.height() {
+        for x in 0..w {
+            if high[(y * w + x) as usize] && matches!(map.terrain(x, y), Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater) {
+                map.set_soil(x, y, Soil::Mud);
+            }
+        }
+    }
+    mouth
+}
+
+/// How many cells of rock face drop from a crag's southern edge.
+const CRAG_FACE: i32 = 3;
+
+/// How far in from a crag's edge (cells) its top rises another tier, and
+/// the most tiers it rises: the middle of a crag stands highest.
+pub const CRAG_TIER_CELLS: i32 = 4;
+const CRAG_TIERS: u8 = 5;
+
+/// Heaps the rocks that close off the high ground into crags: bare rock,
+/// with a face of `CRAG_FACE` cells below its southern edge, like the
+/// cliffs', so it reads at a glance as something that can't be climbed.
+fn raise_crags(map: &mut WorldMap, field: &HeightField) {
+    let (w, h) = (map.width(), map.height());
+    let crag = |map: &WorldMap, x: i32, y: i32| map.is_high(x, y) && field.is_rocks(x, y) && matches!(map.terrain(x, y), Terrain::Highland | Terrain::Sand);
+    let cells: Vec<(i32, i32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| crag(map, x, y)).collect();
+    for &(x, y) in &cells {
+        map.set_terrain(x, y, Terrain::Crag);
+    }
+    // Tiers by how far each cell is from the crag's edge (the map's edge
+    // counted as one, so its peak stands in sight), measured round
+    // (diagonal steps count as 1.4), so the tiers' edges curve with the
+    // crag's.
+    let mut dist = vec![f32::MAX; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let edge = map.terrain(x, y) == Terrain::Crag
+                && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| !map.in_bounds(x + dx, y + dy) || map.terrain(x + dx, y + dy) != Terrain::Crag);
+            if edge {
+                dist[(y * w + x) as usize] = 0.0;
+            }
+        }
+    }
+    let steps = [(-1, 0, 1.0), (0, -1, 1.0), (-1, -1, 1.414), (1, -1, 1.414)];
+    for pass in 0..2 {
+        let order: Vec<(i32, i32)> = if pass == 0 {
+            (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).collect()
+        } else {
+            (0..h).rev().flat_map(|y| (0..w).rev().map(move |x| (x, y))).collect()
+        };
+        for (x, y) in order {
+            if map.terrain(x, y) != Terrain::Crag {
+                continue;
+            }
+            let i = (y * w + x) as usize;
+            for &(dx, dy, c) in &steps {
+                let (nx, ny) = if pass == 0 { (x + dx, y + dy) } else { (x - dx, y - dy) };
+                if map.in_bounds(nx, ny) && map.terrain(nx, ny) == Terrain::Crag {
+                    dist[i] = dist[i].min(dist[(ny * w + nx) as usize] + c);
+                }
+            }
+        }
+    }
+    // The tiers' edges waver, like a hill's contours, not the plan's
+    // blocks.
+    for &(x, y) in &cells {
+        let d = dist[(y * w + x) as usize];
+        if d < f32::MAX {
+            let (nx, ny) = ((x - ORIGIN.0) as f32, (y - ORIGIN.1) as f32);
+            let waver = fbm(nx * 0.07, ny * 0.07, field.seed ^ 0x7E7A, 2) * CRAG_TIER_CELLS as f32 * 1.4;
+            let d = (d + waver.min(d)).max(0.0);
+            map.set_rise(x, y, ((d / CRAG_TIER_CELLS as f32) as u8).min(CRAG_TIERS));
+        }
+    }
+    for &(x, y) in &cells {
+        if map.terrain(x, y + 1) == Terrain::Crag {
+            continue;
+        }
+        for k in 1..=CRAG_FACE {
+            let (fx, fy) = (x, y + k);
+            if map.is_high(fx, fy) && matches!(map.terrain(fx, fy), Terrain::Highland | Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater) {
+                map.set_terrain(fx, fy, Terrain::Cliff);
+            }
+        }
+    }
+}
+
+/// Picks a bank of the river up on the high ground, between the lake and
+/// the falls, where water can be drawn: on open ground beside the stream
+/// partway down it.
+fn upper_water_spot(map: &WorldMap, river: &River) -> Option<(i32, i32)> {
+    let ts = TILE_SIZE as f32;
+    let (sx, sy) = at_f(SPRING);
+    let ((_, py), _) = river.pool()?;
+    // Down from the middle of the stream's run, either bank.
+    let mid = (sy + py) / 2.0;
+    for k in 0..40 {
+        let y = mid + (k / 2) as f32 * if k % 2 == 0 { 1.0 } else { -1.0 };
+        for side in [1.0f32, -1.0] {
+            let (bx, by) = (sx + side * 1.6, y);
+            let (gx, gy) = (bx.round() as i32, by.round() as i32);
+            let clear = (-1..=1).all(|dy| (-1..=1).all(|dx| map.terrain(gx + dx, gy + dy) != Terrain::CliffTop && map.feature(gx + dx, gy + dy) == Feature::None));
+            if map.terrain(gx, gy) == Terrain::Highland && clear && river.nearest(bx, by).depth() < -0.3 {
+                return Some((((bx + 0.5) * ts) as i32, ((by + 0.5) * ts) as i32));
+            }
+        }
+    }
+    None
+}
+
+/// Whether a cell of the high ground is by the lake's shore or water.
+fn by_lake(map: &WorldMap, x: i32, y: i32) -> bool {
+    (-1..=1).any(|dy| {
+        (-1..=1).any(|dx| map.is_high(x + dx, y + dy) && matches!(map.terrain(x + dx, y + dy), Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater))
+    })
 }
 
 fn classify(h: f32) -> Terrain {
@@ -385,19 +660,25 @@ pub fn generate(seed: u32) -> WorldMap {
             }
         }
     }
-    raise_high_ground(&mut map, &field);
+    let high = raise_high_ground(&mut map, &field);
+    let mouth = fill_lake(&mut map, &field, &high, &mut heights);
+    map.set_high(high);
     let below = |x: f32, y: f32, level: f32| {
         let (cx, cy) = (x.round() as i32, y.round() as i32);
         !map.in_bounds(cx, cy) || heights[(cy * w + cx) as usize] < level
     };
     let sea = |x: f32, y: f32| below(x, y, 0.0);
     let deep = |x: f32, y: f32| below(x, y, DEEP_BELOW);
+    // The stream starts at the lake's shore, its mouth flared so the
+    // lake's water gathers into it from either side.
+    let spring = mouth.map_or(at_f(SPRING), |m| (at_f(SPRING).0, m as f32 - 1.0));
     let river = River::new(at_f(RIVER_SOURCE), at_f(RIVER_MOUTH), seed)
-        .with_head(at_f(SPRING), at_f(POOL), POOL_RADIUS)
+        .with_head(spring, at_f(POOL), POOL_RADIUS)
+        .flared(MOUTH_FLARE, MOUTH_FLARE_REACH)
         .narrowed(at_f(BRIDGE_AT), BRIDGE_HALF_WIDTH, 2.5)
         .with_outflow(OUTFLOW_MAX, OUTFLOW_SPREAD, sea, deep);
     lay_river(&mut map, &river);
-    map.water_spot = water_spot(&map, &river);
+    map.water_spots = water_spot(&map, &river).into_iter().chain(upper_water_spot(&map, &river)).collect();
     map.spots = Spots {
         bridge: Some(nearest_on_river(&river, at_f(BRIDGE_AT))),
         ladder: low_cliff_foot(&map),
@@ -419,6 +700,7 @@ pub fn generate(seed: u32) -> WorldMap {
     let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y);
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
+    raise_crags(&mut map, &field);
     place_pine(&mut map);
     let bamboo: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.is_bamboo(x, y)).collect();
     place_bamboo(&mut map, &heights, &bamboo, seed);
@@ -532,7 +814,7 @@ fn nearest_on_river(river: &River, p: (f32, f32)) -> (i32, i32) {
 fn low_cliff_foot(map: &WorldMap) -> Option<(i32, i32)> {
     // The middle of the recess.
     let x = LOW_CLIFF_X + LOW_CLIFF.1 / 2;
-    (0..map.height() / 2).find(|&y| map.terrain(x, y) == Terrain::Cliff && map.terrain(x, y + 1) != Terrain::Cliff).map(|y| (x, y + 1))
+    (0..ORIGIN.1).find(|&y| map.terrain(x, y) == Terrain::Cliff && map.terrain(x, y + 1) != Terrain::Cliff).map(|y| (x, y + 1))
 }
 
 /// Keeps the sea floor from dropping away faster than `SEA_SLOPE` a cell
@@ -567,7 +849,7 @@ fn ease_sea_floor(heights: &mut [f32], w: i32, h: i32) {
 /// stretch of dry land the size of the first area's (the high ground above
 /// the cliffs not counted).
 pub fn for_area(map: &WorldMap, per_area: usize) -> usize {
-    let land = (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| matches!(map.terrain(x, y), Terrain::Sand | Terrain::Grass)).count();
+    let land = (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| !map.is_high(x, y) && matches!(map.terrain(x, y), Terrain::Sand | Terrain::Grass)).count();
     per_area * land / AREA_LAND as usize
 }
 
@@ -633,7 +915,7 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
                     } else {
                         map.terrain(cx, cy).is_land()
                     };
-                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy) && !map.is_riverside(cx, cy)
+                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy) && !map.is_riverside(cx, cy) && !map.is_high(cx, cy)
                 })
             });
             // Keep a gap between trees.
@@ -717,7 +999,7 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
                     let (cx, cy) = (x + dx, y + dy);
                     let h = heights[(cy * map.width() + cx) as usize];
                     let on = map.terrain(cx, cy);
-                    let ground_ok = if ground == Terrain::Highland { on == Terrain::Highland } else { on == Terrain::Grass && h > SAND_BELOW + PROP_MARGIN };
+                    let ground_ok = if ground == Terrain::Highland { on == Terrain::Highland && !by_lake(map, cx, cy) } else { on == Terrain::Grass && h > SAND_BELOW + PROP_MARGIN };
                     ground_ok
                         && map.feature(cx, cy) == Feature::None
                         && !near_spawn(cx, cy)
@@ -766,6 +1048,9 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
             let r = roll(x, y, seed ^ 0xF00D);
             let feature = match map.terrain(x, y) {
                 // Thick growth on the high ground.
+                // The grass meeting the lake's shore is left bare, so it's
+                // drawn running down to the soil.
+                Terrain::Highland if by_lake(map, x, y) => Feature::None,
                 Terrain::Highland => {
                     if r < 0.45 { Feature::Bush } else if r < 0.5 { Feature::Flower } else { Feature::None }
                 }
@@ -781,6 +1066,8 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
                 Terrain::Grass => {
                     if r < 0.05 { Feature::Bush } else if r < 0.12 { Feature::Flower } else { Feature::None }
                 }
+                // The lake's shore: nothing washed up from the sea.
+                Terrain::Sand if map.is_high(x, y) => Feature::None,
                 Terrain::Sand => {
                     if r < 0.016 {
                         Feature::Rock
@@ -821,6 +1108,7 @@ fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
             let t = map.terrain(x, y);
             let liked = t == prefer || (kind == ItemKind::Stone && map.is_riverside(x, y));
             let open = matches!(t, Terrain::Sand | Terrain::Grass)
+                && !map.is_high(x, y)
                 && !map.props(x, y).solid
                 && map.foot_fill(x, y) == [false, false]
                 && matches!(map.feature(x, y), Feature::None | Feature::Flower | Feature::Shell);
@@ -845,6 +1133,7 @@ fn pick_crab_spawns(map: &WorldMap, seed: u32, spawn: (i32, i32)) -> Vec<(i32, i
         }
         let (x, y) = (rng.between(0, map.width() - 1), rng.between(0, map.height() - 1));
         let ok = map.terrain(x, y) == Terrain::Sand
+            && !map.is_high(x, y)
             && !map.props(x, y).solid
             && map.foot_fill(x, y) == [false, false]
             && ((x - spawn.0).abs() > 4 || (y - spawn.1).abs() > 4);
@@ -953,7 +1242,7 @@ mod tests {
     #[test]
     fn the_water_spot_can_be_reached() {
         let walk = Walk::from_landing(island());
-        let spot = walk.map.water_spot.expect("the island has a water spot");
+        let spot = *walk.map.water_spots.first().expect("the island has a water spot");
         assert!(walk.near((spot.0 / TILE_SIZE, spot.1 / TILE_SIZE)));
     }
 
@@ -1034,6 +1323,67 @@ mod tests {
         let ((x, y), _) = ladder_face(&map);
         assert_eq!(map.ladder_fit(x - 1, y), LadderFit::No);
         assert_eq!(map.ladder_fit(x + 1, y), LadderFit::No);
+    }
+
+    /// The island with a ladder stood at the low cliff, walked from the
+    /// landing.
+    fn walk_with_ladder() -> Walk {
+        let mut map = island();
+        let (foot, rows) = ladder_face(&map);
+        map.stand_ladder(foot, rows);
+        Walk::from_landing(map)
+    }
+
+    #[test]
+    fn the_lake_shore_can_be_reached_from_the_high_ground() {
+        let walk = walk_with_ladder();
+        let w = walk.map.width();
+        let shore = (0..walk.map.height()).any(|y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::ShallowWater && walk.can((x, y))));
+        assert!(shore, "the castaway can wade into the lake's shallows");
+    }
+
+    #[test]
+    fn the_lake_cant_be_walked_around() {
+        let walk = walk_with_ladder();
+        let w = walk.map.width();
+        // The far side: high ground north of the lake's deep water.
+        let deep_rows: Vec<i32> = (0..walk.map.height()).filter(|&y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::DeepWater)).collect();
+        let top = *deep_rows.first().expect("the lake has deep water");
+        let beyond: Vec<(i32, i32)> = (0..top).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&c| walk.can(c)).collect();
+        assert!(beyond.is_empty(), "nothing north of the lake can be walked to: {} cells, e.g. {:?}", beyond.len(), &beyond[..beyond.len().min(8)]);
+    }
+
+    #[test]
+    fn the_river_on_the_high_ground_has_a_water_spot_in_reach() {
+        let walk = walk_with_ladder();
+        let spots: Vec<(i32, i32)> = walk.map.water_spots.iter().map(|&(x, y)| (x / TILE_SIZE, y / TILE_SIZE)).collect();
+        assert!(spots.iter().any(|&(x, y)| walk.map.is_high(x, y) && walk.near((x, y))), "{spots:?}");
+    }
+
+    #[test]
+    fn nothing_from_the_sea_is_on_the_lake_shore() {
+        let map = island();
+        let w = map.width();
+        for y in 0..map.height() {
+            for x in 0..w {
+                if map.is_high(x, y) {
+                    assert!(!matches!(map.feature(x, y), Feature::Shell | Feature::Driftwood(_) | Feature::Palm(_)), "{:?} at {:?}", map.feature(x, y), (x, y));
+                }
+            }
+        }
+        assert!(map.crab_spawns.iter().all(|&(x, y)| !map.is_high(x / TILE_SIZE, y / TILE_SIZE)));
+    }
+
+    #[test]
+    fn the_high_ground_isnt_counted_as_dry_land() {
+        let mut map = island();
+        let before = for_area(&map, 100);
+        let w = map.width();
+        let cells: Vec<(i32, i32)> = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| map.is_high(x, y)).collect();
+        for (x, y) in cells {
+            map.set_terrain(x, y, Terrain::Sand);
+        }
+        assert_eq!(for_area(&map, 100), before);
     }
 
     #[test]

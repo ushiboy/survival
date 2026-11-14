@@ -10,8 +10,12 @@ pub enum Terrain {
     Highland,
     /// The edge of the high ground, where it drops away: no footing.
     CliffTop,
-    /// The rock face of a cliff, below the high ground's edge.
+    /// The rock face of a cliff, below the high ground's edge (or below a
+    /// crag's).
     Cliff,
+    /// The top of a crag: bare rock heaped up on the high ground, too
+    /// steep and broken to climb.
+    Crag,
 }
 
 impl Terrain {
@@ -34,6 +38,16 @@ impl Terrain {
     pub fn is_cliff(self) -> bool {
         matches!(self, Terrain::CliffTop | Terrain::Cliff)
     }
+}
+
+/// What the ground of a cell is made of, where it isn't plain grass: the
+/// sea's beaches are sand; the lake's shore (and its bed) is wet soil.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Soil {
+    #[default]
+    Sand,
+    /// Damp, dark earth: the lake's shore.
+    Mud,
 }
 
 /// Which cell of a 3x4 palm tree a map cell holds. Only the trunk base
@@ -223,7 +237,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         _ => false,
     };
     TileProps {
-        solid: !matches!(feature, Feature::Ladder(_) | Feature::Bridge(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River) || terrain.is_cliff()),
+        solid: !matches!(feature, Feature::Ladder(_) | Feature::Bridge(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River | Terrain::Crag) || terrain.is_cliff()),
         wading: terrain == Terrain::ShallowWater,
     }
 }

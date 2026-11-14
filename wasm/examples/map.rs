@@ -44,6 +44,7 @@ use survival_core::game::Game;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
 use survival_core::world::island::PLAN_BLOCK;
 use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
+use survival_core::world::terrain::Soil;
 
 const CHANGED: Rgb = [255, 0, 255];
 /// Cells the earlier run didn't have (the island grew, or the view
@@ -106,8 +107,10 @@ fn options() -> Options {
 fn spots(map: &WorldMap) -> Vec<(&'static str, char, Rgb, (i32, i32))> {
     let cell = |(x, y): (i32, i32)| (x / TILE_SIZE, y / TILE_SIZE);
     let mut v = vec![("LANDING", 'L', [255, 255, 255], (map.spawn.0 / TILE_SIZE, map.spawn.1 / TILE_SIZE + 1))];
-    if let Some(w) = map.water_spot {
-        v.push(("WATER SPOT", 'W', [0, 255, 255], cell(w)));
+    for (i, &w) in map.water_spots.iter().enumerate() {
+        // The first is by the pool under the falls; the next up on the high ground.
+        let name = if i == 0 { "WATER SPOT" } else { "UPPER WATER SPOT" };
+        v.push((name, 'W', [0, 255, 255], cell(w)));
     }
     if let Some(f) = map.spots.falls {
         v.push(("FALLS POOL", 'F', [120, 200, 255], f));
@@ -328,7 +331,10 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Terrain::Highland => [140, 150, 70],
         Terrain::CliffTop => [90, 94, 44],
         Terrain::Cliff => [130, 126, 130],
+        Terrain::Crag => [96, 92, 104],
     };
+    // The lake's wet soil.
+    let c = if map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud { [120, 90, 60] } else { c };
     match map.feature(x, y) {
         Feature::Palm(_) => [30, 90, 30],
         Feature::Broadleaf(_) => [15, 60, 25],
@@ -346,7 +352,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
     }
 }
 
-const LEGEND: [(&str, Rgb); 15] = [
+const LEGEND: [(&str, Rgb); 17] = [
     ("DEEP SEA", [20, 50, 120]),
     ("SHALLOWS", [60, 140, 200]),
     ("RIVER", [40, 110, 230]),
@@ -356,6 +362,8 @@ const LEGEND: [(&str, Rgb); 15] = [
     ("HIGH GROUND", [140, 150, 70]),
     ("CLIFF EDGE", [90, 94, 44]),
     ("CLIFF", [130, 126, 130]),
+    ("CRAG", [96, 92, 104]),
+    ("WET SOIL", [120, 90, 60]),
     ("PALM", [30, 90, 30]),
     ("BROADLEAF", [15, 60, 25]),
     ("PINE", [20, 75, 60]),
@@ -470,6 +478,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Terrain::Highland => '^',
                 Terrain::CliffTop => 'e',
                 Terrain::Cliff => '|',
+                Terrain::Crag => 'A',
             });
             s.push(match map.feature(x, y) {
                 Feature::None => ' ',

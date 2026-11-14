@@ -120,6 +120,17 @@ impl River {
         self
     }
 
+    /// Widens the head of the stream into a mouth `extra` cells wider each
+    /// side where it starts, narrowing back over `reach` cells: where it
+    /// runs out of a lake, the lake's water gathers into it.
+    pub fn flared(mut self, extra: f32, reach: f32) -> Self {
+        for (w, l) in self.widths.iter_mut().zip(&self.lengths) {
+            let t = (1.0 - l / reach).max(0.0);
+            *w += extra * t * t;
+        }
+        self
+    }
+
     /// Narrows the channel to `half` around the point of the course
     /// nearest `at`, over `reach` cells up and down stream.
     pub fn narrowed(mut self, at: (f32, f32), half: f32, reach: f32) -> Self {

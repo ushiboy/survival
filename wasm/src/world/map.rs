@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::river::River;
-use super::terrain::{Feature, Terrain, TileProps, tile_props};
+use super::terrain::{Feature, Soil, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
 use crate::items::ItemKind;
 
@@ -40,8 +40,16 @@ pub struct WorldMap {
     /// left (bit 0) or top right (bit 1) half is rock, carried down from
     /// the faces beside and above them: solid there, as drawn.
     foot: Vec<u8>,
-    /// Bank of the upper river where water can be drawn (world px).
-    pub water_spot: Option<(i32, i32)>,
+    /// Banks of the river where water can be drawn (world px): by the pool
+    /// under the falls, and up on the high ground.
+    pub water_spots: Vec<(i32, i32)>,
+    /// Cells of the high ground's layer (above the cliffs), lake and all.
+    high: Vec<bool>,
+    /// What each cell's ground is made of (see `Soil`).
+    soil: Vec<Soil>,
+    /// How many tiers a crag's top has risen at each of its cells (0 at
+    /// its outer edge, higher toward its middle).
+    rise: Vec<u8>,
     pub spots: Spots,
     /// Fruit still hanging on each tree, keyed by the tree's top-left cell.
     fruit: HashMap<(i32, i32), u8>,
@@ -96,7 +104,10 @@ impl WorldMap {
             river: None,
             riverside: vec![false; n],
             foot: vec![0; n],
-            water_spot: None,
+            water_spots: Vec::new(),
+            high: vec![false; n],
+            soil: vec![Soil::Sand; n],
+            rise: vec![0; n],
             spots: Spots::default(),
             fruit: HashMap::new(),
             bark: HashMap::new(),
@@ -190,6 +201,42 @@ impl WorldMap {
 
     /// Whether the river's water (or the bank just beside it) reaches into
     /// the cell.
+    /// Whether a cell is up on the high ground (its lake and shores too).
+    pub fn is_high(&self, x: i32, y: i32) -> bool {
+        self.in_bounds(x, y) && self.high[self.idx(x, y)]
+    }
+
+    /// What a cell's ground is made of.
+    pub fn soil(&self, x: i32, y: i32) -> Soil {
+        let (x, y) = (x.clamp(0, self.w - 1), y.clamp(0, self.h - 1));
+        self.soil[self.idx(x, y)]
+    }
+
+    pub fn set_soil(&mut self, x: i32, y: i32, soil: Soil) {
+        if self.in_bounds(x, y) {
+            let i = self.idx(x, y);
+            self.soil[i] = soil;
+        }
+    }
+
+    /// The tier of a crag's top at a cell (0 off the crags, or at their
+    /// outer edge).
+    pub fn rise(&self, x: i32, y: i32) -> u8 {
+        if self.in_bounds(x, y) { self.rise[self.idx(x, y)] } else { 0 }
+    }
+
+    pub fn set_rise(&mut self, x: i32, y: i32, tier: u8) {
+        if self.in_bounds(x, y) {
+            let i = self.idx(x, y);
+            self.rise[i] = tier;
+        }
+    }
+
+    pub fn set_high(&mut self, high: Vec<bool>) {
+        assert_eq!(high.len(), self.high.len());
+        self.high = high;
+    }
+
     pub fn is_riverside(&self, x: i32, y: i32) -> bool {
         self.in_bounds(x, y) && self.riverside[self.idx(x, y)]
     }
@@ -330,13 +377,20 @@ impl WorldMap {
     }
 
     /// Whether the world pixel is river water that can be drawn from the
-    /// bank at `water_spot`.
+    /// bank at a water spot.
     pub fn is_drinking_water(&self, px: i32, py: i32) -> bool {
-        let Some((sx, sy)) = self.water_spot else {
-            return false;
-        };
-        let (dx, dy) = ((px - sx) as f32, (py - sy) as f32);
-        dx * dx + dy * dy < DRAW_WATER_RANGE * DRAW_WATER_RANGE && self.river_depth_px(px as f32, py as f32) > -4.0
+        self.water_spots.iter().any(|&(sx, sy)| {
+            let (dx, dy) = ((px - sx) as f32, (py - sy) as f32);
+            dx * dx + dy * dy < DRAW_WATER_RANGE * DRAW_WATER_RANGE
+        }) && self.river_depth_px(px as f32, py as f32) > -4.0
+    }
+
+    /// The water spot nearest a world pixel, if any.
+    pub fn nearest_water_spot(&self, px: f32, py: f32) -> Option<(f32, f32)> {
+        self.water_spots
+            .iter()
+            .map(|&(x, y)| (x as f32, y as f32))
+            .min_by(|a, b| (a.0 - px).hypot(a.1 - py).total_cmp(&(b.0 - px).hypot(b.1 - py)))
     }
 
     /// Fruit left on the tree whose top-left cell is `anchor`.
