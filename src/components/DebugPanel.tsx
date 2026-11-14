@@ -1,3 +1,4 @@
+import { useTranslations } from 'use-intl';
 import type { DisplayOptions } from './GameScreen';
 import type { CoreStatus } from '../game/wasmCore';
 
@@ -18,13 +19,14 @@ function formatTime(minuteOfDay: number) {
 }
 
 export function DebugPanel({ display, onDisplayChange, spriteLimit, onSpriteLimitChange, status }: Props) {
+  const t = useTranslations('display');
   const set = (patch: Partial<DisplayOptions>) => onDisplayChange({ ...display, ...patch });
 
   return (
     <section className="panel">
-      <h2>表示</h2>
+      <h2>{t('title')}</h2>
       <div className="row">
-        <span>倍率</span>
+        <span>{t('scale')}</span>
         {SCALES.map((s) => (
           <button key={s} className={display.scale === s ? 'active' : ''} onClick={() => set({ scale: s })}>
             ×{s}
@@ -33,22 +35,22 @@ export function DebugPanel({ display, onDisplayChange, spriteLimit, onSpriteLimi
       </div>
       <label className="row">
         <input type="checkbox" checked={display.crtAspect} onChange={(e) => set({ crtAspect: e.target.checked })} />
-        CRTアスペクト比 (8:7)
+        {t('crtAspect')}
       </label>
       <label className="row">
         <input type="checkbox" checked={display.scanlines} onChange={(e) => set({ scanlines: e.target.checked })} />
-        走査線
+        {t('scanlines')}
       </label>
       <label className="row">
         <input type="checkbox" checked={spriteLimit} onChange={(e) => onSpriteLimitChange(e.target.checked)} />
-        スプライト制限 (32個・34枚/ライン)
+        {t('spriteLimit')}
       </label>
       {status && (
         <p className="note mono">
           tile ({status.tileX}, {status.tileY}) · day {status.day} {formatTime(status.minuteOfDay)}
           {status.paused && ' · PAUSED'}
           <br />
-          VRAM {(status.vramBytes / 1024).toFixed(1)} / 64 KiB (画面内)
+          {t('vram', { used: (status.vramBytes / 1024).toFixed(1) })}
         </p>
       )}
     </section>

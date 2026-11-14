@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'use-intl';
 import type { GameCore } from '../game/wasmCore';
 
 interface Props {
@@ -8,16 +9,17 @@ interface Props {
 const MAX_COUNT = 99;
 const FULL = 64;
 
-/** Vitals presets: label, message, then health, food and water (-1 leaves it). */
-const VITALS: [string, string, number, number, number][] = [
-  ['全回復', '体力・満腹度・水分を満タンにしました', FULL, FULL, FULL],
-  ['飢え', '満腹度を0にしました', -1, 0, -1],
-  ['渇き', '水分を0にしました', -1, -1, 0],
-  ['瀕死', '体力を1にしました', 1, -1, -1],
+/** Vitals presets (words in `debug.vitalsPresets`): health, food and water (-1 leaves it). */
+const VITALS: Array<['full' | 'hungry' | 'thirsty' | 'dying', number, number, number]> = [
+  ['full', FULL, FULL, FULL],
+  ['hungry', -1, 0, -1],
+  ['thirsty', -1, -1, 0],
+  ['dying', 1, -1, -1],
 ];
 
 /** Debug tools, shown with `?debug=true`: put any item in the bag, move anywhere. */
 export function DebugTools({ core }: Props) {
+  const t = useTranslations('debug');
   const items = useMemo(() => core.debugItems(), [core]);
   const places = useMemo(() => core.debugPlaces(), [core]);
   const [index, setIndex] = useState(0);
@@ -31,16 +33,20 @@ export function DebugTools({ core }: Props) {
     const given = core.debugGive(item.index, n);
     setMessage(
       given === n
-        ? `${item.name} ×${given} を持たせました`
+        ? t('given', { item: item.name, given })
         : given > 0
-          ? `${item.name} ×${given} を持たせました（${n - given} 個は入りきりません）`
-          : `バッグに ${item.name} が入る場所がありません`,
+          ? t('givenSome', { item: item.name, given, left: n - given })
+          : t('noRoom', { item: item.name }),
     );
   };
 
   const moveTo = (x: number, y: number, name?: string) => {
     const at = core.debugMoveTo(x, y);
-    setMessage(at ? `${name ?? `(${x}, ${y})`} の (${at[0]}, ${at[1]}) へ移しました` : `(${x}, ${y}) の近くに立てる所がありません`);
+    setMessage(
+      at
+        ? t('moved', { place: name ?? `(${x}, ${y})`, x: at[0], y: at[1] })
+        : t('nowhereToStand', { x, y }),
+    );
   };
 
   // Let go of the button so Enter and the arrows go back to the game.
@@ -48,9 +54,9 @@ export function DebugTools({ core }: Props) {
 
   return (
     <section className="panel">
-      <h2>デバッグ</h2>
+      <h2>{t('title')}</h2>
       <div className="row">
-        <span>アイテム</span>
+        <span>{t('item')}</span>
         <select
           value={index}
           onChange={(e) => {
@@ -67,7 +73,7 @@ export function DebugTools({ core }: Props) {
         </select>
       </div>
       <div className="row">
-        <span>個数</span>
+        <span>{t('count')}</span>
         <input
           type="number"
           className="count"
@@ -82,7 +88,7 @@ export function DebugTools({ core }: Props) {
             release(e);
           }}
         >
-          持たせる
+          {t('give')}
         </button>
         {item && item.maxStack > 1 && (
           <button
@@ -91,7 +97,7 @@ export function DebugTools({ core }: Props) {
               release(e);
             }}
           >
-            1スタック (×{item.maxStack})
+            {t('giveStack', { max: item.maxStack })}
           </button>
         )}
       </div>
@@ -99,15 +105,15 @@ export function DebugTools({ core }: Props) {
         <button
           onClick={(e) => {
             core.debugLearnRecipes();
-            setMessage('全レシピを解放しました');
+            setMessage(t('learnedRecipes'));
             release(e);
           }}
         >
-          全レシピを解放
+          {t('learnRecipes')}
         </button>
       </div>
       <div className="row">
-        <span>移動</span>
+        <span>{t('move')}</span>
         <select
           value=""
           onChange={(e) => {
@@ -117,7 +123,7 @@ export function DebugTools({ core }: Props) {
           }}
         >
           <option value="" disabled>
-            場所を選ぶ
+            {t('choosePlace')}
           </option>
           {places.map((p, i) => (
             <option key={p.name} value={i}>
@@ -127,7 +133,7 @@ export function DebugTools({ core }: Props) {
         </select>
       </div>
       <div className="row">
-        <span>マス</span>
+        <span>{t('cell')}</span>
         {(['x', 'y'] as const).map((k) => (
           <input
             key={k}
@@ -144,26 +150,26 @@ export function DebugTools({ core }: Props) {
             release(e);
           }}
         >
-          移す
+          {t('moveHere')}
         </button>
       </div>
       <div className="row">
-        <span>状態</span>
-        {VITALS.map(([label, done, hp, food, water]) => (
+        <span>{t('vitals')}</span>
+        {VITALS.map(([preset, hp, food, water]) => (
           <button
-            key={label}
+            key={preset}
             onClick={(e) => {
               core.debugSetVitals(hp, food, water);
-              setMessage(done);
+              setMessage(t(`vitalsPresets.${preset}.done`));
               release(e);
             }}
           >
-            {label}
+            {t(`vitalsPresets.${preset}.label`)}
           </button>
         ))}
       </div>
       {message && <p className="note">{message}</p>}
-      <p className="note">Shift (SELECT) — 時刻を3時間進める／O — 服装の切替</p>
+      <p className="note">{t('keys')}</p>
     </section>
   );
 }

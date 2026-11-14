@@ -158,3 +158,437 @@ input.count {
 input.count {
   width: 4em;
 }
+
+/* ---- Touch layout: the game plus an on-screen controller ----
+ * Portrait: the screen on top, the controller below.
+ * Landscape: the screen in the middle, the controller split to its sides. */
+
+.touch-layout {
+  --pad-ink: rgba(228, 228, 236, 0.85);
+  --pad-body: rgba(58, 58, 74, 0.75);
+  --pad-edge: rgba(255, 255, 255, 0.12);
+  --pad-on: rgba(228, 196, 144, 0.9);
+  position: fixed;
+  inset: 0;
+  display: grid;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  overflow: hidden;
+  font-family: ui-monospace, monospace;
+}
+
+.touch-layout .screen {
+  grid-area: game;
+  justify-self: center;
+  align-self: center;
+  width: var(--game-w);
+  aspect-ratio: var(--aspect);
+  max-width: none;
+}
+
+.touch-layout .screen canvas {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+@media (orientation: portrait) {
+  .touch-layout {
+    --game-w: min(100vw, calc(52dvh * var(--aspect, 1.143)));
+    --pad: min(40vw, 24dvh);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-areas:
+      'game game game  game'
+      'l    l    r     r'
+      'dpad dpad face  face'
+      '.    sel  start help';
+    row-gap: 2dvh;
+    padding-bottom: max(3dvh, env(safe-area-inset-bottom));
+  }
+}
+
+@media (orientation: landscape) {
+  .touch-layout {
+    --game-w: min(calc(100dvh * var(--aspect, 1.143)), 60vw);
+    --pad: min(calc((100vw - var(--game-w)) / 2 * 0.8), 40dvh);
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      'l    game r'
+      'dpad game face'
+      'sel  game start';
+    padding-block: max(3dvh, env(safe-area-inset-top)) max(3dvh, env(safe-area-inset-bottom));
+  }
+  .touch-layout .screen {
+    box-shadow: none;
+  }
+}
+
+.pad-btn {
+  display: grid;
+  place-items: center;
+  background: var(--pad-body);
+  border: 1px solid var(--pad-edge);
+  color: var(--pad-ink);
+  font-weight: 700;
+  transition: background 60ms;
+}
+
+.pad-btn.on {
+  background: var(--pad-on);
+  color: #1a1a24;
+}
+
+.pad-shoulder {
+  width: calc(var(--pad) * 0.7);
+  height: calc(var(--pad) * 0.22);
+  border-radius: calc(var(--pad) * 0.11);
+  font-size: calc(var(--pad) * 0.1);
+  align-self: start;
+}
+
+.pad-l {
+  grid-area: l;
+  justify-self: start;
+  margin-left: 4vmin;
+}
+
+.pad-r {
+  grid-area: r;
+  justify-self: end;
+  margin-right: 4vmin;
+}
+
+.pad-meta {
+  height: calc(var(--pad) * 0.16);
+  padding: 0 calc(var(--pad) * 0.08);
+  border-radius: calc(var(--pad) * 0.08);
+  font-size: calc(var(--pad) * 0.075);
+  letter-spacing: 0.1em;
+  align-self: end;
+}
+
+.pad-select {
+  grid-area: sel;
+  justify-self: center;
+}
+
+.pad-start {
+  grid-area: start;
+  justify-self: center;
+}
+
+@media (orientation: portrait) {
+  .pad-select {
+    justify-self: end;
+  }
+  .pad-start {
+    justify-self: start;
+  }
+  .pad-meta {
+    margin-inline: calc(var(--pad) * 0.06);
+  }
+}
+
+/* The whole square is the D-pad's touch area; the cross is only drawn inside it. */
+.pad-dpad {
+  grid-area: dpad;
+  justify-self: center;
+  align-self: center;
+  width: var(--pad);
+  height: var(--pad);
+  display: grid;
+  place-items: center;
+}
+
+.dpad-cross {
+  position: relative;
+  width: 92%;
+  height: 92%;
+  pointer-events: none;
+}
+
+.dpad-arm,
+.dpad-hub {
+  position: absolute;
+  background: var(--pad-body);
+  border: 1px solid var(--pad-edge);
+}
+
+.dpad-arm {
+  --arm: 34%;
+}
+
+.dpad-arm.up,
+.dpad-arm.down {
+  left: calc(50% - var(--arm) / 2);
+  width: var(--arm);
+  height: calc(50% - var(--arm) / 2 + 1px);
+}
+
+.dpad-arm.left,
+.dpad-arm.right {
+  top: calc(50% - var(--arm) / 2);
+  height: var(--arm);
+  width: calc(50% - var(--arm) / 2 + 1px);
+}
+
+.dpad-arm.up {
+  top: 0;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.dpad-arm.down {
+  bottom: 0;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.dpad-arm.left {
+  left: 0;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+}
+
+.dpad-arm.right {
+  right: 0;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+}
+
+.dpad-hub {
+  left: 33%;
+  top: 33%;
+  width: 34%;
+  height: 34%;
+  border: none;
+}
+
+.dpad-arm.on {
+  background: var(--pad-on);
+}
+
+/* A triangle on each arm, pointing its way, a little in from the outer end. */
+.dpad-arm::after {
+  content: '';
+  position: absolute;
+  width: 40%;
+  aspect-ratio: 1;
+  background: var(--pad-ink);
+  opacity: 0.55;
+}
+
+.dpad-arm.up::after,
+.dpad-arm.down::after {
+  left: 30%;
+  width: 40%;
+}
+
+.dpad-arm.left::after,
+.dpad-arm.right::after {
+  top: 30%;
+  width: auto;
+  height: 40%;
+}
+
+.dpad-arm.up::after {
+  top: 22%;
+  clip-path: polygon(50% 10%, 95% 85%, 5% 85%);
+}
+
+.dpad-arm.down::after {
+  bottom: 22%;
+  clip-path: polygon(50% 90%, 95% 15%, 5% 15%);
+}
+
+.dpad-arm.left::after {
+  left: 22%;
+  clip-path: polygon(10% 50%, 85% 5%, 85% 95%);
+}
+
+.dpad-arm.right::after {
+  right: 22%;
+  clip-path: polygon(90% 50%, 15% 5%, 15% 95%);
+}
+
+.dpad-arm.on::after {
+  background: #1a1a24;
+  opacity: 0.8;
+}
+
+/* A, B, X, Y in the Super Famicom diamond: X top, Y left, A right, B bottom. */
+.pad-face {
+  grid-area: face;
+  justify-self: center;
+  align-self: center;
+  position: relative;
+  width: var(--pad);
+  height: var(--pad);
+}
+
+.face {
+  position: absolute;
+  width: 36%;
+  height: 36%;
+  border-radius: 50%;
+  font-size: calc(var(--pad) * 0.13);
+}
+
+.face-x {
+  left: 32%;
+  top: 0;
+}
+
+.face-y {
+  left: 0;
+  top: 32%;
+}
+
+.face-a {
+  right: 0;
+  top: 32%;
+}
+
+.face-b {
+  left: 32%;
+  bottom: 0;
+}
+
+.face-a span {
+  color: #e8726a;
+}
+
+.face-b span {
+  color: #e8c86a;
+}
+
+.face-x span {
+  color: #7a9ce8;
+}
+
+.face-y span {
+  color: #7ac88a;
+}
+
+.face.on span {
+  color: #1a1a24;
+}
+
+/* ---- The controls help over the game (touch devices) ---- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.72);
+  touch-action: none;
+}
+
+.modal {
+  width: min(100%, 340px);
+  max-height: 100%;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  font-size: 15px;
+}
+
+.modal h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  font-family: ui-monospace, monospace;
+}
+
+.modal .kv dt {
+  width: 80px;
+  flex: none;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.modal-actions input {
+  width: 18px;
+  height: 18px;
+}
+
+.modal-actions button {
+  padding: 8px 20px;
+  font-size: 15px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Short landscape screens: two columns, so it fits without scrolling. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .modal {
+    width: min(100%, 640px);
+  }
+  /* Top to bottom, then the next column: 十字キー…X on the left, Y…START on the right. */
+  .modal .kv {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(4, auto);
+    grid-auto-flow: column;
+    column-gap: 20px;
+  }
+  .modal .kv dt {
+    width: 72px;
+    flex: none;
+  }
+}
+
+/* The ? button (controls help): in the bottom-right corner, right of START,
+ * away from the buttons played with (L, the D-pad) so it isn't hit by mistake. */
+.pad-help {
+  grid-area: help;
+  justify-self: end;
+  align-self: end;
+  margin-right: 4vmin;
+  width: calc(var(--pad) * 0.22);
+  height: calc(var(--pad) * 0.22);
+  padding: 0;
+  border-radius: 50%;
+  background: var(--pad-body);
+  border: 1px solid var(--pad-edge);
+  color: var(--pad-ink);
+  font: 700 calc(var(--pad) * 0.12) ui-monospace, monospace;
+}
+
+/* Landscape: it shares the bottom-right cell with START, which moves left of it. */
+@media (orientation: landscape) {
+  .pad-help {
+    grid-area: start;
+  }
+  .pad-start {
+    justify-self: start;
+    margin-left: 4vmin;
+  }
+  /* SELECT mirrors START, on the game's side of the left column. */
+  .pad-select {
+    justify-self: end;
+    margin-right: 4vmin;
+  }
+}

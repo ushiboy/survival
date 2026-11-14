@@ -72,9 +72,16 @@ function isFormControl(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
 }
 
-/** Collects keyboard + gamepad state into a single button byte. */
+/** Another source of button bits, e.g. the on-screen touch controller. */
+export interface ButtonSource {
+  readonly bits: number;
+}
+
+/** Collects keyboard + gamepad (+ any extra sources) state into a single button word. */
 export class InputController {
   private keyBits = 0;
+
+  constructor(private readonly extra: ButtonSource[] = []) {}
 
   private onKeyDown = (e: KeyboardEvent) => {
     // Leave keys alone while typing into a form control (the debug tools).
@@ -108,6 +115,8 @@ export class InputController {
   }
 
   read(): number {
-    return this.keyBits | readGamepads();
+    let bits = this.keyBits | readGamepads();
+    for (const source of this.extra) bits |= source.bits;
+    return bits;
   }
 }

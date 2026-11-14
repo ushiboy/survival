@@ -1,26 +1,22 @@
-const CONTROLS: Array<[string, string]> = [
-  ['移動', '矢印キー / WASD'],
-  ['A', 'X — 調べる・拾う／決定'],
-  ['B', 'Z — 手に持った道具を使う／戻る'],
-  ['X', 'V — バッグ'],
-  ['Y', 'C — 眠る／バッグ内で回す'],
-  ['R', 'E — 走る'],
-  ['START', 'Enter — 開始／ポーズ'],
-];
+import { useTranslations } from 'use-intl';
+import { CONTROLS } from './controls';
 
 export function ControlsHelp() {
+  const t = useTranslations('controls');
   return (
     <section className="panel">
-      <h2>操作</h2>
+      <h2>{t('title')}</h2>
       <dl className="kv">
-        {CONTROLS.map(([k, v]) => (
-          <div key={k}>
-            <dt>{k}</dt>
-            <dd>{v}</dd>
+        {CONTROLS.map(({ button, keys, role }) => (
+          <div key={button}>
+            <dt>{button === 'dpad' ? t('dpad') : button}</dt>
+            <dd>
+              {keys === 'arrows' ? t('arrowKeys') : keys} — {t(`roles.${role}`)}
+            </dd>
           </div>
         ))}
       </dl>
-      <p className="note">ゲームパッドにも対応しています。</p>
+      <p className="note">{t('note')}</p>
     </section>
   );
 }

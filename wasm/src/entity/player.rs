@@ -371,7 +371,7 @@ impl Player {
             return None;
         }
         if let Action::Sleep { t } = self.action {
-            let roused = [Buttons::A, Buttons::B, Buttons::Y].into_iter().any(|b| input.pressed(b));
+            let roused = [Buttons::A, Buttons::B, Buttons::L].into_iter().any(|b| input.pressed(b));
             if t >= SLEEP_SETTLE && roused {
                 self.wake();
             } else {
@@ -512,8 +512,9 @@ impl Player {
             self.climb(input, map);
             return None;
         }
-        if !self.wading && input.pressed(Buttons::Y) {
-            // Lie down where you stand and sleep.
+        if !self.wading && input.pressed(Buttons::L) {
+            // Lie down where you stand and sleep (on L, out of the way of the
+            // face buttons: waking saves the game, so it shouldn't be hit by mistake).
             self.action = Action::Sleep { t: 0 };
             self.facing = Dir::Right;
             self.moving = false;

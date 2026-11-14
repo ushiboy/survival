@@ -15,11 +15,16 @@ pnpm install
 pnpm dev      # wasm(debug) をビルドして Vite 起動
 pnpm build    # wasm(release) + 型チェック + 本番ビルド
 pnpm test     # Rust のテスト（cargo test --manifest-path wasm/Cargo.toml）
+pnpm test:web # TypeScript のテスト（Vitest + Testing Library、jsdom）。見張って回すなら pnpm test:web:watch
 ```
 
-テストは Rust 側にだけあり、ネイティブで動きます（ブラウザは要りません）。単体テストは各ファイルの末尾の `#[cfg(test)] mod tests`、`Game` を外から動かすシナリオテストは `wasm/tests/` にあります。セーブの変換のテストは、古い版のセーブの見本（`wasm/src/game/save_samples/`）を読みます。
+Rust のテストはネイティブで動きます（ブラウザは要りません）。単体テストは各ファイルの末尾の `#[cfg(test)] mod tests`、`Game` を外から動かすシナリオテストは `wasm/tests/` にあります。セーブの変換のテストは、古い版のセーブの見本（`wasm/src/game/save_samples/`）を読みます。
+
+TypeScript のテストは、対象のファイルの隣に `*.test.ts(x)` として置きます（例: `src/game/touch.test.ts`）。wasm はビルドせずに動きます。wasm を使う部品（`GameScreen`）のテストは、`vi.mock` で `game/wasmCore` とゲームのループを差し替えます。jsdom にない要素の位置・当たり判定（`elementFromPoint`）・`matchMedia` は、`src/test/dom.ts` の補助で用意します。
 
 URL に `?debug=true` を付けると（例: `http://localhost:5173/?debug=true`）デバッグパネルが出て、好きなアイテムを個数を指定してバッグに入れたり、全レシピを解放したり、主人公を好きなマス（または水汲み場・川の狭い所・湖の南岸などの決まった場所）へ移したりできます。移す先が立てないマスなら、いちばん近い立てるマスへ移します。
+
+スマートフォンやタブレット（`pointer: coarse` の端末）では、ゲーム画面と仮想コントローラだけの画面になります。PC でこの画面を確かめるには URL に `?touch=true` を付けます（マウスでもボタンを押せます）。`?touch=false` で逆に PC の画面にできます。同じ LAN のスマートフォンから開くには `pnpm dev --host` で起動します。
 
 Rust 単体でフレームを PPM に書き出す確認用ツール（入力スクリプト = `ボタン(16進):フレーム数` の列）:
 
@@ -81,8 +86,11 @@ cd wasm && cargo run --release --example palms -- 1
 src/                    React / TS (表示と入力のみ)
   game/wasmCore.ts      wasm のラッパー (フレームはコピーせず wasm メモリを直接参照)
   game/input.ts         キーボード/ゲームパッド → SFCパッドのボタンword
+  game/touch.ts         画面上の仮想コントローラのマルチタッチ → ボタンword
+  game/touchMode.ts     タッチ用レイアウトにするかの判定 (pointer: coarse / ?touch=)
   game/gameLoop.ts      60.1Hz 固定ステップのループ
-  components/           画面・操作説明・デバッグパネル
+  components/           画面・仮想コントローラ・操作説明（PC のパネルとタッチ端末のダイアログ）・デバッグパネル
+  i18n/                 ページの文言の日本語・英語（use-intl）。messages/ja.ts が元で、en.ts は同じ項目をそろえる。navigator.language で切り替え
 wasm/src/               Rust コア
   lib.rs                JS向けファサード (wasm_bindgen はここだけ)
   common/               固定小数点・乱数・入力

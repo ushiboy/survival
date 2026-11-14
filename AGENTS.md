@@ -51,7 +51,8 @@
   - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグパネルの一覧。追加しないとデバッグパネルに出ない）
   - `wasm/examples/snapshot.rs` の `SNAP_GIVE` の名前
   - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵（`pnpm art` で並べて確かめる）
-- 操作を変えたとき: `src/components/ControlsHelp.tsx` の操作説明。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
+- ページ（`src/`）の文言を足す・変えるとき: 画面に直接書かず、`src/i18n/messages/ja.ts` と `en.ts` の両方に書いて `useTranslations` で出す（`en.ts` は `ja.ts` と同じ項目をそろえないと型チェックとテストで落ちる）。
+- 操作を変えたとき: `src/components/controls.ts` の操作の一覧（役割の言葉は `src/i18n/messages/` の `controls`）（PC の操作パネル `ControlsHelp.tsx` と、スマートフォンで最初に出る操作説明 `TouchHelp.tsx` の両方に出る）。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
 - 開発用ツールの使い方を変えたとき: [README.md](README.md)
 
 ## 設計の方針
@@ -72,6 +73,7 @@
 - 見た目や手触りの変更（絵、アニメーション、明るさ、数値の調整など）はスナップショットやブラウザで確かめ、テストは必須にしない。島に置く物やアイテムの絵は、まず `pnpm art` で試行錯誤する（下の「ビルドと確認」）。
 - テストでは数値そのものより関係を確かめる（「雨よけの下で寝ると外より早く回復する」など）。調整のたびにテストが壊れないようにするため。テスト名は docs の仕様の言葉で付ける。
 - 単体テストは対象のファイルの末尾の `#[cfg(test)] mod tests` に、`Game` を外から動かすシナリオテストは `wasm/tests/` に書く。シナリオテストは島の座標に頼らず、デバッグ用の関数（`debug_give` など）で状況を作る。
+- TypeScript（`src/`）の入力やページの振る舞いを変えるときも、Vitest + Testing Library でテストを書く。テストは対象のファイルの隣に `*.test.ts(x)` として置く。wasm を使う部品は `vi.mock` で `game/wasmCore` を差し替え、jsdom にない位置・当たり判定・`matchMedia` は `src/test/dom.ts` の補助を使う。
 - テストを書く途中でバグを見つけたら、その場で直さずにユーザーに報告して相談する。
 - コミットはユーザーに頼まれたときだけする。
 - ユーザーとのやり取りは日本語で行う。
@@ -84,6 +86,7 @@ pnpm wasm:dev        # wasm をデバッグビルド
 pnpm exec tsc -b     # 型チェック
 pnpm dev             # wasm をビルドして開発サーバーを起動
 pnpm test            # Rust のテストを実行（cargo test）
+pnpm test:web        # TypeScript のテストを実行（Vitest + Testing Library）
 pnpm map             # 島の地図（設計・全景・特別な場所・前との差分）を wasm/target/map/ に描く
 pnpm art             # 島に置く物とアイテムの絵の一覧（と前との差分）を wasm/target/art/ に描く
 ```
