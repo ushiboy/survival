@@ -17,7 +17,8 @@
 //! | `W` | the lake's deep water (on the high ground) |
 //! | `w` | the lake's shallows (on the high ground) |
 //! | `s` | the lake's shore (on the high ground) |
-//! | `R` | rocks closing off the high ground (boulders packed close) |
+//! | `R` | crags closing off the high ground |
+//! | `b` | a bamboo grove on the high ground |
 //!
 //! Each character sets a height for its block; heights are smoothed between
 //! blocks and roughened with noise, so coasts and the jungle's edge curve
@@ -170,7 +171,7 @@ fn upper_height(c: char) -> f32 {
 
 /// Characters of the high ground's layer.
 fn is_upper(c: char) -> bool {
-    matches!(c, '^' | 'W' | 'w' | 's' | 'R')
+    matches!(c, '^' | 'W' | 'w' | 's' | 'R' | 'b')
 }
 
 /// The plan read into blocks: the height of the land, and which blocks
@@ -226,7 +227,7 @@ impl Plan {
             upper: chars.iter().map(|&c| upper_height(c)).collect(),
             rocks: mark('R'),
             forest: mark('T'),
-            bamboo: mark('B'),
+            bamboo: chars.iter().map(|&c| if matches!(c, 'B' | 'b') { 1.0 } else { 0.0 }).collect(),
         }
     }
 
@@ -783,8 +784,9 @@ pub fn generate(seed: u32) -> WorldMap {
     let bamboo: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.is_bamboo(x, y)).collect();
     place_bamboo(&mut map, &heights, &bamboo, seed);
     place_palms(&mut map, &heights, seed, &near_spawn);
-    place_broadleafs(&mut map, &heights, &forest, seed, &near_spawn);
+    // No trees in the bamboo groves: the bamboo has them to itself.
     let in_grove = |x: i32, y: i32| near_spawn(x, y) || bamboo[(y * w + x) as usize];
+    place_broadleafs(&mut map, &heights, &forest, seed, &in_grove);
     place_scatter(&mut map, &heights, &forest, seed, &in_grove);
     drop_pine_cones(&mut map);
     fill_cliff_feet(&mut map);
@@ -1043,7 +1045,7 @@ fn place_bamboo(map: &mut WorldMap, heights: &[f32], grove: &[bool], seed: u32) 
                 let (cx, cy) = (x, y + dy);
                 let i = (cy * w + cx) as usize;
                 grove[i]
-                    && map.terrain(cx, cy) == Terrain::Grass
+                    && matches!(map.terrain(cx, cy), Terrain::Grass | Terrain::Highland | Terrain::Slope)
                     && heights[i] > SAND_BELOW + PROP_MARGIN
                     && map.feature(cx, cy) == Feature::None
                     && !map.is_riverside(cx, cy)
@@ -1401,14 +1403,14 @@ mod tests {
     fn above_the_slope(map: &WorldMap) -> (i32, i32) {
         let w = map.width();
         let top = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).find(|&(x, y)| map.terrain(x, y) == Terrain::Slope).expect("the island has a slope");
-        let x = (top.0..w).find(|&x| map.terrain(x, top.1) == Terrain::Highland).expect("high ground beside the slope's top");
+        let x = (top.0..w).find(|&x| map.terrain(x, top.1) == Terrain::Highland && !map.props(x, top.1).solid).expect("high ground beside the slope's top");
         (x, top.1)
     }
 
     #[test]
     fn the_slope_leads_up_from_the_west_coast_to_the_high_ground() {
         let walk = walk_with_bridge();
-        assert!(walk.can(walk.map.spots.slope.expect("the island has a slope")), "the slope's foot is reached over the bridge");
+        assert!(walk.near(walk.map.spots.slope.expect("the island has a slope")), "the slope's foot is reached over the bridge");
         assert!(walk.can(above_the_slope(&walk.map)), "the high ground at its top is reached");
     }
 

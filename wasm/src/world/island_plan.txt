@@ -12,11 +12,11 @@
 ~~~~~~RRRRRRRWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRR
 ~~~~~RRRRRRRRwwwwWWwwsssswwwwWWwRRRRRRRRRRRR
 ~~~~~^RRRRRR^^^^www^^wwsssw^^^ww^RRRRRRRRRRR
-~~~~-^^RRR^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRR^
-~~-..T^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^RRRRR^^^
-~~-..T^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-~~-..TT^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-~~-..TTT^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~-^bRRRbbbb^^^^^^^^^^^^^^^^^^^^RRRRRRRRR^
+~~-..Bbbbbbbbb^^^^^^^^^^^^^^^^^^^^^^RRRRR^^^
+~~-..Bbbbbbbbb^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~-..BBbbbbbbb^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~-..BBBbbbbbb^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ~~-.,BBBTTTT,,,,TTTTTTT,,TTTT^^^^^^^^^^^^^^^
 ~~-.,BBBBTTT,,,,TTT##TTTTTTTTT^^^^^^^^^^^^^^
 ~~--.BBBBTTTT,,TTTTTTTTTTT#TTTT^^^^^^^^^^^^^
