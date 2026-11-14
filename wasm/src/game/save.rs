@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 10;
+pub const SAVE_VERSION: u32 = 11;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -366,6 +366,57 @@ fn v9_to_v10(save: &mut Value) {
     }
 }
 
+/// Cells (x, y) around the pool under the falls and the river down to its
+/// narrow, whose changes are dropped in version 11.
+const FALLS_REDRAWN: (std::ops::Range<i32>, std::ops::Range<i32>) = (44..64, 76..108);
+
+/// Version 11: the jungle on the west coast was broken up, its beach
+/// widened, with more palms on it and vines by its trees and bamboo; the
+/// river now leaves the pool under the falls from its south (its course
+/// moved a little), with a second water spot on the pool's west bank. So
+/// what changed below the high ground west of the river, or around the
+/// pool and the river down to its narrow (`FALLS_REDRAWN`), in a version
+/// 10 save is dropped, and what lay where the river now runs. Fish now swim in the lake too (`LAKE_FISH` of them), which a
+/// version 10 save has none of: they are put in, spread along the lake.
+/// The island is made from the save's seed.
+fn v10_to_v11(save: &mut Value) {
+    let seed = save["seed"].as_u64().unwrap_or(1) as u32;
+    let island = crate::world::island::generate(seed);
+    // Each row's westmost river cell: west of it is the west coast.
+    let river_from: Vec<Option<i32>> = (0..island.height()).map(|y| (0..island.width()).find(|&x| island.terrain(x, y) == crate::world::Terrain::River)).collect();
+    let redrawn = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => {
+            let (x, y) = (x as i32, y as i32);
+            let west = river_from.get(y as usize).copied().flatten().is_some_and(|rx| x < rx);
+            !island.is_high(x, y) && (west || (FALLS_REDRAWN.0.contains(&x) && FALLS_REDRAWN.1.contains(&y)))
+        }
+        _ => false,
+    };
+    drop_changes_where(save, redrawn, |_| false);
+    let dry = |at: &Value| match (at[0].as_i64(), at[1].as_i64()) {
+        (Some(x), Some(y)) => island.terrain((x / 16) as i32, (y / 16) as i32) != crate::world::Terrain::River,
+        _ => true,
+    };
+    let lying = &mut save["island"];
+    if let Some(Value::Array(items)) = lying.get_mut("items") {
+        items.retain(|i| dry(&i["at"]));
+    }
+    let lake: Vec<(i32, i32)> = (0..island.height())
+        .flat_map(|y| (0..island.width()).map(move |x| (x, y)))
+        .map(|(x, y)| (x * 16 + 8, y * 16 + 8))
+        .filter(|&(x, y)| island.is_high(x / 16, y / 16) && crate::entity::fish::swimmable(&island, (x, y)))
+        .collect();
+    if let Some(Value::Array(fish)) = lying.get_mut("fish")
+        && !lake.is_empty()
+    {
+        let n = crate::game::LAKE_FISH;
+        fish.extend((0..n).map(|i| {
+            let (x, y) = lake[i * lake.len() / n];
+            serde_json::json!([x, y])
+        }));
+    }
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -512,6 +563,7 @@ mod tests {
         include_str!("save_samples/v8.json"),
         include_str!("save_samples/v9.json"),
         include_str!("save_samples/v10.json"),
+        include_str!("save_samples/v11.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -526,6 +578,13 @@ mod tests {
     /// north in version 9), in cells and in world px.
     const N: i32 = NORTH_CELLS;
     const N_PX: i32 = NORTH_CELLS * 16;
+
+    /// The fish in a save but those in the lake (which version 11 puts
+    /// there).
+    fn out_of_lake(s: &SaveData) -> Vec<(i32, i32)> {
+        let island = crate::world::island::generate(s.seed);
+        s.island.fish.iter().copied().filter(|&(x, y)| !island.is_high(x / 16, y / 16)).collect()
+    }
 
     fn has_feature(s: &SaveData, at: (i32, i32), f: Feature) -> bool {
         s.island.features.contains(&(at, f))
@@ -574,7 +633,7 @@ mod tests {
         assert_eq!(s.island.items[0].at, (500 + E_PX, 300 + 384 + N_PX));
         assert_eq!((s.island.fires[0].x, s.island.fires[0].y), (100 + E_PX, 200 + 384 + N_PX));
         assert_eq!(s.island.crabs, vec![(300 + E_PX, 400 + 384 + N_PX)]);
-        assert_eq!(s.island.fish, vec![(600 + E_PX, 700 + 384 + N_PX)]);
+        assert_eq!(out_of_lake(&s), vec![(600 + E_PX, 700 + 384 + N_PX)]);
         assert!(has_feature(&s, (20 + E, 30 + 24 + N), Feature::VineStake));
         assert_eq!(s.island.bark, vec![((30 + E, 40 + 24 + N), 2)]);
         assert_eq!(s.island.harvest.damage, vec![((40 + E, 20 + 24 + N), 1)]);
@@ -760,7 +819,35 @@ mod tests {
         v["island"]["fish"] = serde_json::json!([[sea.0 * 16 + 8, sea.1 * 16 + 8], [100 * 16, 120 * 16]]);
         v["island"]["crabs"] = serde_json::json!([[beach.0 * 16 + 8, beach.1 * 16 + 8]]);
         let s = SaveData::from_json(&v.to_string()).unwrap();
-        assert_eq!(s.island.fish, vec![(100 * 16, 120 * 16)], "only the fish still in the water stays");
+        assert_eq!(out_of_lake(&s), vec![(100 * 16, 120 * 16)], "only the fish still in the water stays");
         assert!(s.island.crabs.is_empty());
+    }
+
+    /// A version 10 save with a stump left at each of `cells`, and fish
+    /// swimming at `fish` (world px).
+    fn version_10_with(cells: &[(i32, i32)], fish: &[(i32, i32)]) -> SaveData {
+        let mut v = sample(10);
+        let stump = serde_json::to_value(Feature::PineStump(StumpPart { flip: false })).unwrap();
+        v["island"]["features"] = Value::Array(cells.iter().map(|&(x, y)| serde_json::json!([[x, y], stump])).collect());
+        v["island"]["fish"] = Value::Array(fish.iter().map(|&(x, y)| serde_json::json!([x, y])).collect());
+        SaveData::from_json(&v.to_string()).unwrap()
+    }
+
+    #[test]
+    fn version_11_drops_changes_on_the_west_coast_and_by_the_falls() {
+        let (west, east) = ((50, 90), (100, 100));
+        let s = version_10_with(&[west, east], &[]);
+        assert!(!s.island.features.iter().any(|&(at, _)| at == west), "the river's head and the west coast were redrawn");
+        assert!(s.island.features.iter().any(|&(at, _)| at == east), "changes away from them stay");
+    }
+
+    #[test]
+    fn version_11_puts_fish_in_the_lake() {
+        let island = crate::world::island::generate(1);
+        let in_lake = |&(x, y): &(i32, i32)| island.is_high(x / 16, y / 16);
+        let sea = (100 * 16, 120 * 16);
+        let s = version_10_with(&[], &[sea]);
+        assert!(s.island.fish.contains(&sea), "the fish in the sea stay");
+        assert!(s.island.fish.iter().filter(|p| in_lake(p)).count() > 0);
     }
 }

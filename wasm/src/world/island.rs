@@ -62,6 +62,13 @@ const HIGH_BRANCH_COUNT: usize = 16;
 const HIGH_STONE_COUNT: usize = 8;
 /// Share of the high ground's cells by its trees that grow vines.
 const HIGH_VINES: f32 = 0.015;
+/// The share of cells beside a tree or a bamboo culm on the west coast
+/// (beyond the river) where a vine grows.
+const WEST_VINES: f32 = 0.05;
+/// The share of jungle cells a bush grows in; on the west coast (beyond
+/// the river) fewer, so its thickets can be walked through.
+const JUNGLE_BUSHES: f32 = 0.6;
+const WEST_JUNGLE_BUSHES: f32 = 0.25;
 /// Dry land in the first area (sand and grass cells), the stretch those
 /// counts are for.
 const AREA_LAND: i32 = 1531;
@@ -76,7 +83,7 @@ const ORIGIN: (i32, i32) = (32, 88);
 const LANDING: (i32, i32) = (32, 19);
 /// The river: winding from the forest (where the stream out of the pool
 /// becomes a river) down into the cove (cells).
-const RIVER_SOURCE: (f32, f32) = (27.46, -4.0);
+const RIVER_SOURCE: (f32, f32) = (26.9, -4.0);
 const RIVER_MOUTH: (f32, f32) = (17.92, 29.14);
 /// The stream rises on the high ground beyond the north edge and falls
 /// over the cliff into a pool (centre and radius, cells).
@@ -131,7 +138,7 @@ const LOW_CLIFF_STRAIGHT: i32 = 3;
 const LOW_CLIFF_CLEARING: f32 = 3.7;
 /// Radius (cells, across the river) of the clearing on the banks at the
 /// narrow, so the narrowing reads from afar.
-const BRIDGE_CLEARING: f32 = 5.5;
+const BRIDGE_CLEARING: f32 = 6.0;
 /// How much flatter than round the clearing at the narrow is (its height
 /// is the radius divided by this), keeping the bushes north of it.
 const BRIDGE_CLEARING_SQUASH: f32 = 1.3;
@@ -409,18 +416,22 @@ fn lay_river(map: &mut WorldMap, river: &River) {
 }
 
 /// Picks a bank of the pool under the falls, on the grass of the clearing
-/// around it (toward the south-east first), where water can be drawn.
-fn water_spot(map: &WorldMap, river: &River) -> Option<(i32, i32)> {
+/// around it, where water can be drawn: on the east bank (toward the
+/// south-east first), or with `west` on the west bank beyond the river
+/// (toward the south-west first).
+fn water_spot(map: &WorldMap, river: &River, west: bool) -> Option<(i32, i32)> {
     let ts = TILE_SIZE as f32;
     let ((cx, cy), r) = river.pool()?;
+    let (start, side) = if west { (3.0 * std::f32::consts::FRAC_PI_4, -1.0) } else { (std::f32::consts::FRAC_PI_4, 1.0) };
     for i in 0..32 {
-        // Swing out either way from south-east.
+        // Swing out either way from the start.
         let turn = (i / 2) as f32 * 0.2 * if i % 2 == 0 { 1.0 } else { -1.0 };
-        let a = std::f32::consts::FRAC_PI_4 + turn;
+        let a = start + turn;
         let (bx, by) = (cx + a.cos() * (r + 0.45), cy + a.sin() * (r + 0.45));
         let (gx, gy) = (bx.round() as i32, by.round() as i32);
         let clear = (-1..=1).all(|dy| (-1..=1).all(|dx| map.terrain(gx + dx, gy + dy) != Terrain::Cliff));
-        if map.terrain(gx, gy) == Terrain::Grass && clear && river.nearest(bx, by).depth() < -0.3 {
+        let this_side = (bx - cx) * side > 0.5;
+        if this_side && map.terrain(gx, gy) == Terrain::Grass && clear && river.nearest(bx, by).depth() < -0.3 {
             return Some((((bx + 0.5) * ts) as i32, ((by + 0.5) * ts) as i32));
         }
     }
@@ -750,7 +761,7 @@ pub fn generate(seed: u32) -> WorldMap {
         .narrowed(at_f(BRIDGE_AT), BRIDGE_HALF_WIDTH, 2.5)
         .with_outflow(OUTFLOW_MAX, OUTFLOW_SPREAD, sea, deep);
     lay_river(&mut map, &river);
-    map.water_spots = water_spot(&map, &river).into_iter().chain(upper_water_spot(&map, &river)).collect();
+    map.water_spots = water_spot(&map, &river, false).into_iter().chain(upper_water_spot(&map, &river)).chain(water_spot(&map, &river, true)).collect();
     map.spots = Spots {
         bridge: Some(nearest_on_river(&river, at_f(BRIDGE_AT))),
         ladder: low_cliff_foot(&map),
@@ -982,13 +993,27 @@ fn find_spawn(map: &WorldMap, heights: &[f32]) -> (i32, i32) {
     at(LANDING)
 }
 
+/// How often a palm takes a free spot on the upper beach; on the west
+/// coast's narrow beach (beyond the river), more often.
+const PALMS: f32 = 0.16;
+const WEST_PALMS: f32 = 0.5;
+
+/// Each row's westmost river cell: the land west of it lies beyond the
+/// river, on the west coast.
+fn river_from(map: &WorldMap) -> Vec<Option<i32>> {
+    (0..map.height()).map(|y| (0..map.width()).find(|&x| map.terrain(x, y) == Terrain::River)).collect()
+}
+
 fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn Fn(i32, i32) -> bool) {
     let (pw, ph) = (PalmPart::W, PalmPart::H);
+    let river_from = river_from(map);
     for y in 0..map.height() - ph + 1 {
         for x in 0..map.width() - pw + 1 {
             // Anchor on the trunk base (bottom row), which sits on the upper beach.
             let h = heights[((y + ph - 1) * map.width() + x) as usize];
-            if !(2.0..SAND_BELOW).contains(&h) || roll(x, y, seed ^ 0xFA1A) > 0.16 {
+            let west = river_from[(y + ph - 1) as usize].is_some_and(|rx| x < rx);
+            let share = if west { WEST_PALMS } else { PALMS };
+            if !(2.0..SAND_BELOW).contains(&h) || roll(x, y, seed ^ 0xFA1A) > share {
                 continue;
             }
             // The trunk base and canopy-shadow rows sit on clean sand; the
@@ -1126,6 +1151,10 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
         let h = heights[(y * map.width() + x) as usize];
         map.terrain(x, y) == Terrain::Highland || h > SAND_BELOW + PROP_MARGIN || (PROP_MARGIN..SAND_BELOW - PROP_MARGIN).contains(&h)
     };
+    let river_from = river_from(map);
+    let west_coast = |map: &WorldMap, x: i32, y: i32| !map.is_high(x, y) && river_from[y as usize].is_some_and(|rx| x < rx);
+    let by_tree = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+    let by_bamboo = |map: &WorldMap, x: i32, y: i32| (-1..=1).any(|dy| (-1..=1).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Bamboo(_))));
     for y in 0..map.height() {
         for x in 0..map.width() {
             if !open(map, x, y) {
@@ -1140,7 +1169,7 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
                 // Undergrowth on the high ground: thicker than in the forest
                 // below, but with room to walk.
                 Terrain::Highland => {
-                    let by_tree = (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+                    let by_tree = by_tree(map, x, y);
                     if r < 0.15 {
                         Feature::Bush
                     } else if r < 0.2 {
@@ -1152,11 +1181,16 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
                         Feature::None
                     }
                 }
+                // The thickets on the west coast are thinner, with room to
+                // walk among their bushes.
                 Terrain::Grass if h > JUNGLE_ABOVE => {
-                    if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
+                    let bushes = if west_coast(map, x, y) { WEST_JUNGLE_BUSHES } else { JUNGLE_BUSHES };
+                    if r < bushes { Feature::Bush } else if r < bushes + 0.06 { Feature::Flower } else { Feature::None }
                 }
                 // Climbers thrive at the jungle's edge.
                 Terrain::Grass if r > 0.93 && h > JUNGLE_ABOVE - VINE_BELT => Feature::Vine,
+                // And on the trees and bamboo of the west coast.
+                Terrain::Grass if r > 1.0 - WEST_VINES && west_coast(map, x, y) && (by_tree(map, x, y) || by_bamboo(map, x, y)) => Feature::Vine,
                 // Undergrowth in the forest, light enough to walk through.
                 Terrain::Grass if forest[(y * map.width() + x) as usize] > 0.5 => {
                     if r < 0.06 { Feature::Bush } else if r < 0.09 { Feature::Flower } else { Feature::None }
@@ -1533,6 +1567,14 @@ mod tests {
         let walk = walk_with_ladder();
         let spots: Vec<(i32, i32)> = walk.map.water_spots.iter().map(|&(x, y)| (x / TILE_SIZE, y / TILE_SIZE)).collect();
         assert!(spots.iter().any(|&(x, y)| walk.map.is_high(x, y) && walk.near((x, y))), "{spots:?}");
+    }
+
+    #[test]
+    fn the_west_coast_has_a_water_spot_across_the_bridge() {
+        let (walk, without) = (walk_with_bridge(), Walk::from_landing(island()));
+        let spots: Vec<(i32, i32)> = walk.map.water_spots.iter().map(|&(x, y)| (x / TILE_SIZE, y / TILE_SIZE)).collect();
+        let west = spots.iter().find(|&&(x, y)| !walk.map.is_high(x, y) && walk.near((x, y)) && !without.near((x, y)));
+        assert!(west.is_some(), "a spot is reached only over the bridge: {spots:?}");
     }
 
     #[test]

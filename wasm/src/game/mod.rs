@@ -68,6 +68,9 @@ const SHELLS_PER_DAY: usize = 3;
 /// Fish in the water (for each stretch the size of the first area), and
 /// how long (game minutes) before another comes in for one caught.
 const FISH_COUNT: usize = 12;
+/// Fish in the lake on the high ground, besides those in the sea and the
+/// river (which `FISH_COUNT` counts).
+pub(crate) const LAKE_FISH: usize = 12;
 const FISH_RETURN_MINUTES: u32 = 3 * 60;
 /// How near a fish must be to the water ahead for the castaway to wonder
 /// about catching it (px).
@@ -297,7 +300,10 @@ impl Game {
             }
             None => {
                 for _ in 0..island::for_area(&game.map, FISH_COUNT) {
-                    game.spawn_fish(false);
+                    game.spawn_fish(false, false);
+                }
+                for _ in 0..LAKE_FISH {
+                    game.spawn_fish(false, true);
                 }
                 game.shell_day = game.clock.day;
                 game.shell_cap = game.shells_on_beach().len();
@@ -576,7 +582,9 @@ impl Game {
         let due = self.fish_due.len();
         self.fish_due.retain(|&t| now < t);
         for _ in self.fish_due.len()..due {
-            self.spawn_fish(true);
+            // Back where one is missing: the lake first, if it's short.
+            let lake = self.fish_in_lake() < LAKE_FISH;
+            self.spawn_fish(true, lake);
         }
         self.camera.follow(pc, self.map.pixel_size());
     }
@@ -807,17 +815,27 @@ impl Game {
             .map(Pickup::Ground)
     }
 
-    /// Puts a fish somewhere it can swim; `unseen` keeps it off screen.
-    fn spawn_fish(&mut self, unseen: bool) {
+    /// Puts a fish somewhere it can swim, in the lake or else in the sea
+    /// and the river; `unseen` keeps it off screen.
+    fn spawn_fish(&mut self, unseen: bool, lake: bool) {
         let (w, h) = self.map.pixel_size();
-        for _ in 0..400 {
+        for _ in 0..4000 {
             let p = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
-            if fish::swimmable(&self.map, p) && !(unseen && self.camera.sees(p.0 - 16, p.1 - 16, 32, 32)) {
+            if fish::swimmable(&self.map, p) && self.in_lake(p) == lake && !(unseen && self.camera.sees(p.0 - 16, p.1 - 16, 32, 32)) {
                 let seed = self.rng.range(u32::MAX);
                 self.fish.push(Fish::new(p, seed));
                 return;
             }
         }
+    }
+
+    /// Whether the world pixel is in the lake on the high ground.
+    fn in_lake(&self, (x, y): (i32, i32)) -> bool {
+        self.map.is_high(x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE))
+    }
+
+    fn fish_in_lake(&self) -> usize {
+        self.fish.iter().filter(|f| self.in_lake(f.pos())).count()
     }
 
     /// Whether a fish swims near the point (and there's water there).
@@ -1420,6 +1438,24 @@ impl Game {
     pub fn debug_fish_at(&mut self, (dx, dy): (i32, i32)) {
         let (fx, fy) = self.player.body.feet();
         self.fish.push(Fish::new((fx + dx, fy + dy), 7));
+    }
+
+    /// Debug: how many fish swim anywhere, and in the lake.
+    pub fn debug_fish_count(&self) -> usize {
+        self.fish.len()
+    }
+
+    pub fn debug_fish_in_lake(&self) -> usize {
+        self.fish_in_lake()
+    }
+
+    /// Debug: catches a fish in the lake as a line would (it comes back
+    /// in time); false if there's none there.
+    pub fn debug_catch_fish_in_lake(&mut self) -> bool {
+        let Some(i) = self.fish.iter().position(|f| self.in_lake(f.pos())) else { return false };
+        self.fish.swap_remove(i);
+        self.fish_due.push(self.clock.total_minutes() + FISH_RETURN_MINUTES);
+        true
     }
 
     /// Debug: knows every recipe.

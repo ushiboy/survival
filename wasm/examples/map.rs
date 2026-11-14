@@ -108,8 +108,13 @@ fn spots(map: &WorldMap) -> Vec<(&'static str, char, Rgb, (i32, i32))> {
     let cell = |(x, y): (i32, i32)| (x / TILE_SIZE, y / TILE_SIZE);
     let mut v = vec![("LANDING", 'L', [255, 255, 255], (map.spawn.0 / TILE_SIZE, map.spawn.1 / TILE_SIZE + 1))];
     for (i, &w) in map.water_spots.iter().enumerate() {
-        // The first is by the pool under the falls; the next up on the high ground.
-        let name = if i == 0 { "WATER SPOT" } else { "UPPER WATER SPOT" };
+        // The first is on the pool's east bank, then one up on the high
+        // ground, and one on the pool's west bank, beyond the river.
+        let name = match i {
+            0 => "WATER SPOT",
+            _ if map.is_high(w.0 / TILE_SIZE, w.1 / TILE_SIZE) => "UPPER WATER SPOT",
+            _ => "WEST WATER SPOT",
+        };
         v.push((name, 'W', [0, 255, 255], cell(w)));
     }
     if let Some(f) = map.spots.falls {
@@ -269,17 +274,41 @@ fn report_counts(game: &Game) {
         })
     };
     let len = |key: &str| island[key].as_array().map_or(0, |v| v.len());
-    let vines = (0..game.map().height())
-        .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
-        .filter(|&(x, y)| game.map().is_high(x, y) && game.map().feature(x, y) == Feature::Vine)
-        .count();
-    println!("on the high ground: {} branches, {} stones, {} vines", lying("Branch", true), lying("Stone", true), vines);
+    let vines = |high: bool| {
+        (0..game.map().height())
+            .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| game.map().is_high(x, y) == high && game.map().feature(x, y) == Feature::Vine)
+            .count()
+    };
+    // Fish in the lake (on the high ground), and elsewhere.
+    let fish = |high: bool| {
+        island["fish"].as_array().map_or(0, |v| {
+            v.iter()
+                .filter(|p| {
+                    let (x, y) = (p[0].as_i64().unwrap_or(0) as i32, p[1].as_i64().unwrap_or(0) as i32);
+                    game.map().is_high(x / TILE_SIZE, y / TILE_SIZE) == high
+                })
+                .count()
+        })
+    };
     println!(
-        "on the island: {} branches, {} stones, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
+        "on the high ground: {} branches, {} stones, {} vines, {} fish in the lake",
+        lying("Branch", true),
+        lying("Stone", true),
+        vines(true),
+        fish(true)
+    );
+    println!(
+        "on the island ({} cells of dry land): {} branches, {} stones, {} vines, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
+        (0..game.map().height())
+            .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| !game.map().is_high(x, y) && matches!(game.map().terrain(x, y), Terrain::Sand | Terrain::Grass))
+            .count(),
         lying("Branch", false),
         lying("Stone", false),
+        vines(false),
         len("crabs"),
-        len("fish"),
+        fish(false),
         count_shells(game.map()),
         game.debug_shells_per_morning(),
         island["shell_cap"],
