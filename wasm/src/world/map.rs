@@ -22,6 +22,12 @@ pub struct Spots {
     pub ladder: Option<(i32, i32)>,
     /// The middle of the pool under the falls.
     pub falls: Option<(i32, i32)>,
+    /// The foot of the slope up the west cliff (its middle row).
+    pub slope: Option<(i32, i32)>,
+    /// How far the slope reaches across itself, from its foot to its top,
+    /// measured on the slant (world px `x - y`, the slope rising to the
+    /// north-east): its shading runs from the one to the other.
+    pub slope_span: Option<(i32, i32)>,
 }
 
 #[derive(Clone, Debug)]

@@ -16,6 +16,9 @@ pub enum Terrain {
     /// The top of a crag: bare rock heaped up on the high ground, too
     /// steep and broken to climb.
     Crag,
+    /// An earthen slope cut through the cliff, climbing up onto the high
+    /// ground from the land below.
+    Slope,
 }
 
 impl Terrain {

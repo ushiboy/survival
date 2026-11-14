@@ -118,6 +118,9 @@ fn spots(map: &WorldMap) -> Vec<(&'static str, char, Rgb, (i32, i32))> {
     if let Some(b) = map.spots.bridge {
         v.push(("RIVER NARROW", 'N', [255, 60, 60], b));
     }
+    if let Some(s) = map.spots.slope {
+        v.push(("WEST SLOPE", 'S', [255, 220, 120], s));
+    }
     if let Some(l) = map.spots.ladder {
         v.push(("LOW CLIFF", 'C', [255, 160, 0], l));
     }
@@ -253,12 +256,28 @@ fn main() {
 fn report_counts(game: &Game) {
     let save: serde_json::Value = serde_json::from_str(&game.debug_save_json()).expect("the save is JSON");
     let island = &save["island"];
-    let lying = |kind: &str| island["items"].as_array().map_or(0, |v| v.iter().filter(|i| i["kind"] == kind).count());
+    // Lying below the cliffs (`false`) or up on the high ground (`true`).
+    let lying = |kind: &str, high: bool| {
+        island["items"].as_array().map_or(0, |v| {
+            v.iter()
+                .filter(|i| i["kind"] == kind)
+                .filter(|i| {
+                    let (x, y) = (i["at"][0].as_i64().unwrap_or(0) as i32, i["at"][1].as_i64().unwrap_or(0) as i32);
+                    game.map().is_high(x / TILE_SIZE, y / TILE_SIZE) == high
+                })
+                .count()
+        })
+    };
     let len = |key: &str| island[key].as_array().map_or(0, |v| v.len());
+    let vines = (0..game.map().height())
+        .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| game.map().is_high(x, y) && game.map().feature(x, y) == Feature::Vine)
+        .count();
+    println!("on the high ground: {} branches, {} stones, {} vines", lying("Branch", true), lying("Stone", true), vines);
     println!(
         "on the island: {} branches, {} stones, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
-        lying("Branch"),
-        lying("Stone"),
+        lying("Branch", false),
+        lying("Stone", false),
         len("crabs"),
         len("fish"),
         count_shells(game.map()),
@@ -332,6 +351,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Terrain::CliffTop => [90, 94, 44],
         Terrain::Cliff => [130, 126, 130],
         Terrain::Crag => [96, 92, 104],
+        Terrain::Slope => [190, 150, 100],
     };
     // The lake's wet soil.
     let c = if map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud { [120, 90, 60] } else { c };
@@ -352,7 +372,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
     }
 }
 
-const LEGEND: [(&str, Rgb); 17] = [
+const LEGEND: [(&str, Rgb); 18] = [
     ("DEEP SEA", [20, 50, 120]),
     ("SHALLOWS", [60, 140, 200]),
     ("RIVER", [40, 110, 230]),
@@ -363,6 +383,7 @@ const LEGEND: [(&str, Rgb); 17] = [
     ("CLIFF EDGE", [90, 94, 44]),
     ("CLIFF", [130, 126, 130]),
     ("CRAG", [96, 92, 104]),
+    ("SLOPE", [190, 150, 100]),
     ("WET SOIL", [120, 90, 60]),
     ("PALM", [30, 90, 30]),
     ("BROADLEAF", [15, 60, 25]),
@@ -479,6 +500,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Terrain::CliffTop => 'e',
                 Terrain::Cliff => '|',
                 Terrain::Crag => 'A',
+                Terrain::Slope => '/',
             });
             s.push(match map.feature(x, y) {
                 Feature::None => ' ',

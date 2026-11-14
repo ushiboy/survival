@@ -54,6 +54,13 @@ const VINE_BELT: f32 = 5.0;
 const CRAB_COUNT: usize = 7;
 const BRANCH_COUNT: usize = 16;
 const STONE_COUNT: usize = 16;
+/// The same up on the high ground, for each stretch of it the size of the
+/// first area's dry land: branches fall as thick under its trees, but
+/// stones are fewer, with no beaches or riverbanks to gather them.
+const HIGH_BRANCH_COUNT: usize = 16;
+const HIGH_STONE_COUNT: usize = 8;
+/// Share of the high ground's cells by its trees that grow vines.
+const HIGH_VINES: f32 = 0.015;
 /// Dry land in the first area (sand and grass cells), the stretch those
 /// counts are for.
 const AREA_LAND: i32 = 1531;
@@ -73,6 +80,21 @@ const RIVER_MOUTH: (f32, f32) = (17.92, 29.14);
 /// The stream rises on the high ground beyond the north edge and falls
 /// over the cliff into a pool (centre and radius, cells).
 const SPRING: (f32, f32) = (POOL.0, -42.0);
+/// The grassy slope where the west end of the north cliff, slanting down
+/// to the south-east, gives way: the rows of the cliff (first area's
+/// cells) that are slope instead, ground and high ground meeting there in
+/// a hillside.
+const WEST_SLOPE_ROWS: (i32, i32) = (-21, -13);
+/// How far (cells) the slope's foot runs out onto the ground below, and
+/// its top onto the high ground: a gentle hillside.
+const SLOPE_RUN_OUT: i32 = 4;
+const SLOPE_RUN_UP: i32 = 3;
+/// Over how many cells the cliff east of the slope's foot rises to its
+/// full height, a cell of face at a time.
+const SLOPE_CLIFF_RISE: i32 = 2;
+/// How far (cells) around the slope nothing grows, so its way stays open.
+const SLOPE_CLEARING: i32 = 2;
+
 /// How much wider each side the stream's mouth is where it leaves the
 /// lake, and over how many cells it narrows to the stream.
 const MOUTH_FLARE: f32 = 2.2;
@@ -514,6 +536,55 @@ fn fill_lake(map: &mut WorldMap, field: &HeightField, high: &[bool], heights: &m
     mouth
 }
 
+/// Cuts the slope up through the west cliff's side.
+fn cut_slope(map: &mut WorldMap) {
+    let (top, bottom) = (WEST_SLOPE_ROWS.0 + ORIGIN.1, WEST_SLOPE_ROWS.1 + ORIGIN.1);
+    let mut cells = Vec::new();
+    let mut foot = None;
+    for y in top..=bottom {
+        // The cliff across the row, coming from the west, up to the high
+        // ground.
+        let Some(start) = (0..map.width()).find(|&x| map.terrain(x, y).is_cliff()) else { continue };
+        let end = (start..map.width()).find(|&x| !map.terrain(x, y).is_cliff()).unwrap_or(start);
+        // Its foot runs out a little onto the ground below, so it comes
+        // down gently.
+        let run = (1..=SLOPE_RUN_OUT).take_while(|&k| map.terrain(start - k, y) == Terrain::Grass).count() as i32;
+        let up = (0..SLOPE_RUN_UP).take_while(|&k| map.terrain(end + k, y) == Terrain::Highland).count() as i32;
+        cells.extend((start - run..end + up).map(|x| (x, y)));
+        if y == (top + bottom) / 2 {
+            foot = Some((start - run - 1, y));
+        }
+    }
+    // East of its lowest row the cliff carries on: its west end rises out
+    // of the slope a cell at a time instead of standing up at once.
+    if let Some(&(_, y)) = cells.last() {
+        let below = y + 1;
+        let from = cells.iter().filter(|c| c.1 == y).map(|c| c.0).min().unwrap_or(0);
+        if let Some(x0) = (from..map.width()).find(|&x| map.terrain(x, below) == Terrain::Cliff) {
+            for k in 0..SLOPE_CLIFF_RISE {
+                let x = x0 + k;
+                let face = (below..map.height()).take_while(|&fy| map.terrain(x, fy) == Terrain::Cliff).count() as i32;
+                let keep = k + 1;
+                cells.extend((below..below + (face - keep).max(0)).map(|fy| (x, fy)));
+            }
+        }
+    }
+    for &(x, y) in &cells {
+        map.set_terrain(x, y, Terrain::Slope);
+    }
+    // Its foot: the ground just west of its middle row.
+    map.spots.slope = foot;
+    let ts = TILE_SIZE;
+    let low = cells.iter().map(|&(x, y)| x * ts - (y * ts + ts - 1)).min();
+    let high = cells.iter().map(|&(x, y)| (x * ts + ts - 1) - y * ts).max();
+    map.spots.slope_span = low.zip(high);
+}
+
+/// Whether a cell is by the slope (kept clear).
+fn by_slope(map: &WorldMap, x: i32, y: i32) -> bool {
+    (-SLOPE_CLEARING..=SLOPE_CLEARING).any(|dy| (-SLOPE_CLEARING..=SLOPE_CLEARING).any(|dx| map.terrain(x + dx, y + dy) == Terrain::Slope))
+}
+
 /// How many cells of rock face drop from a crag's southern edge.
 const CRAG_FACE: i32 = 3;
 
@@ -683,6 +754,8 @@ pub fn generate(seed: u32) -> WorldMap {
         bridge: Some(nearest_on_river(&river, at_f(BRIDGE_AT))),
         ladder: low_cliff_foot(&map),
         falls: river.pool().map(|((x, y), _)| (x.round() as i32, y.round() as i32)),
+        slope: None,
+        slope_span: None,
     };
     map.river = Some(river);
 
@@ -697,10 +770,15 @@ pub fn generate(seed: u32) -> WorldMap {
     let at_narrow = |x: i32, y: i32| {
         narrow.is_some_and(|(nx, ny)| ((x - nx) as f32).hypot((y - ny) as f32 * BRIDGE_CLEARING_SQUASH) < BRIDGE_CLEARING)
     };
-    let near_spawn = |x: i32, y: i32| (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y);
+    raise_crags(&mut map, &field);
+    cut_slope(&mut map);
+    // The way up the slope is kept clear.
+    let slope_clear: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| by_slope(&map, x, y)).collect();
+    let near_spawn = |x: i32, y: i32| {
+        (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y) || ((0..w).contains(&x) && (0..h).contains(&y) && slope_clear[(y * w + x) as usize])
+    };
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
-    raise_crags(&mut map, &field);
     place_pine(&mut map);
     let bamboo: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.is_bamboo(x, y)).collect();
     place_bamboo(&mut map, &heights, &bamboo, seed);
@@ -848,6 +926,13 @@ fn ease_sea_floor(heights: &mut [f32], w: i32, h: i32) {
 /// How many of something for an island this size, at `per_area` for each
 /// stretch of dry land the size of the first area's (the high ground above
 /// the cliffs not counted).
+/// How many of something for the high ground's open ground, at
+/// `per_area` for each stretch of it the size of the first area's dry land.
+pub fn for_high_area(map: &WorldMap, per_area: usize) -> usize {
+    let land = (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| map.terrain(x, y) == Terrain::Highland).count();
+    per_area * land / AREA_LAND as usize
+}
+
 pub fn for_area(map: &WorldMap, per_area: usize) -> usize {
     let land = (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| !map.is_high(x, y) && matches!(map.terrain(x, y), Terrain::Sand | Terrain::Grass)).count();
     per_area * land / AREA_LAND as usize
@@ -1047,12 +1132,23 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
             let h = heights[(y * map.width() + x) as usize];
             let r = roll(x, y, seed ^ 0xF00D);
             let feature = match map.terrain(x, y) {
-                // Thick growth on the high ground.
                 // The grass meeting the lake's shore is left bare, so it's
                 // drawn running down to the soil.
                 Terrain::Highland if by_lake(map, x, y) => Feature::None,
+                // Undergrowth on the high ground: thicker than in the forest
+                // below, but with room to walk.
                 Terrain::Highland => {
-                    if r < 0.45 { Feature::Bush } else if r < 0.5 { Feature::Flower } else { Feature::None }
+                    let by_tree = (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+                    if r < 0.15 {
+                        Feature::Bush
+                    } else if r < 0.2 {
+                        Feature::Flower
+                    } else if by_tree && r > 1.0 - HIGH_VINES {
+                        // Climbers on the trees.
+                        Feature::Vine
+                    } else {
+                        Feature::None
+                    }
                 }
                 Terrain::Grass if h > JUNGLE_ABOVE => {
                     if r < 0.6 { Feature::Bush } else if r < 0.66 { Feature::Flower } else { Feature::None }
@@ -1114,6 +1210,26 @@ fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
                 && matches!(map.feature(x, y), Feature::None | Feature::Flower | Feature::Shell);
             let taken = out.iter().any(|&(_, (px, py))| px.div_euclid(TILE_SIZE) == x && py.div_euclid(TILE_SIZE) == y);
             if !open || taken || (!liked && !rng.chance(0.25)) {
+                continue;
+            }
+            let at = (x * TILE_SIZE + 8 + rng.between(-4, 4), y * TILE_SIZE + 10 + rng.between(-3, 3));
+            out.push((kind, at));
+            placed += 1;
+        }
+    }
+    // Up on the high ground, under its trees.
+    for (kind, count) in [(ItemKind::Branch, for_high_area(map, HIGH_BRANCH_COUNT)), (ItemKind::Stone, for_high_area(map, HIGH_STONE_COUNT))] {
+        let mut placed = 0;
+        for _ in 0..4000 {
+            if placed >= count {
+                break;
+            }
+            let (x, y) = (rng.between(0, map.width() - 1), rng.between(0, map.height() - 1));
+            let open = map.terrain(x, y) == Terrain::Highland
+                && !map.props(x, y).solid
+                && matches!(map.feature(x, y), Feature::None | Feature::Flower);
+            let taken = out.iter().any(|&(_, (px, py))| px.div_euclid(TILE_SIZE) == x && py.div_euclid(TILE_SIZE) == y);
+            if !open || taken {
                 continue;
             }
             let at = (x * TILE_SIZE + 8 + rng.between(-4, 4), y * TILE_SIZE + 10 + rng.between(-3, 3));
@@ -1269,7 +1385,64 @@ mod tests {
         map.lay_bridge(span);
         let walk = Walk::from_landing(map);
         assert!(walk.can((span.west, span.row)) && walk.can((span.east, span.row)), "both ends of the bridge are reached");
-        assert!(!walk.reaches_high_ground(), "the bridge doesn't open a way up the cliff");
+    }
+
+    /// The island with a log bridge laid at the narrow, walked from the
+    /// landing.
+    fn walk_with_bridge() -> Walk {
+        let mut map = island();
+        let (bx, by) = map.spots.bridge.expect("the river has a narrow");
+        let span = map.bridge_spot(bx, by).expect("a bridge goes across the narrow");
+        map.lay_bridge(span);
+        Walk::from_landing(map)
+    }
+
+    /// High ground beside the top of the slope (the cell east of its top).
+    fn above_the_slope(map: &WorldMap) -> (i32, i32) {
+        let w = map.width();
+        let top = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).find(|&(x, y)| map.terrain(x, y) == Terrain::Slope).expect("the island has a slope");
+        let x = (top.0..w).find(|&x| map.terrain(x, top.1) == Terrain::Highland).expect("high ground beside the slope's top");
+        (x, top.1)
+    }
+
+    #[test]
+    fn the_slope_leads_up_from_the_west_coast_to_the_high_ground() {
+        let walk = walk_with_bridge();
+        assert!(walk.can(walk.map.spots.slope.expect("the island has a slope")), "the slope's foot is reached over the bridge");
+        assert!(walk.can(above_the_slope(&walk.map)), "the high ground at its top is reached");
+    }
+
+    #[test]
+    fn the_slope_cant_be_reached_without_the_bridge() {
+        let walk = Walk::from_landing(island());
+        assert!(!walk.can(above_the_slope(&walk.map)));
+        assert!(!walk.near(walk.map.spots.slope.expect("the island has a slope")));
+    }
+
+    #[test]
+    fn the_high_ground_west_of_the_river_cant_be_reached_from_the_ladder() {
+        // The river runs between the slope's side and the ladder's.
+        let walk = walk_with_ladder();
+        assert!(!walk.can(above_the_slope(&walk.map)));
+    }
+
+    #[test]
+    fn branches_and_stones_lie_on_the_high_ground_too() {
+        let map = island();
+        let up = |kind: ItemKind| map.loot.iter().filter(|&&(k, (x, y))| k == kind && map.is_high(x / TILE_SIZE, y / TILE_SIZE)).count();
+        let (branches, stones) = (up(ItemKind::Branch), up(ItemKind::Stone));
+        assert!(branches > 0 && stones > 0, "{branches} branches, {stones} stones");
+        assert!(stones < branches, "stones are fewer up there, away from beaches and riverbanks");
+    }
+
+    #[test]
+    fn vines_grow_on_the_high_ground_by_its_trees() {
+        let map = island();
+        let w = map.width();
+        let vines: Vec<(i32, i32)> = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| map.is_high(x, y) && map.feature(x, y) == Feature::Vine).collect();
+        assert!(!vines.is_empty());
+        let by_tree = |(x, y): (i32, i32)| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+        assert!(vines.iter().all(|&v| by_tree(v)));
     }
 
     #[test]

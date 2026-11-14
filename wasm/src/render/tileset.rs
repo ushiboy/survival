@@ -249,6 +249,7 @@ impl Builder<'_> {
             Terrain::Sand => bank.add_art(PAL_SAND, &slice(&tex.sand, vx, vy)),
             Terrain::Grass | Terrain::Highland | Terrain::CliffTop => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
             Terrain::Cliff | Terrain::Crag => bank.add_art(PAL_ROCK, &PixelArt::filled(16, 16, SANDSTONE[2])),
+            Terrain::Slope => bank.add_art(PAL_GRASS, &PixelArt::filled(16, 16, grass::SOIL)),
             // Transparent: the river is drawn on BG2.
             Terrain::River => bank.add_art(PAL_DEEP, &PixelArt::filled(16, 16, 0)),
         })
@@ -808,7 +809,8 @@ impl Builder<'_> {
     /// lip where it drops to a cliff face, and to a bare earthen bank on the
     /// other sides that drop away.
     fn cliff_top(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
-        let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River);
+        // The slope climbs up to the edge: it doesn't drop away there.
+        let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River | Terrain::Slope);
         let mut open = [drop(0, -1), drop(1, 0), drop(0, 1), drop(-1, 0)];
         let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
         if let Some((cut, 0)) = dip(map, x, y) {
@@ -998,8 +1000,68 @@ impl Builder<'_> {
         })
     }
 
+    /// A cell of the slope (grass palette): a grassy hillside rising to the
+    /// north-east, lighter as it rises (it faces the light), with bands of
+    /// shade along its contours, so it reads as ground going up rather than
+    /// a drop.
+    fn slope(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let g = slice(&self.tex.grass, x, y);
+        let (low, high) = map.spots.slope_span.unwrap_or((x * 16 - y * 16 - 16, x * 16 - y * 16 + 16));
+        let r = grass::RAMP;
+        // How many cells of slope run on from this one each way (up to
+        // two): its shading fades out toward the slope's edges, so it melts
+        // into the grass around it.
+        let run = |dx: i32, dy: i32| (1..=2).take_while(|&k| map.terrain(x + dx * k, y + dy * k) == Terrain::Slope).count() as i32;
+        let (up, down) = (run(0, -1), run(0, 1));
+        let art = compose(|px, py| {
+            let (ix, iy) = (px as i32, py as i32);
+            let (wx, wy) = (x * 16 + ix, y * 16 + iy);
+            let b = bayer(wx, wy);
+            // How high up the hillside (0 at its foot, 1 at its top),
+            // measured across the whole of it on the slant, so its shading
+            // runs in smooth lines rather than steps.
+            let t = ((wx - wy - low) as f32 / (high - low).max(1) as f32).clamp(0.0, 1.0);
+            // Distance (px) to the slope's edge, and how much of its shading
+            // shows there.
+            // Its ends (north and south) by the cells; its foot and its top
+            // on the slant, where it meets the ground below and the high
+            // ground.
+            let edge = (up * 16 + iy).min(down * 16 + 15 - iy);
+            let fade = (edge as f32 / 28.0).min((1.0 - t) / 0.12).min(1.0);
+            if b >= fade {
+                return g.get(px, py);
+            }
+            let t = (t + noise_px(wx / 3, wy / 3, 0x51E4) * 0.2 - 0.1).clamp(0.0, 1.0);
+            // Contours run along the hillside (down to the south-east).
+            let contour = ((wx - wy) as f32 / 10.0 + noise_px(wx / 4, wy / 4, 0x51E5) * 0.6).rem_euclid(1.0);
+            let base = g.get(px, py);
+            // The rises show more as the hillside steepens toward the top;
+            // its foot fades into the ground below.
+            if contour < 0.1 && t > 0.25 {
+                if b < 0.3 + t * 0.4 { r[1] } else { r[2] }
+            } else if contour < 0.2 && t > 0.35 && b < 0.5 {
+                r[2]
+            } else if t < 0.3 {
+                if b < t * 1.2 { r[2] } else { base }
+            } else if t < 0.5 {
+                if b < 0.4 { r[2] } else { base }
+            } else if t > 0.8 {
+                // Up top, in the sun.
+                if b < 0.5 { r[5] } else { base }
+            } else if t > 0.65 && b < 0.25 {
+                r[5]
+            } else {
+                base
+            }
+        });
+        self.unique_art(PAL_GRASS, &art)
+    }
+
     fn plain_ground(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
         let t = map.terrain(x, y);
+        if t == Terrain::Slope {
+            return self.slope(map, x, y);
+        }
         if t == Terrain::Crag {
             return self.crag_top(map, x, y);
         }
