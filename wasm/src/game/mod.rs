@@ -37,7 +37,7 @@ use crate::render::lighting::{self, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
-use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, island};
+use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
 use crate::world::map::BridgeSpan;
 use menu::{BagMenu, Outcome};
 use regions::Regions;
@@ -149,6 +149,9 @@ pub struct Game {
     /// many as it started with).
     shell_day: u32,
     shell_cap: usize,
+    /// The most driftwood the west coast holds: as many logs as it had
+    /// when the island was made.
+    driftwood_cap: usize,
     /// In-game minutes the castaway has been asleep.
     /// Which chunks of the island are awake (creatures move only there).
     regions: Regions,
@@ -206,6 +209,7 @@ impl Game {
     fn build(seed: u32, save: Option<&SaveData>) -> Self {
         let mut assets = Assets::load();
         let mut map = island::generate(seed);
+        let driftwood_cap = driftwood::logs_on_west_coast(&map);
         if let Some(s) = save {
             for &((x, y), f) in &s.island.features {
                 map.set_feature(x, y, f);
@@ -262,6 +266,7 @@ impl Game {
             fires: save.map_or_else(Vec::new, |s| s.island.fires.clone()),
             shell_day: 0,
             shell_cap: 0,
+            driftwood_cap,
             regions,
             seed,
             title: save.is_none().then(|| TitleState::opening(false)),
@@ -514,6 +519,7 @@ impl Game {
         if self.clock.day != self.shell_day {
             self.shell_day = self.clock.day;
             self.wash_up_shells();
+            self.wash_up_driftwood();
         }
         self.player.torch = self.inventory.torch_lit().then(|| self.inventory.torch_dying(now));
         if self.inventory.think() {
@@ -928,6 +934,20 @@ impl Game {
                 changed.push((x, y));
             }
         }
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// A new morning: now and then the tide leaves a log on the west
+    /// coast's sand, clear of the castaway, the crabs, dropped items and
+    /// fires.
+    fn wash_up_driftwood(&mut self) {
+        let cell = |(px, py): (i32, i32)| (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+        let (cx, cy) = cell(self.player.body.feet());
+        let mut taken: Vec<(i32, i32)> = self.items.iter().map(|i| cell(i.ground())).collect();
+        taken.extend(self.crabs.iter().map(|c| cell(c.body.feet())));
+        taken.extend(self.fires.iter().map(|f| cell((f.x, f.y))));
+        let keep_clear = |x: i32, y: i32| (x - cx).abs() <= 3 && (y - cy).abs() <= 3 || taken.contains(&(x, y));
+        let changed = driftwood::wash_up(&mut self.map, &mut self.rng, self.driftwood_cap, &keep_clear);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
@@ -1389,6 +1409,32 @@ impl Game {
     /// with the island).
     pub fn debug_shells_per_morning(&self) -> usize {
         island::for_area(&self.map, SHELLS_PER_DAY)
+    }
+
+    /// Dev tools: how many driftwood logs lie in the first area (and
+    /// elsewhere this side of the river) and on the west coast.
+    pub fn debug_driftwood(&self) -> (usize, usize) {
+        let west = driftwood::logs_on_west_coast(&self.map);
+        let all = (0..self.map.height())
+            .flat_map(|y| (0..self.map.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| matches!(self.map.feature(x, y), Feature::Driftwood(p) if p.dx == 0))
+            .count();
+        (all - west, west)
+    }
+
+    /// Dev tools: splits every driftwood log on the island at once (the
+    /// branches aren't dropped).
+    pub fn debug_clear_driftwood(&mut self) {
+        let mut changed = Vec::new();
+        for y in 0..self.map.height() {
+            for x in 0..self.map.width() {
+                if matches!(self.map.feature(x, y), Feature::Driftwood(_)) {
+                    self.map.set_feature(x, y, Feature::None);
+                    changed.push((x, y));
+                }
+            }
+        }
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
     /// Dev tools: the game as it stands, as a save (JSON).

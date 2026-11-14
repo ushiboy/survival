@@ -2,6 +2,7 @@
 //! Pure logic — nothing here knows about graphics.
 
 pub mod chunk;
+pub mod driftwood;
 pub mod harvest;
 pub mod island;
 pub mod map;
