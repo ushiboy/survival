@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 9;
+pub const SAVE_VERSION: u32 = 10;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -319,6 +319,33 @@ fn v8_to_v9(save: &mut Value) {
     shift(&mut save["castaway"]["at"], px);
 }
 
+/// The cell the high ground's changes are dropped from, east on, in
+/// version 10.
+const RIDGE_REDRAWN_FROM: i32 = 144;
+
+/// Version 10: the map grew east (the rocks east of the lake run on south
+/// as a ridge to the sea, closing off the high ground's forest), so nothing
+/// moves. The ridge bulges into the old forest, and the trees beside it
+/// were placed again, so what changed on the high ground from
+/// `RIDGE_REDRAWN_FROM` east in a version 9 save is dropped, but a ladder;
+/// and what lay where the ridge now stands is gone. The island is made
+/// from the save's seed.
+fn v9_to_v10(save: &mut Value) {
+    let seed = save["seed"].as_u64().unwrap_or(1) as u32;
+    let island = crate::world::island::generate(seed);
+    let by_ridge = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => x as i32 >= RIDGE_REDRAWN_FROM && island.is_high(x as i32, y as i32),
+        _ => false,
+    };
+    drop_changes_where(save, by_ridge, |e| e[1].get("Ladder").is_some());
+    if let Some(Value::Array(items)) = save["island"].get_mut("items") {
+        items.retain(|i| match (i["at"][0].as_i64(), i["at"][1].as_i64()) {
+            (Some(x), Some(y)) => island.terrain((x / 16) as i32, (y / 16) as i32) != crate::world::Terrain::Crag,
+            _ => true,
+        });
+    }
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -464,6 +491,7 @@ mod tests {
         include_str!("save_samples/v7.json"),
         include_str!("save_samples/v8.json"),
         include_str!("save_samples/v9.json"),
+        include_str!("save_samples/v10.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -664,5 +692,32 @@ mod tests {
         assert!(!s.island.features.iter().any(|&(at, _)| at == (100, 5 + NORTH_CELLS)), "the stump on the high ground is gone");
         assert!(has_feature(&s, (95, 15 + NORTH_CELLS), Feature::Ladder(0)));
         assert!(has_feature(&s, (95, 16 + NORTH_CELLS), Feature::Ladder(1)));
+    }
+
+    /// A version 9 save with a stump left on the high ground at each of
+    /// `cells`, and a branch lying at `lying` (world px).
+    fn version_9_with(cells: &[(i32, i32)], lying: (i32, i32)) -> SaveData {
+        let mut v = sample(9);
+        let stump = serde_json::to_value(Feature::PineStump(StumpPart { flip: false })).unwrap();
+        v["island"]["features"] = Value::Array(cells.iter().map(|&(x, y)| serde_json::json!([[x, y], stump])).collect());
+        v["island"]["items"] = serde_json::json!([{"kind": "Branch", "count": 1, "at": [lying.0, lying.1]}]);
+        SaveData::from_json(&v.to_string()).unwrap()
+    }
+
+    #[test]
+    fn version_10_drops_changes_on_the_high_ground_by_the_new_ridge() {
+        let (west, east) = ((100, 64), (165, 100));
+        let s = version_9_with(&[west, east], (0, 0));
+        assert!(s.island.features.iter().any(|&(at, _)| at == west), "changes away from the ridge stay");
+        assert!(!s.island.features.iter().any(|&(at, _)| at == east), "the trees by the ridge were placed again");
+    }
+
+    #[test]
+    fn version_10_drops_what_lay_where_the_ridge_now_stands() {
+        let island = crate::world::island::generate(1);
+        let rock = (172, 82);
+        assert_eq!(island.terrain(rock.0, rock.1), crate::world::Terrain::Crag, "the ridge stands there now");
+        assert!(version_9_with(&[], (rock.0 * 16 + 8, rock.1 * 16 + 8)).island.items.is_empty());
+        assert_eq!(version_9_with(&[], (100 * 16, 64 * 16)).island.items.len(), 1, "what lay elsewhere stays");
     }
 }

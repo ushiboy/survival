@@ -203,6 +203,9 @@ enum Key {
     /// The side of the high ground seen from above, dropping away to the
     /// left or right.
     CliffSide { left: bool, right: bool, vx: i32, vy: i32 },
+    /// The same side as a narrow band of rock along the drop, clear
+    /// elsewhere for the grass on BG2 to show through.
+    CliffSideBand { left: bool, right: bool, vx: i32, vy: i32 },
     Prop { kind: u8, flip: bool, vx: i32, vy: i32 },
     /// The lake shore's wet soil, away from the water and the grass.
     Mud(i32, i32),
@@ -821,8 +824,7 @@ impl Builder<'_> {
             // The edge drops to the dip below as it would to a face.
             open[2] = true;
         }
-        if !open[2] && (open[1] || open[3]) {
-            let (left, right) = (open[3], open[1]);
+        if let Some((left, right)) = cliff_side(map, x, y) {
             return self.get(Key::CliffSide { left, right, vx, vy }, |_, bank| {
                 bank.add_art(PAL_ROCK, &compose(|px, py| cliff_side_pixel(left, right, vx * 16 + px as i32, vy * 16 + py as i32)))
             });
@@ -916,6 +918,18 @@ impl Builder<'_> {
         let t = map.terrain(x, y);
         if t == Terrain::Crag {
             return self.crag(map, x, y, under);
+        }
+        if t == Terrain::CliffTop
+            && under
+            && let Some((left, right)) = cliff_side(map, x, y)
+        {
+            // Seen from above, the side drops away in a narrow band of rock;
+            // the high ground's grass runs on (on BG2) to its lip.
+            let (vx, vy) = (x.rem_euclid(4), y.rem_euclid(4));
+            let band = self.get(Key::CliffSideBand { left, right, vx, vy }, |_, bank| {
+                bank.add_art(PAL_ROCK, &compose(|px, py| cliff_side_band_pixel(left, right, vx * 16 + px as i32, vy * 16 + py as i32)))
+            });
+            return (band, Some(self.interior(Terrain::Highland, x, y)));
         }
         if t == Terrain::Cliff {
             let face = self.cliff_face_on(map, x, y, None, under);
@@ -1071,7 +1085,12 @@ impl Builder<'_> {
             _ => {}
         }
         // The high ground is grass, meeting the lake's shore as the grass
-        // below meets the beach.
+        // below meets the beach. Its height runs low by the sea, where it
+        // ends at the cliffs' edges: without sand beside it, it has no beach
+        // to meet.
+        if t == Terrain::Highland && !(-1..=1).any(|dy| (-1..=1).any(|dx| map.terrain(x + dx, y + dy) == Terrain::Sand)) {
+            return self.interior(Terrain::Grass, x, y);
+        }
         let t = if t == Terrain::Highland { Terrain::Grass } else { t };
         let f = CellField::sample(map, x, y);
         match t {
@@ -1745,6 +1764,38 @@ fn rock_at(x: i32, y: i32) -> (i32, i32) {
 /// The cliffs' sandstone (rock palette) as a ramp, dark to light, in place
 /// of the stones' greys.
 const SANDSTONE: [u8; 6] = [rock::WOOD[0], rock::SAND_SHADOW, rock::SAND[0], rock::SAND[1], rock::SAND[2], rock::SAND[2]];
+
+/// Whether the edge of the high ground drops away only to the side
+/// (left, right), not to a face below it.
+fn cliff_side(map: &WorldMap, x: i32, y: i32) -> Option<(bool, bool)> {
+    if map.terrain(x, y) != Terrain::CliffTop || dip(map, x, y).is_some() || dip(map, x, y + 1).is_some_and(|(_, oy)| oy == 0) {
+        return None;
+    }
+    let drop = |dx: i32, dy: i32| !matches!(map.terrain(x + dx, y + dy), Terrain::Highland | Terrain::CliffTop | Terrain::River | Terrain::Slope);
+    let (left, right) = (drop(-1, 0), drop(1, 0));
+    (!drop(0, 1) && (left || right)).then_some((left, right))
+}
+
+/// How wide (px) the rock of a side seen from above is, before its ragged
+/// lip.
+const CLIFF_SIDE_BAND: i32 = 4;
+
+/// One pixel of the side of the high ground as a narrow band of rock along
+/// the drop (rock palette), with grass hanging over its lip; 0 (clear)
+/// past it.
+fn cliff_side_band_pixel(left: bool, right: bool, wx: i32, wy: i32) -> u8 {
+    let px = wx.rem_euclid(16);
+    let width = |k: i32| CLIFF_SIDE_BAND + (noise_px(wy / 2, k, 0x51DE) * 3.0) as i32;
+    let reach = |open: bool, from: i32, k: i32| if open { from - width(k) } else { i32::MAX };
+    let past = reach(left, px, 0).min(reach(right, 15 - px, 1));
+    if past >= 1 {
+        0
+    } else if past == 0 {
+        if bayer(wx, wy) < 0.5 { rock::MOSS } else { SANDSTONE[1] }
+    } else {
+        cliff_side_pixel(left, right, wx, wy)
+    }
+}
 
 /// One pixel of the side of the high ground seen from above (rock
 /// palette): the sandstone of its face, with grass hanging over the top
