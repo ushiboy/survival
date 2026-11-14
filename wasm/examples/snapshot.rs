@@ -8,7 +8,8 @@
 //! `SNAP_GIVE=stone,vine,branch` to start with those items in the bag, and
 //! `SNAP_CRAB=dx` to set a crab down that far right of the castaway, and
 //! `SNAP_HP=n` to start with `n` health (of 64), `SNAP_FOOD=n` and
-//! `SNAP_WATER=n` with that much food and water, and `SNAP_HOURS=n` to start `n`
+//! `SNAP_WATER=n` with that much food and water, `SNAP_UPSET=1` with an
+//! upset stomach, and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
 //! draws every frame as the browser does; `SNAP_RELOAD=1` saves the game at
@@ -100,6 +101,10 @@ fn main() {
     // SNAP_HP / SNAP_FOOD / SNAP_WATER=n start with that much (of 64).
     let gauge = |name: &str| std::env::var(name).ok().map(|n| n.parse().expect("gauges run 0..=64"));
     game.debug_set_vitals(gauge("SNAP_HP"), gauge("SNAP_FOOD"), gauge("SNAP_WATER"));
+    // SNAP_UPSET=1 starts with an upset stomach.
+    if std::env::var("SNAP_UPSET").is_ok_and(|v| v == "1") {
+        game.debug_upset_stomach();
+    }
     // SNAP_CRAB=dx sets a crab down that far to the right of the feet.
     if let Ok(dx) = std::env::var("SNAP_CRAB") {
         game.debug_crab_ahead(dx.parse().expect("SNAP_CRAB must be px"));

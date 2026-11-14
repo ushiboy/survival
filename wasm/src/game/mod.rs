@@ -12,7 +12,7 @@ pub mod state;
 use crate::assets::{Assets, SpriteIds};
 use crate::ppu::oam::ObjEntry;
 use crate::assets::character::Outfit;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_player_palettes};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::common::math::Rect;
@@ -42,7 +42,7 @@ use crate::world::map::BridgeSpan;
 use menu::{BagMenu, Outcome};
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
-use state::{GameClock, Inventory, Rest, Vitals};
+use state::{Ailment, GameClock, Inventory, Rest, Vitals};
 
 const START_HOUR: u32 = 7;
 /// Above this darkness the sun casts no shadows and night darkness begins.
@@ -171,6 +171,9 @@ pub struct Game {
     vitals: Vitals,
     /// Frames of the minute going by spent running (it tires faster).
     ran_frames: u32,
+    /// Dev tools: whether something raw always (`Some(false)`) or never
+    /// (`Some(true)`) upsets the stomach, instead of by chance.
+    stomach_luck: Option<bool>,
     inventory: Inventory,
     input: InputState,
     paused: bool,
@@ -271,6 +274,7 @@ impl Game {
             clock,
             vitals: save.map_or_else(Vitals::new, |s| s.vitals.clone()),
             ran_frames: 0,
+            stomach_luck: None,
             inventory: Inventory::default(),
             input: InputState::default(),
             paused: false,
@@ -496,6 +500,15 @@ impl Game {
             return;
         }
         self.player.weak = self.vitals.starving();
+        self.player.can_run = self.vitals.can_run();
+        let queasy = self.vitals.has(Ailment::UpsetStomach);
+        if queasy != self.player.queasy {
+            // The colour drains from the face (and comes back).
+            set_player_palettes(&mut self.base_cgram, &self.inventory.outfit, queasy);
+        }
+        self.player.queasy = queasy;
+        // Any ailment turns the health gauge a poisonous purple.
+        set_health_palette(&mut self.base_cgram, !self.vitals.ailments.is_empty());
         let now = self.clock.total_minutes();
         self.inventory.tend_torch(now);
         if self.clock.day != self.shell_day {
@@ -594,7 +607,7 @@ impl Game {
     pub fn equip(&mut self, outfit: Outfit) {
         self.inventory.outfit = outfit;
         self.assets.sprites.player.rebuild(&mut self.assets.vram.sprites, &outfit);
-        set_player_palettes(&mut self.base_cgram, &outfit);
+        set_player_palettes(&mut self.base_cgram, &outfit, self.player.queasy);
     }
 
     /// Applies an axe blow landing at `point` (world px).
@@ -1155,6 +1168,17 @@ impl Game {
         self.vitals.eat(fill);
         self.vitals.drink(quench);
         self.vitals.heal(kind.heals());
+        if let Some((ailment, chance)) = kind.risk() {
+            // The very first draw of raw water is always safe.
+            let spared = kind == ItemKind::RawWater && !self.vitals.drunk_raw_water;
+            if kind == ItemKind::RawWater {
+                self.vitals.drunk_raw_water = true;
+            }
+            let unlucky = self.stomach_luck.map_or_else(|| self.rng.chance(chance), |lucky| !lucky);
+            if !spared && unlucky {
+                self.vitals.catch(ailment);
+            }
+        }
         if let Some(left) = kind.leaves_behind() {
             self.take(left, 1);
         }
@@ -1485,6 +1509,22 @@ impl Game {
         if let Some(water) = water {
             self.vitals.water = water.min(Vitals::MAX);
         }
+    }
+
+    /// Dev tools: makes something raw always (`Some(false)`) or never
+    /// (`Some(true)`) upset the stomach; `None` leaves it to chance.
+    pub fn debug_stomach_luck(&mut self, lucky: Option<bool>) {
+        self.stomach_luck = lucky;
+    }
+
+    /// Dev tools: upsets the castaway's stomach, as if from something raw.
+    pub fn debug_upset_stomach(&mut self) {
+        self.vitals.catch(Ailment::UpsetStomach);
+    }
+
+    /// Dev tools: gets the castaway over whatever ails them.
+    pub fn debug_cure(&mut self) {
+        self.vitals.cure();
     }
 
     /// Dev tools: sets a crab down `dx` px to the right of the castaway's

@@ -56,6 +56,9 @@ const en: typeof ja = {
       thirsty: { label: 'Parched', done: 'Set water to 0' },
       dying: { label: 'Dying', done: 'Set health to 1' },
     },
+    condition: 'Condition',
+    upsetStomach: { label: 'Upset stomach', done: 'Upset the stomach' },
+    cure: { label: 'Cure', done: 'Back to good health' },
     keys: 'Shift (SELECT) — skip 3 hours / O — change outfit',
   },
 };

@@ -1,12 +1,16 @@
-//! HUD overlay on BG3: health, food & water gauges, day and clock.
+//! HUD overlay on BG3: health, food & water gauges, what ails the castaway,
+//! day and clock.
 //! Drawn over the playfield with no backing panel, as 16-bit games did.
 
 use crate::assets::HudTiles;
 use crate::assets::palettes::{HUD_FOOD, HUD_HEART, HUD_SKY, HUD_TEXT, HUD_WATER};
-use crate::game::state::{GameClock, Vitals};
+use crate::game::state::{Ailment, GameClock, Vitals};
 use crate::ppu::Bg3Layer as HudLayer;
 
 const GAUGE_TILES: usize = 8;
+/// Where the icons of what ails the castaway start (a column clear of the
+/// gauges).
+const AILMENTS_COL: usize = 2 + GAUGE_TILES + 2;
 /// The HUD occupies the top-left of the BG3 map.
 pub const HUD_COLS: usize = 32;
 pub const HUD_ROWS: usize = 4;
@@ -38,6 +42,13 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameC
     gauge(hud, tiles, 2, 2, vitals.food, Vitals::MAX, HUD_FOOD);
     hud.put(1, 3, tiles.water, HUD_WATER);
     gauge(hud, tiles, 2, 3, vitals.water, Vitals::MAX, HUD_WATER);
+    // What ails the castaway, pictograms in a row right of the health gauge.
+    for (i, a) in vitals.ailments.iter().enumerate() {
+        let icon = match a.ailment {
+            Ailment::UpsetStomach => tiles.upset_stomach,
+        };
+        hud.put(AILMENTS_COL + i, 1, icon, HUD_TEXT);
+    }
 
     hud.put(23, 1, if night { tiles.moon } else { tiles.sun }, HUD_SKY);
     text(hud, tiles, 25, 1, &format!("DAY {:02}", clock.day));

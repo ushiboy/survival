@@ -161,6 +161,23 @@ pub fn walk(view: View, phase: usize) -> Pose {
     if contact { p.shift_upper(1.0) } else { p }
 }
 
+/// Walking (or standing, phase 0) with an upset stomach: the far hand (the
+/// screen-left one facing toward or away) held to the belly, the head
+/// hung a little. The near arm swings as in `walk`, so a torch is held the
+/// same way.
+pub fn queasy(view: View, phase: usize) -> Pose {
+    let mut p = walk(view, phase);
+    let bob = p.pelvis.1 - 21.0;
+    p.head.1 += 0.6;
+    p.arms[0] = match view {
+        View::Front => limb(p.arms[0].a, (7.4, 18.4 + bob), (11.8, 19.8 + bob), true),
+        View::Back => limb(p.arms[0].a, (7.6, 18.4 + bob), (10.8, 19.4 + bob), false),
+        // Across the front of the belly, so it's drawn over the body.
+        View::Side => limb(p.arms[0].a, (13.4, 18.0 + bob), (15.6, 19.6 + bob), true),
+    };
+    p
+}
+
 /// Axe swing poses: 0 = wound up, 1 = sweeping past the body, 2 = strike.
 /// Hips stay planted in a wide stance while the shoulders twist.
 pub fn chop(view: View, stage: usize) -> Pose {

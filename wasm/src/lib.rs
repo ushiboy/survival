@@ -112,6 +112,16 @@ impl GameHandle {
         self.game.debug_places().into_iter().flat_map(|(_, (x, y))| [x, y]).collect()
     }
 
+    /// Debug: upsets the castaway's stomach, as if from something raw.
+    pub fn debug_upset_stomach(&mut self) {
+        self.game.debug_upset_stomach();
+    }
+
+    /// Debug: gets the castaway over whatever ails them.
+    pub fn debug_cure(&mut self) {
+        self.game.debug_cure();
+    }
+
     /// Debug: makes every recipe known.
     pub fn debug_learn_recipes(&mut self) {
         self.game.debug_learn_recipes();

@@ -54,6 +54,10 @@ export interface GameCore {
   debugPlaces(): DebugPlace[];
   /** Debug: sets health, food and water (0–64); a negative value leaves it as it is. */
   debugSetVitals(hp: number, food: number, water: number): void;
+  /** Debug: upsets the castaway's stomach. */
+  debugUpsetStomach(): void;
+  /** Debug: gets the castaway over whatever ails them. */
+  debugCure(): void;
   dispose(): void;
 }
 
@@ -123,6 +127,8 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
       return handle.debug_place_names().map((name, i) => ({ name, x: cells[i * 2], y: cells[i * 2 + 1] }));
     },
     debugSetVitals: (hp, food, water) => handle.debug_set_vitals(hp, food, water),
+    debugUpsetStomach: () => handle.debug_upset_stomach(),
+    debugCure: () => handle.debug_cure(),
     dispose: () => handle.free(),
   };
 }

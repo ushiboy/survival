@@ -304,6 +304,10 @@ pub struct Player {
     pub torch: Option<bool>,
     /// Weak with hunger: no running, and walking slower.
     pub weak: bool,
+    /// Fit to run (not starving, nor kept from it by an ailment).
+    pub can_run: bool,
+    /// An upset stomach: pale, a hand held to the belly.
+    pub queasy: bool,
     /// On a ladder: moving only up and down it, slowly, facing the rock.
     pub climbing: bool,
     /// Frames left of the "!" over the head after a recipe came to mind.
@@ -336,6 +340,8 @@ impl Player {
             sheltered: false,
             torch: None,
             weak: false,
+            can_run: true,
+            queasy: false,
             climbing: false,
             noticing: None,
             eureka: 0,
@@ -732,9 +738,10 @@ impl Player {
         let (fx, fy) = self.body.feet();
         self.wading = map.props_at_px(fx, fy).wading;
 
-        // Water drags at the legs too much to run, and so does hunger.
+        // Water drags at the legs too much to run, and so do hunger and an
+        // upset stomach.
         let was_running = self.running;
-        self.running = self.moving && !self.wading && !self.weak && input.held(Buttons::R);
+        self.running = self.moving && !self.wading && self.can_run && input.held(Buttons::R);
         if self.running != was_running {
             self.walk_timer = 0;
         }
@@ -1240,7 +1247,7 @@ impl Player {
             }
             return;
         }
-        let frame = sprites.player.walk[view][phase as usize];
+        let frame = self.walk_set(sprites)[view][phase as usize];
         if let Some(low) = self.torch {
             self.draw_torch(list, (cx, cy), depth, sprites, (view, flip, phase as usize), (clock, low), prio);
         }
@@ -1399,16 +1406,23 @@ impl Player {
 }
 
 impl Player {
+    /// The walk (and standing) frames to draw: holding the belly with an
+    /// upset stomach.
+    fn walk_set<'a>(&self, sprites: &'a SpriteIds) -> &'a [[crate::assets::CharFrame; 4]; 3] {
+        if self.queasy { &sprites.player.queasy } else { &sprites.player.walk }
+    }
+
     /// The torch held in the near hand (the screen-right one facing toward
     /// or away). It's behind the body facing away;
     /// otherwise in front, with the hands drawn over its handle.
     #[allow(clippy::too_many_arguments)]
     fn draw_torch(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (view, flip, phase): (usize, bool, usize), (clock, low): (u32, bool), prio: u8) {
-        let pose = &sprites.player.walk_poses[view][phase];
+        let poses = if self.queasy { &sprites.player.queasy_poses } else { &sprites.player.walk_poses };
+        let pose = &poses[view][phase];
         // Held a little out from the body, so the flame stands clear of
         // the face, and steady: the arm holding it doesn't swing, it only
         // bobs with the step.
-        let hx = sprites.player.walk_poses[view][0].arms[1].c.0;
+        let hx = poses[view][0].arms[1].c.0;
         let hy = pose.arms[1].c.1 + TORCH_DROP[view];
         let hx = hx + TORCH_REACH[view];
         let hx = if flip { CHAR_W as f32 - hx } else { hx };
@@ -1419,7 +1433,7 @@ impl Player {
         if self.facing == Dir::Up {
             list.actor(depth - 1, torch);
         } else {
-            list.actor(depth + 1, ObjEntry::new(cx, cy, sprites.player.walk[view][phase].hands, OBJ_PLAYER, prio).flipped(flip));
+            list.actor(depth + 1, ObjEntry::new(cx, cy, self.walk_set(sprites)[view][phase].hands, OBJ_PLAYER, prio).flipped(flip));
             list.actor(depth + 1, torch);
         }
     }

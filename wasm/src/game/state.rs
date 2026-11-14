@@ -73,6 +73,52 @@ impl Rest {
     pub const RUNNING: Self = Self::Awake { ran: FRAMES_PER_MINUTE };
 }
 
+/// Something ailing the castaway for a while. Only an upset stomach for
+/// now (from something eaten or drunk raw); others can be added here, each
+/// saying how long it lasts and what it does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Ailment {
+    UpsetStomach,
+}
+
+impl Ailment {
+    /// How long it lasts (game minutes) from when it took hold.
+    pub fn minutes(self) -> u32 {
+        match self {
+            Ailment::UpsetStomach => 6 * 60,
+        }
+    }
+
+    /// How many times as fast thirst grows with it.
+    fn thirst(self) -> u32 {
+        match self {
+            Ailment::UpsetStomach => 2,
+        }
+    }
+
+    /// Minutes for a sixty-fourth of health to wear away with it (about 4
+    /// over an upset stomach's time: it can't bring anyone down alone).
+    fn wear_minutes(self) -> Option<f32> {
+        match self {
+            Ailment::UpsetStomach => Some(90.0),
+        }
+    }
+
+    /// Whether it keeps the castaway from running.
+    fn stops_running(self) -> bool {
+        match self {
+            Ailment::UpsetStomach => true,
+        }
+    }
+}
+
+/// An ailment and the minutes it has left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Ailing {
+    pub ailment: Ailment,
+    pub left: u32,
+}
+
 /// Health, hunger and thirst: three gauges, health running from `max_hp`
 /// down to nothing (and then the castaway collapses).
 ///
@@ -101,6 +147,10 @@ pub struct Vitals {
     /// kept: never more than a minute's worth).
     #[serde(skip)]
     run_tired: u32,
+    /// What ails the castaway, each for the minutes it has left.
+    pub ailments: Vec<Ailing>,
+    /// Raw water has been drunk before: the first draw is always safe.
+    pub drunk_raw_water: bool,
 }
 
 impl Vitals {
@@ -128,12 +178,33 @@ impl Vitals {
     const RUN_TIRE: u32 = 2;
 
     pub fn new() -> Self {
-        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0, run_tired: 0 }
+        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0, run_tired: 0, ailments: Vec::new(), drunk_raw_water: false }
     }
 
     /// Nothing left to eat: too weak to run.
     pub fn starving(&self) -> bool {
         self.food == 0
+    }
+
+    /// Fit to run: not starving, nor kept from it by an ailment.
+    pub fn can_run(&self) -> bool {
+        !self.starving() && !self.ailments.iter().any(|a| a.ailment.stops_running())
+    }
+
+    pub fn has(&self, ailment: Ailment) -> bool {
+        self.ailments.iter().any(|a| a.ailment == ailment)
+    }
+
+    /// Falls to `ailment`: for its full time from now (taken again, it starts
+    /// over, no worse).
+    pub fn catch(&mut self, ailment: Ailment) {
+        self.ailments.retain(|a| a.ailment != ailment);
+        self.ailments.push(Ailing { ailment, left: ailment.minutes() });
+    }
+
+    /// Gets over every ailment at once.
+    pub fn cure(&mut self) {
+        self.ailments.clear();
     }
 
     /// Fed and watered: healing works (sleep mends past tiredness, cooked
@@ -165,7 +236,8 @@ impl Vitals {
             self.food_spent -= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.food = self.food.saturating_sub(1);
         }
-        self.water_spent += water_effort;
+        let thirst = self.ailments.iter().map(|a| a.ailment.thirst()).max().unwrap_or(1);
+        self.water_spent += water_effort * thirst;
         if self.water_spent >= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT {
             self.water_spent -= Self::WATER_DECAY_MINUTES * Self::AWAKE_EFFORT;
             self.water = self.water.saturating_sub(1);
@@ -178,6 +250,15 @@ impl Vitals {
         if self.food == 0 {
             wear += self.points(1.0, Self::HUNGER_MINUTES);
         }
+        for a in &self.ailments {
+            if let Some(per) = a.ailment.wear_minutes() {
+                wear += self.points(1.0, per);
+            }
+        }
+        for a in &mut self.ailments {
+            a.left -= 1;
+        }
+        self.ailments.retain(|a| a.left > 0);
         let mut mend = 0.0;
         if let Rest::Awake { ran } = rest {
             // Running tires faster, and is slept off like any tiredness.
@@ -700,5 +781,80 @@ mod tests {
         assert!(inv.take_off(Slot::Hand).is_ok());
         assert_eq!(inv.gear.hand, None);
         assert!(inv.bag.has(tool()));
+    }
+
+    // An upset stomach (from something eaten or drunk raw).
+
+    /// A castaway fed and watered who has just upset their stomach.
+    fn upset() -> Vitals {
+        let mut v = Vitals::new();
+        v.catch(Ailment::UpsetStomach);
+        v
+    }
+
+    #[test]
+    fn an_upset_stomach_makes_thirst_grow_faster() {
+        for rest in [Rest::AWAKE, Rest::Asleep, Rest::Sheltered] {
+            let (mut well, mut ill) = (Vitals::new(), upset());
+            pass(&mut well, 2 * HOUR, rest);
+            pass(&mut ill, 2 * HOUR, rest);
+            assert!(ill.water < well.water, "{rest:?}");
+            assert_eq!(ill.food, well.food, "hunger is as it was");
+        }
+    }
+
+    #[test]
+    fn an_upset_stomach_wears_health_away() {
+        let (mut well, mut ill) = (Vitals::new(), upset());
+        pass(&mut well, 4 * HOUR, Rest::AWAKE);
+        pass(&mut ill, 4 * HOUR, Rest::AWAKE);
+        assert!(ill.hp < well.hp);
+    }
+
+    #[test]
+    fn an_upset_stomach_alone_does_not_bring_the_castaway_down() {
+        let mut v = upset();
+        pass(&mut v, Ailment::UpsetStomach.minutes(), Rest::AWAKE);
+        assert!(v.hp > v.max_hp / 2);
+    }
+
+    #[test]
+    fn an_upset_stomach_passes_with_time() {
+        let mut v = upset();
+        pass(&mut v, Ailment::UpsetStomach.minutes() - 1, Rest::AWAKE);
+        assert!(v.has(Ailment::UpsetStomach));
+        pass(&mut v, 1, Rest::AWAKE);
+        assert!(!v.has(Ailment::UpsetStomach));
+    }
+
+    #[test]
+    fn an_upset_stomach_passes_in_sleep_too() {
+        let mut v = upset();
+        pass(&mut v, Ailment::UpsetStomach.minutes(), Rest::Asleep);
+        assert!(!v.has(Ailment::UpsetStomach));
+    }
+
+    #[test]
+    fn upsetting_it_again_starts_it_over_but_no_worse() {
+        let mut again = upset();
+        pass(&mut again, 2 * HOUR, Rest::AWAKE);
+        again.catch(Ailment::UpsetStomach);
+        let mut once = upset();
+        let (w0, h0) = (again.water, again.hp);
+        pass(&mut again, HOUR, Rest::AWAKE);
+        pass(&mut once, HOUR, Rest::AWAKE);
+        assert_eq!(w0 - again.water, Vitals::MAX - once.water, "thirst grows as fast as with one");
+        assert!(h0 - again.hp <= once.max_hp - once.hp + 1);
+        pass(&mut again, Ailment::UpsetStomach.minutes() - HOUR - 1, Rest::AWAKE);
+        assert!(again.has(Ailment::UpsetStomach), "it lasts its full time from the second");
+    }
+
+    #[test]
+    fn with_an_upset_stomach_the_castaway_cannot_run() {
+        assert!(Vitals::new().can_run());
+        assert!(!upset().can_run());
+        let mut starving = Vitals::new();
+        starving.food = 0;
+        assert!(!starving.can_run());
     }
 }

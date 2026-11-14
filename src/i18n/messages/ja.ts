@@ -57,6 +57,9 @@ const ja = {
       thirsty: { label: '渇き', done: '水分を0にしました' },
       dying: { label: '瀕死', done: '体力を1にしました' },
     },
+    condition: '体調',
+    upsetStomach: { label: 'お腹を壊す', done: 'お腹を壊した状態にしました' },
+    cure: { label: '治す', done: '体調を元に戻しました' },
     keys: 'Shift (SELECT) — 時刻を3時間進める／O — 服装の切替',
   },
 };

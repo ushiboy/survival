@@ -140,7 +140,7 @@ pub fn base_cgram() -> Cgram {
 
     // HUD (BG3, 2bpp)
     cg.set_hud_palette(HUD_TEXT, [c(16, 16, 40), c(176, 186, 214), c(252, 252, 252)]);
-    cg.set_hud_palette(HUD_HEART, [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)]);
+    set_health_palette(&mut cg, false);
     cg.set_hud_palette(HUD_FOOD, [c(48, 24, 8), c(228, 128, 32), c(252, 216, 96)]);
     cg.set_hud_palette(HUD_WATER, [c(8, 24, 56), c(56, 136, 232), c(156, 220, 252)]);
     cg.set_hud_palette(HUD_DIM, [c(10, 14, 32), c(70, 80, 112), c(104, 116, 150)]);
@@ -210,7 +210,7 @@ pub fn base_cgram() -> Cgram {
     );
 
     // Sprites
-    set_player_palettes(&mut cg, &Outfit::CASTAWAY);
+    set_player_palettes(&mut cg, &Outfit::CASTAWAY, false);
     let crab = [
         c(56, 16, 20), c(136, 32, 28), c(200, 64, 40), c(240, 120, 72),
         c(252, 186, 130), c(248, 248, 248), c(24, 8, 8),
@@ -249,10 +249,29 @@ pub fn base_cgram() -> Cgram {
     cg
 }
 
-/// Writes the castaway's palette for an outfit, plus the derived palette for
+/// Skin gone pale and greyish (an upset stomach): dark, base, light.
+const PALE_SKIN: [Rgb555; 3] = [c(120, 120, 120), c(184, 190, 180), c(224, 230, 216)];
+
+/// Writes the castaway's palette for an outfit (`pale` with an upset
+/// stomach: the skin drained of colour), plus the derived palette for
 /// submerged legs (pulled toward sea green, then blended by colour math).
-pub fn set_player_palettes(cg: &mut Cgram, outfit: &Outfit) {
-    let colors = outfit.palette();
+/// The heart and the health gauge: red, or a poisonous purple while
+/// something ails the castaway.
+pub fn set_health_palette(cg: &mut Cgram, ailing: bool) {
+    let colors = if ailing {
+        [c(40, 8, 56), c(156, 52, 208), c(224, 164, 255)]
+    } else {
+        [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)]
+    };
+    cg.set_hud_palette(HUD_HEART, colors);
+}
+
+pub fn set_player_palettes(cg: &mut Cgram, outfit: &Outfit, pale: bool) {
+    let mut colors = outfit.palette();
+    if pale {
+        let skin = crate::assets::character::slot::SKIN[0] as usize - 1;
+        colors[skin..skin + 3].copy_from_slice(&PALE_SKIN);
+    }
     cg.set_obj_palette(OBJ_PLAYER, &colors);
     cg.set_obj_palette(OBJ_WADE, &colors.map(|p| p.lerp(c(60, 170, 200), 0.45)));
 }

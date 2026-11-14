@@ -134,6 +134,22 @@ pub fn icon_water() -> PixelArt {
     ])
 }
 
+/// An upset stomach: a pictogram of someone bent over, an arm across the
+/// belly. Seen from the side, the head set apart from the body as signs draw
+/// people. Drawn in the text palette (navy outline, grey arm, white body).
+pub fn icon_upset_stomach() -> PixelArt {
+    art([
+        ".....11.",
+        "....1331",
+        "....1331",
+        "...1111.",
+        "..13331.",
+        ".13321..",
+        ".13231..",
+        ".131131.",
+    ])
+}
+
 pub fn icon_sun() -> PixelArt {
     art([
         "...2....",

@@ -168,6 +168,27 @@ export function DebugTools({ core }: Props) {
           </button>
         ))}
       </div>
+      <div className="row">
+        <span>{t('condition')}</span>
+        <button
+          onClick={(e) => {
+            core.debugUpsetStomach();
+            setMessage(t('upsetStomach.done'));
+            release(e);
+          }}
+        >
+          {t('upsetStomach.label')}
+        </button>
+        <button
+          onClick={(e) => {
+            core.debugCure();
+            setMessage(t('cure.done'));
+            release(e);
+          }}
+        >
+          {t('cure.label')}
+        </button>
+      </div>
       {message && <p className="note">{message}</p>}
       <p className="note">{t('keys')}</p>
     </section>

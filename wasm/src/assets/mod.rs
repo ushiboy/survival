@@ -42,6 +42,9 @@ pub struct CharFrame {
 pub struct PlayerSprites {
     pub walk: [[CharFrame; 4]; 3],
     pub walk_poses: [[Pose; 4]; 3],
+    /// Walking (or standing) with an upset stomach, a hand on the belly.
+    pub queasy: [[CharFrame; 4]; 3],
+    pub queasy_poses: [[Pose; 4]; 3],
     pub chop: [[CharFrame; 3]; 3],
     pub chop_poses: [[Pose; 3]; 3],
     /// Spear thrust: drawn back, lunging.
@@ -72,8 +75,8 @@ fn render_frame(pose: &Pose, outfit: &Outfit) -> [PixelArt; 4] {
     [r.body.clone(), r.body.keep_rows(0..wade), r.body.keep_rows(wade..r.body.h), r.hands]
 }
 
-/// The castaway's walk, chop and thrust poses, in each view.
-type PoseSets = ([[Pose; 4]; 3], [[Pose; 3]; 3], [[Pose; 2]; 3]);
+/// The castaway's walk, chop, thrust and queasy-walk poses, in each view.
+type PoseSets = ([[Pose; 4]; 3], [[Pose; 3]; 3], [[Pose; 2]; 3], [[Pose; 4]; 3]);
 
 impl PlayerSprites {
     fn poses() -> PoseSets {
@@ -81,11 +84,12 @@ impl PlayerSprites {
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::walk(v, i))),
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::chop(v, i))),
             VIEWS.map(|v| std::array::from_fn(|i| character::pose::thrust(v, i))),
+            VIEWS.map(|v| std::array::from_fn(|i| character::pose::queasy(v, i))),
         )
     }
 
     pub fn build(bank: &mut SpriteBank, outfit: &Outfit) -> Self {
-        let (walk, chop, thrust) = Self::poses();
+        let (walk, chop, thrust, queasy) = Self::poses();
         let mut add = |pose: &Pose| {
             let [full, top, legs, hands] = render_frame(pose, outfit).map(|a| bank.add(&a));
             CharFrame { full, top, legs, hands }
@@ -93,6 +97,7 @@ impl PlayerSprites {
         let walk_frames = walk.map(|v| v.map(|p| add(&p)));
         let chop_frames = chop.map(|v| v.map(|p| add(&p)));
         let thrust_frames = thrust.map(|v| v.map(|p| add(&p)));
+        let queasy_frames = queasy.map(|v| v.map(|p| add(&p)));
         let [lying, sitting, kneeling] = Self::wake_art(outfit);
         let lying = lying.map(|a| bank.add(&a));
         let sleeping = bank.add(&character::render_sleeping(outfit));
@@ -103,6 +108,8 @@ impl PlayerSprites {
             chop_poses: chop,
             thrust: thrust_frames,
             thrust_poses: thrust,
+            queasy: queasy_frames,
+            queasy_poses: queasy,
             shake: Self::shake_art(outfit).map(|v| v.map(|a| bank.add(&a))),
             crouch: Self::crouch_art(outfit).map(|a| bank.add(&a)),
             drink: Self::drink_art(outfit).map(|a| bank.add(&a)),
@@ -139,13 +146,14 @@ impl PlayerSprites {
 
     /// Re-renders every frame in place for a new outfit (equipment change).
     pub fn rebuild(&self, bank: &mut SpriteBank, outfit: &Outfit) {
-        let (walk, chop, thrust) = Self::poses();
+        let (walk, chop, thrust, queasy) = Self::poses();
         let pairs = walk
             .iter()
             .flatten()
             .zip(self.walk.iter().flatten())
             .chain(chop.iter().flatten().zip(self.chop.iter().flatten()))
-            .chain(thrust.iter().flatten().zip(self.thrust.iter().flatten()));
+            .chain(thrust.iter().flatten().zip(self.thrust.iter().flatten()))
+            .chain(queasy.iter().flatten().zip(self.queasy.iter().flatten()));
         for (pose, f) in pairs {
             let arts = render_frame(pose, outfit);
             for (id, art) in [f.full, f.top, f.legs, f.hands].into_iter().zip(arts.iter()) {
@@ -377,6 +385,8 @@ pub struct HudTiles {
     pub water: HudTileId,
     pub sun: HudTileId,
     pub moon: HudTileId,
+    /// Shown right of the health gauge while the stomach is upset.
+    pub upset_stomach: HudTileId,
     /// A bag cell's four 8x8 quarters: top-left, top-right, bottom-left,
     /// bottom-right.
     pub bag_cell: [HudTileId; 4],
@@ -694,6 +704,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         water: bank.add(&hud_art::icon_water()),
         sun: bank.add(&hud_art::icon_sun()),
         moon: bank.add(&hud_art::icon_moon()),
+        upset_stomach: bank.add(&hud_art::icon_upset_stomach()),
         bag_cell: hud_art::bag_cell().map(|a| bank.add(&a)),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),

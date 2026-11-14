@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 11;
+pub const SAVE_VERSION: u32 = 12;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -417,6 +417,15 @@ fn v10_to_v11(save: &mut Value) {
     }
 }
 
+/// Version 12: the castaway can be ailing (an upset stomach from something
+/// raw), and the first draw of raw water is always safe. A version 11 save
+/// has neither: nothing ails the castaway, and the first raw water is taken
+/// as not drunk yet (still safe).
+fn v11_to_v12(save: &mut Value) {
+    save["vitals"]["ailments"] = Value::Array(Vec::new());
+    save["vitals"]["drunk_raw_water"] = Value::Bool(false);
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -564,6 +573,7 @@ mod tests {
         include_str!("save_samples/v9.json"),
         include_str!("save_samples/v10.json"),
         include_str!("save_samples/v11.json"),
+        include_str!("save_samples/v12.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -849,5 +859,19 @@ mod tests {
         let s = version_10_with(&[], &[sea]);
         assert!(s.island.fish.contains(&sea), "the fish in the sea stay");
         assert!(s.island.fish.iter().filter(|p| in_lake(p)).count() > 0);
+    }
+
+    #[test]
+    fn version_12_starts_with_nothing_ailing_and_the_first_raw_water_still_safe() {
+        let s = load(11);
+        assert!(s.vitals.ailments.is_empty());
+        assert!(!s.vitals.drunk_raw_water);
+    }
+
+    #[test]
+    fn version_12_keeps_an_upset_stomach_and_the_first_raw_water_drunk() {
+        let s = load(12);
+        assert!(s.vitals.has(crate::game::state::Ailment::UpsetStomach), "the sample has one");
+        assert!(s.vitals.drunk_raw_water);
     }
 }

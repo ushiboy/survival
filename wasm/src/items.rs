@@ -1,6 +1,8 @@
 //! Kinds of things the castaway can carry, and how much room each takes in
 //! the bag (in grid cells).
 
+use crate::game::state::Ailment;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
     /// A whole coconut in its husk: it has to be cut open to eat.
@@ -285,6 +287,18 @@ impl ItemKind {
             ItemKind::Fish => (18, 4),
             ItemKind::GrilledFish => (36, 6),
             _ => (0, 0),
+        }
+    }
+
+    /// What eating or drinking it raw may bring on, and the chance it does
+    /// (the riskier the rawer: water from the river least, crab most).
+    /// Cooked food, boiled water and coconut are safe.
+    pub fn risk(self) -> Option<(Ailment, f32)> {
+        match self {
+            ItemKind::RawWater => Some((Ailment::UpsetStomach, 0.2)),
+            ItemKind::Fish => Some((Ailment::UpsetStomach, 0.3)),
+            ItemKind::Crab => Some((Ailment::UpsetStomach, 0.5)),
+            _ => None,
         }
     }
 
