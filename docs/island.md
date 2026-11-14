@@ -67,18 +67,18 @@
 ### 今の設計図
 
 ```
-~~~~~~RRR^^^^^^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRR
-~~~~~~RRRR^^^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRRRR
-~~~~~~RRRRR^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRRRRR
-~~~~~~RRRRRR^^^^^^^^^^^^^^^^^sss^^RRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRR^^^^wwwwwwwwwwwwsssw^RRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRRwwwwWWWWWWWWWWWWWWWwRRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRRWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRRWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRR
-~~~~~~RRRRRRRWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRRR
+~RRRRRRRR^^^^^^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRR
+~RRRRRRRRR^^^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRRRR
+~~RRRRRRRRR^^^^^^^^^^^^^^^^^^^^^^^^RRRRRRRRRRRRRRRRR
+~~RRRRRRRRRR^^^^^^^^^^^^^^^^^sss^^RRRRRRRRRRRRRRRRRR
+~~RRRRRRRRRRR^^^^wwwwwwwwwwwwsssw^RRRRRRRRRRRRRRRRRR
+~~~RRRRRRRRRRwwwwWWWWWWWWWWWWWWWwRRRRRRRRRRRRRRRRRRR
+~~~RRRRRRRRRRWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRR
+~~~~RRRRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
+~~~~RRRRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
+~~~~RRRRRRRRWWWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRR
+~~~~~RRRRRRRRWWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRR
+~~~~~RRRRRRRRWWWWWWWWWWWWWWWWWWWRRRRRRRRRRRRRRRRRRRR
 ~~~~~RRRRRRRRwwwwWWwwsssswwwwWWwRRRRRRRRRRRRRRRRRRRR
 ~~~~~^RRRRRR^^^^www^^wwsssw^^^ww^RRRRRRRRRRRRRRRRRRR
 ~~~~-^bRRRbbbb^^^^^^^^^^^^^^^^^^^^RRRRRRRRR^RRRRRRRR
@@ -107,7 +107,7 @@
   - 4〜12行目が湖です。両端は `R` の岩山でふさいでいます。西の山は6〜12列目あたりに、東の山は33列目あたりから東の端まで、丸い塊に描いています（山らしく段々に高くするには幅が要るため）。東の山は東の端まで広がり、右の8列（44〜51列目、版10で足した）で南へ尾根になって、海まで続きます。
   - 湖の南岸の真ん中（21〜26列目）と北岸の右寄り（29〜31列目）に `s` の広い岸辺を描いています。南岸の岸辺はハシゴのほぼ真北で、カヌーを出す場所にする予定です。
   - 湖の北（上の4行）は、まだ何もない高台です（向こう岸）。
-  - 左の5〜6列は海です。北の高台の西の断崖は、ここでは深い海に直接落ちていて、前からの西の海岸の浜はこの手前で途切れます（浜や浅瀬を歩いて湖の向こうへ回り込めないようにするため）。
+  - 左の1〜5列は海です。西の山は上の行ほど海へせり出し、南へ2〜3行ごとに1列ずつ引っ込みます（高台は上の行が高台の列にしか続かないので、上ほど広くしないと海側の縁が一直線になるため）。引っ込む所では南向きの砂岩の崖が海に落ちます。北の高台の西の断崖は、ここでは深い海に直接落ちていて、西の海岸の浜は山の南の崖の下で途切れます（浜や浅瀬を歩いて湖の向こうへ回り込めないようにするため）。
 - その下の左の8列は、川の向こうの西の海岸です（版6で足した）。西から深い海2列、浅瀬1列、砂浜1〜2列と続き、その東は前からの陸につながります。
   - 北の高台は、西の端で45度の断崖になって下ります（1行に1文字ずつ東へずらしている）。東の端の断崖と同じ向きの崖です。断崖の下は細い森で、その外を浜が北の端まで続きます。
   - 浜の奥、北の断崖の下の `B` が竹林です。竹林は北の 15〜18行の5〜7列（西の草の坂の下）まで続き、坂の上の崖の上（14〜18行の6〜13列、川の西側）の `b` の竹林につながります。

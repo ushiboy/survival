@@ -323,26 +323,46 @@ fn v8_to_v9(save: &mut Value) {
 /// version 10.
 const RIDGE_REDRAWN_FROM: i32 = 144;
 
+/// The cell changes are dropped west of in version 10.
+const WEST_REDRAWN_BEFORE: i32 = 36;
+
 /// Version 10: the map grew east (the rocks east of the lake run on south
 /// as a ridge to the sea, closing off the high ground's forest), so nothing
 /// moves. The ridge bulges into the old forest, and the trees beside it
 /// were placed again, so what changed on the high ground from
-/// `RIDGE_REDRAWN_FROM` east in a version 9 save is dropped, but a ladder;
-/// and what lay where the ridge now stands is gone. The island is made
-/// from the save's seed.
+/// `RIDGE_REDRAWN_FROM` east in a version 9 save is dropped, but a ladder.
+/// The rocks west of the lake were pushed out into the sea, stepping in
+/// toward the south, so the cliff came down over the north end of the west
+/// beach and the palms and bamboo below were placed again: what changed
+/// west of `WEST_REDRAWN_BEFORE` is dropped too. What lay, or crabs and
+/// fish, where rock now stands is gone. The island is made from the save's
+/// seed.
 fn v9_to_v10(save: &mut Value) {
     let seed = save["seed"].as_u64().unwrap_or(1) as u32;
     let island = crate::world::island::generate(seed);
-    let by_ridge = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
-        (Some(x), Some(y)) => x as i32 >= RIDGE_REDRAWN_FROM && island.is_high(x as i32, y as i32),
+    let redrawn = |e: &Value| match (e[0][0].as_i64(), e[0][1].as_i64()) {
+        (Some(x), Some(y)) => (x as i32 >= RIDGE_REDRAWN_FROM && island.is_high(x as i32, y as i32)) || (x as i32) < WEST_REDRAWN_BEFORE,
         _ => false,
     };
-    drop_changes_where(save, by_ridge, |e| e[1].get("Ladder").is_some());
-    if let Some(Value::Array(items)) = save["island"].get_mut("items") {
-        items.retain(|i| match (i["at"][0].as_i64(), i["at"][1].as_i64()) {
-            (Some(x), Some(y)) => island.terrain((x / 16) as i32, (y / 16) as i32) != crate::world::Terrain::Crag,
-            _ => true,
-        });
+    drop_changes_where(save, redrawn, |e| e[1].get("Ladder").is_some());
+    // World px not under the new rock: a crag, or the cliff now over the
+    // west beach.
+    let open = |at: &Value| match (at[0].as_i64(), at[1].as_i64()) {
+        (Some(x), Some(y)) => {
+            let (cx, cy) = ((x / 16) as i32, (y / 16) as i32);
+            let t = island.terrain(cx, cy);
+            t != crate::world::Terrain::Crag && !(t.is_cliff() && cx < WEST_REDRAWN_BEFORE)
+        }
+        _ => true,
+    };
+    let lying = &mut save["island"];
+    if let Some(Value::Array(items)) = lying.get_mut("items") {
+        items.retain(|i| open(&i["at"]));
+    }
+    for key in ["crabs", "fish"] {
+        if let Some(Value::Array(list)) = lying.get_mut(key) {
+            list.retain(|p| open(p));
+        }
     }
 }
 
@@ -719,5 +739,28 @@ mod tests {
         assert_eq!(island.terrain(rock.0, rock.1), crate::world::Terrain::Crag, "the ridge stands there now");
         assert!(version_9_with(&[], (rock.0 * 16 + 8, rock.1 * 16 + 8)).island.items.is_empty());
         assert_eq!(version_9_with(&[], (100 * 16, 64 * 16)).island.items.len(), 1, "what lay elsewhere stays");
+    }
+
+    #[test]
+    fn version_10_drops_changes_on_the_west_coast_under_the_redrawn_cliff() {
+        let (bamboo, east) = ((30, 90), (100, 100));
+        let s = version_9_with(&[bamboo, east], (0, 0));
+        assert!(!s.island.features.iter().any(|&(at, _)| at == bamboo), "the bamboo below the cliff was placed again");
+        assert!(s.island.features.iter().any(|&(at, _)| at == east), "changes east of the river stay");
+    }
+
+    #[test]
+    fn version_10_drops_what_lay_or_swam_where_the_west_cliff_now_stands() {
+        let island = crate::world::island::generate(1);
+        let (beach, sea) = ((24, 56), (16, 20));
+        assert!(island.terrain(beach.0, beach.1).is_cliff(), "the beach's north end is cliff now");
+        assert_eq!(island.terrain(sea.0, sea.1), crate::world::Terrain::Crag, "the crag reaches out into the sea");
+        assert!(version_9_with(&[], (beach.0 * 16 + 8, beach.1 * 16 + 8)).island.items.is_empty());
+        let mut v = sample(9);
+        v["island"]["fish"] = serde_json::json!([[sea.0 * 16 + 8, sea.1 * 16 + 8], [100 * 16, 120 * 16]]);
+        v["island"]["crabs"] = serde_json::json!([[beach.0 * 16 + 8, beach.1 * 16 + 8]]);
+        let s = SaveData::from_json(&v.to_string()).unwrap();
+        assert_eq!(s.island.fish, vec![(100 * 16, 120 * 16)], "only the fish still in the water stays");
+        assert!(s.island.crabs.is_empty());
     }
 }
