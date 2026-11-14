@@ -91,6 +91,8 @@ src/                    React / TS (表示と入力のみ)
   game/gameLoop.ts      60.1Hz 固定ステップのループ
   components/           画面・仮想コントローラ・操作説明（PC のパネルとタッチ端末のダイアログ）・デバッグパネル
   i18n/                 ページの文言の日本語・英語（use-intl）。messages/ja.ts が元で、en.ts は同じ項目をそろえる。navigator.language で切り替え
+public/                 そのまま配る物: favicon（favicon.svg が元の 16×16 ドット絵。favicon.ico と
+                        ホーム画面用の apple-touch-icon.png は同じ絵を整数倍に拡大したもの）
 wasm/src/               Rust コア
   lib.rs                JS向けファサード (wasm_bindgen はここだけ)
   common/               固定小数点・乱数・入力
