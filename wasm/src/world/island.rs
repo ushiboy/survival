@@ -681,10 +681,14 @@ fn raise_crags(map: &mut WorldMap, field: &HeightField) {
         if map.terrain(x, y + 1) == Terrain::Crag {
             continue;
         }
-        for k in 1..=CRAG_FACE {
-            let (fx, fy) = (x, y + k);
-            if map.is_high(fx, fy) && matches!(map.terrain(fx, fy), Terrain::Highland | Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater) {
-                map.set_terrain(fx, fy, Terrain::Cliff);
+        // Where the crag stands right at the high ground's own edge, there's
+        // no ground below it for its face: its foot is cut into a face
+        // instead, so it still rises from the high ground (rather than its
+        // top sitting flat on the cliff's edge).
+        let (top, bottom) = if map.terrain(x, y + 1) == Terrain::CliffTop { (y - CRAG_FACE + 1, y) } else { (y + 1, y + CRAG_FACE) };
+        for fy in top..=bottom {
+            if map.is_high(x, fy) && matches!(map.terrain(x, fy), Terrain::Crag | Terrain::Highland | Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater) {
+                map.set_terrain(x, fy, Terrain::Cliff);
             }
         }
     }
