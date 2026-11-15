@@ -32,29 +32,25 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 2;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
 
-/// Version 3 added the handcart (on the island) and its load (carried):
-/// a version 2 save has none made.
-fn v2_to_v3(save: &mut Value) {
+/// Version 2 added the waist to the gear (the tool belt) and the tools on
+/// its hooks, and the handcart (on the island) and its load (carried): a
+/// version 1 save wears nothing there and has no cart made.
+fn v1_to_v2(save: &mut Value) {
+    if let Some(gear) = save.pointer_mut("/inventory/gear").and_then(Value::as_object_mut) {
+        gear.insert("waist".into(), Value::Null);
+        gear.insert("belt".into(), serde_json::json!([null, null]));
+    }
     if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
         inventory.insert("cart".into(), Value::Null);
     }
     if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
         island.insert("cart".into(), Value::Null);
-    }
-}
-
-/// Version 2 added the waist to the gear (the tool belt) and the tools on
-/// its hooks: a version 1 save wears nothing there.
-fn v1_to_v2(save: &mut Value) {
-    if let Some(gear) = save.pointer_mut("/inventory/gear").and_then(Value::as_object_mut) {
-        gear.insert("waist".into(), Value::Null);
-        gear.insert("belt".into(), serde_json::json!([null, null]));
     }
 }
 
@@ -200,7 +196,7 @@ mod tests {
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json"), include_str!("save_samples/v3.json")];
+    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json")];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -250,8 +246,8 @@ mod tests {
     }
 
     #[test]
-    fn a_version_2_save_has_no_handcart() {
-        let s = load(2);
+    fn a_version_1_save_has_no_handcart() {
+        let s = load(1);
         assert!(s.inventory.cart.is_none() && s.island.cart.is_none());
     }
 
