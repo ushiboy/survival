@@ -1,0 +1,36 @@
+name: Verify actions lockfile
+
+# Checks that .github/workflows/actions.lock covers every action the
+# workflows use and that each locked commit is still trustworthy. With the
+# "Require lockfile" policy on, a workflow missing from the lockfile is
+# blocked, so this catches that in the pull request before it is merged.
+on:
+  pull_request:
+    paths:
+      - '.github/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install gh-actions-lock
+        run: gh extension install github/gh-actions-lock --pin v0.4.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify the lockfile
+        run: gh actions-lock --verify
+        env:
+          GH_TOKEN: ${{ github.token }}

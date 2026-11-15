@@ -1,0 +1,73 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Run one deployment at a time; let an in-progress one finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node, pnpm and wasm-pack at the versions in mise.toml
+      - uses: jdx/mise-action@v5.2.7
+
+      # Rust at the version in rust-toolchain.toml (with the wasm target)
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: wasm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm fmt:check
+
+      - name: Test (Rust)
+        run: pnpm test
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v6.0.0
+
+      - name: Build
+        run: pnpm build
+        env:
+          # e.g. /survival/ for https://<owner>.github.io/survival/
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+
+      # Needs wasm/pkg, which the build step makes
+      - name: Test (TypeScript)
+        run: pnpm test:web
+
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5.0.1
