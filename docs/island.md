@@ -162,9 +162,17 @@
 設計図（`island_plan.txt`）や島の作り方（`island.rs`）を変えたら、地図ツールで確かめます。描き変える → 描く → 見る → 直す、を数秒で回せるようにしています。
 
 ```bash
-pnpm map            # 一度描く
-pnpm map:watch      # wasm/src を見張って、変わるたびに描き直す
+pnpm map                          # すべて描く（数秒）
+pnpm map --quick                  # 設計の地図だけ
+pnpm map --area 55,8,72,22        # 全景をこの範囲のマス（x0,y0,x1,y1）だけ
+pnpm map --shrink 2               # 全景を縮めて（2×2 ピクセルを1つに）
+pnpm map --bridge                 # 川の狭い所に丸太橋をかけてから描く
+pnpm map --wheel                  # 水車小屋の予定地の川に水車を据えてから描く
+pnpm map --set-base               # 今の状態を比べる元にする（--clear-base で直前の実行と比べるのに戻す）
+pnpm map:watch                    # wasm/src を見張って、変わるたびに描き直す（オプションも渡せる）
 ```
+
+ツールは `tools` プロファイル（release から LTO を抜いたもの）でビルドするので、描き変えてから数秒で描き直せます。
 
 `wasm/target/map/` に次の画像を書き出します。
 

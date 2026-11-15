@@ -1,0 +1,5 @@
+# Versions of the tools used for development (Rust is pinned in rust-toolchain.toml)
+[tools]
+node = "26.10.0"
+pnpm = "12.6.0"
+"aqua:drager/wasm-pack" = "0.15.1"

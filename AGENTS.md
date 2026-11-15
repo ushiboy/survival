@@ -8,7 +8,7 @@
 
 - ゲームロジックと描画は Rust（`wasm/`）で書き、WebAssembly にしてブラウザで動かします。描画はスーパーファミコン（Mode 1）の制約に合わせたソフトウェア PPU です。
 - ページは Vite + React + TypeScript（`src/`）で、表示と入力だけを担当します。
-- 構成と技術的な詳細は [README.md](README.md) を参照してください。
+- 開発の手順・ツール・ディレクトリ構成は [README.md](README.md)、SFC の制約と描画の仕組みは [docs/rendering.md](docs/rendering.md) を参照してください。
 
 ## 仕様ドキュメント（必ず一緒に更新する）
 
@@ -22,6 +22,7 @@
 | 島に置く物、地形、マップを変えた | [docs/README.md](docs/README.md) の「島」。設計図（`wasm/src/world/island_plan.txt`）や特別な場所、細部の置き方を変えたら [docs/island.md](docs/island.md) も（「今の設計図」は設計図ファイルの写し）。島の広さ（砂浜と草地のマス）が変わると、枯れ枝・石・蟹・魚・貝殻の数も変わるので、`pnpm map` が出力する「島にある数」に合わせて、docs に書いた数（[docs/README.md](docs/README.md) の「島」と「採取」、各アイテムのページ）も直す |
 | 「なにかできそう」のヒント（考える仕草など）を足した・変えた | [docs/README.md](docs/README.md) の「ヒントの出し方」 |
 | セーブデータに入れるものを変えた（足す・消す・名前や意味を変える。アイテムやレシピの名前を変える・消す、島の設計図の既存部分を描き変えるも含む） | `wasm/src/game/save.rs` の `SAVE_VERSION` を上げて `MIGRATIONS` に変換を足し、[docs/save.md](docs/save.md) の「保存するもの」「版の一覧」を更新。新しい版のセーブの見本（`wasm/src/game/save_samples/`）と変換のテストも足す |
+| 描画の仕組みや SFC の制約に関わる所を変えた（BG・スプライト・カラー演算・夜の明かりの描き方・VRAM・タイルのストリーミングなど） | [docs/rendering.md](docs/rendering.md) |
 | まだ実装しないコンセプトが決まった、または実装した | [docs/README.md](docs/README.md) の「まだコードにないコンセプト」に足す、または消して本文へ移す |
 
 - 数値はコードの定数から書き写します。docs とコードがずれていたら、コードが正しいものとして docs を直してください。
@@ -53,7 +54,7 @@
   - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵（`pnpm art` で並べて確かめる）
 - ページ（`src/`）の文言を足す・変えるとき: 画面に直接書かず、`src/i18n/messages/ja.ts` と `en.ts` の両方に書いて `useTranslations` で出す（`en.ts` は `ja.ts` と同じ項目をそろえないと型チェックとテストで落ちる）。
 - 操作を変えたとき: `src/components/controls.ts` の操作の一覧（役割の言葉は `src/i18n/messages/` の `controls`）（操作説明のダイアログ `ControlsHelp.tsx` に出る。PC ではキーボードのキーも、タッチ端末では画面のボタンの名前だけ）。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
-- 開発用ツールの使い方を変えたとき: [README.md](README.md)
+- 開発用ツールの使い方を変えたとき: [README.md](README.md)（島の地図のオプションと出力は [docs/island.md](docs/island.md#確認ツール)、セーブまわりのスナップショットの変数は [docs/save.md](docs/save.md#確認ツール)）
 
 ## 設計の方針
 
@@ -76,7 +77,6 @@
 - TypeScript（`src/`）の入力やページの振る舞いを変えるときも、Vitest + Testing Library でテストを書く。テストは対象のファイルの隣に `*.test.ts(x)` として置く。wasm を使う部品は `vi.mock` で `game/wasmCore` を差し替え、jsdom にない位置・当たり判定・`matchMedia` は `src/test/dom.ts` の補助を使う。
 - テストを書く途中でバグを見つけたら、その場で直さずにユーザーに報告して相談する。
 - コミットはユーザーに頼まれたときだけする。
-- ユーザーとのやり取りは日本語で行う。
 - 仕様を変えるときは、先に案を出してユーザーと合意してから実装する。
 
 ## ビルドと確認

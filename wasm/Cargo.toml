@@ -3,7 +3,7 @@ name = "survival-core"
 version = "0.1.0"
 edition = "2024"
 description = "Game core for the castaway survival game (compiled to WebAssembly)"
-license = "UNLICENSED"
+license = "MIT"
 repository = ""
 
 [lib]
