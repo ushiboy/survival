@@ -273,6 +273,12 @@ impl RecipeBook {
         self.ways(i).iter().any(|&j| self.fresh[j])
     }
 
+    /// Whether any recipe hasn't been looked at yet (the CRAFT tab is
+    /// marked).
+    pub fn any_fresh(&self) -> bool {
+        self.fresh.contains(&true)
+    }
+
     pub fn looked_at(&mut self, i: usize) {
         self.fresh[i] = false;
     }
@@ -367,6 +373,16 @@ mod tests {
         assert!(!book.is_fresh(i));
         book.notice(carrying(&[ItemKind::Stone]));
         assert!(!book.is_fresh(i), "thinking of it again doesn't make it fresh");
+    }
+
+    #[test]
+    fn the_craft_tab_is_marked_while_any_recipe_is_fresh() {
+        let mut book = RecipeBook::default();
+        assert!(!book.any_fresh(), "nothing thought of yet");
+        book.notice(carrying(&[ItemKind::Stone]));
+        assert!(book.any_fresh());
+        book.looked_at(index(ItemKind::StoneKnife));
+        assert!(!book.any_fresh());
     }
 
     #[test]

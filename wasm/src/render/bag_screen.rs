@@ -22,10 +22,18 @@ const CELL: i32 = 16;
 /// Rows of the BG3 map the screen uses.
 const LAST_ROW: usize = 27;
 const INFO_COL: usize = 17;
-/// The page tabs, and the columns between them.
+/// The page tabs and each one's column (its `>`; the label follows), a
+/// space apart, leaving room for CRAFT's `!`.
 const TAB_ROW: usize = 5;
-const TAB_STRIDE: usize = 8;
-const TAB_STRIDE_FIVE: usize = 6;
+/// With the cart's page there are five, packed closer (a `>` and no
+/// space between them), and the L and R marks go to the screen's edges.
+const TAB_COLS: [usize; 4] = [3, 10, 18, 24];
+const TAB_COLS_FIVE: [usize; 5] = [1, 7, 14, 20, 25];
+/// The L and R marks either side of the tabs.
+const TAB_L_COL: usize = 1;
+const TAB_R_COL: usize = 30;
+const TAB_L_COL_FIVE: usize = 0;
+const TAB_R_COL_FIVE: usize = 31;
 /// The cart page: the cart's grid starts this column, right of the bag's.
 const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
@@ -83,15 +91,20 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
     let pages = menu.pages();
-    // Closer together when the cart's page makes five.
-    let stride = if pages.len() > 4 { TAB_STRIDE_FIVE } else { TAB_STRIDE };
-    for (i, page) in pages.into_iter().enumerate() {
-        let col = GRID_COL + i * stride;
+    let (cols, l_col, r_col): (&[usize], usize, usize) =
+        if pages.len() > TAB_COLS.len() { (&TAB_COLS_FIVE, TAB_L_COL_FIVE, TAB_R_COL_FIVE) } else { (&TAB_COLS, TAB_L_COL, TAB_R_COL) };
+    for (page, &col) in pages.into_iter().zip(cols) {
         if menu.mode == Mode::Tabs(page) {
             text(bg3, tiles, col, TAB_ROW, ">");
         }
         text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
+        if page == Page::Craft && inventory.recipes.any_fresh() {
+            text_in(bg3, tiles, col + 1 + page.label().len(), TAB_ROW, "!", HUD_FOOD);
+        }
     }
+    // L and R either side of the tabs: they switch pages.
+    text_in(bg3, tiles, l_col, TAB_ROW, "L", HUD_DIM);
+    text_in(bg3, tiles, r_col, TAB_ROW, "R", HUD_DIM);
     if menu.page() == Page::Craft {
         draw_craft_page(bg3, tiles, list, sprites, inventory, menu);
         return;

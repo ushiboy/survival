@@ -18,6 +18,8 @@ describe('ControlsHelp', () => {
     expect(role('A')).toHaveTextContent('調べる・拾う');
     expect(role('L')).toHaveTextContent('眠る');
     expect(role('R')).toHaveTextContent('走る');
+    expect(role('L')).toHaveTextContent('バッグのタブを左へ');
+    expect(role('R')).toHaveTextContent('バッグのタブを右へ');
     expect(screen.queryByText(/WASD|Enter/)).not.toBeInTheDocument();
   });
 
