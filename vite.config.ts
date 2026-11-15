@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import { serviceWorker } from './scripts/pwa';
+import { serviceWorker } from './scripts/pwa.ts';
 
 export default defineConfig({
   // Where the page is served from. GitHub Pages serves a project site under
