@@ -526,6 +526,8 @@ impl Game {
             self.shell_day = self.clock.day;
             self.wash_up_shells();
             self.wash_up_driftwood();
+            let refilled = harvest::refill_clay_beds(&mut self.map);
+            self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &refilled);
         }
         self.player.torch = self.inventory.torch_lit().then(|| self.inventory.torch_dying(now));
         if self.inventory.think() {
@@ -548,6 +550,7 @@ impl Game {
         let was_asleep = self.player.is_asleep();
         match self.player.update(&self.input, &self.map, situation) {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
+            Some(Deed::Dig(point)) => self.dig(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
             Some(Deed::PickUp) => self.pick_up(),
             Some(Deed::Pull(point)) => self.pull(point),
@@ -1054,6 +1057,23 @@ impl Game {
             self.take(ItemKind::Leaf, harvest::BUSH_LEAVES);
         } else {
             self.particles.leaves((px + 2, py, 12, 10), py + 14, 1);
+        }
+    }
+
+    /// Lifts out what the tool in hand loosened at `point`: soil from bare
+    /// earth with a digging stick, clay from a clay bed with a bamboo spade
+    /// (leaving it dug until the morning).
+    fn dig(&mut self, point: (i32, i32)) {
+        let cell = (point.0.div_euclid(TILE_SIZE), point.1.div_euclid(TILE_SIZE));
+        match (self.inventory.gear.hand, harvest::diggable(&self.map, cell)) {
+            (Some(ItemKind::DiggingStick), Some(harvest::Diggable::Earth)) => self.take(ItemKind::Soil, harvest::SOIL_PER_DIG),
+            (Some(ItemKind::BambooSpade), Some(harvest::Diggable::Clay { dug: false })) => {
+                if let Some(cells) = harvest::dig_clay(&mut self.map, cell) {
+                    self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &cells);
+                    self.take(ItemKind::Clay, harvest::CLAY_PER_DIG);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1702,10 +1722,14 @@ impl Game {
         &self.clock
     }
 
-    /// Health, hunger and thirst.
     /// Whether the bag holds any of `kind`.
     pub fn carries(&self, kind: ItemKind) -> bool {
         self.inventory.bag.has(kind)
+    }
+
+    /// How many of `kind` the bag holds.
+    pub fn carried(&self, kind: ItemKind) -> u32 {
+        self.inventory.bag.count(kind)
     }
 
     /// Whether the castaway has stopped to think.
@@ -1713,6 +1737,7 @@ impl Game {
         self.player.is_pondering()
     }
 
+    /// Health, hunger and thirst.
     pub fn vitals(&self) -> &Vitals {
         &self.vitals
     }

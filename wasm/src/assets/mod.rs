@@ -223,6 +223,12 @@ pub struct BagSprites {
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
     pub pine_cone: SpriteId,
+    /// Upright, turned.
+    pub digging_stick: [SpriteId; 2],
+    /// Upright, turned.
+    pub bamboo_spade: [SpriteId; 2],
+    pub clay: SpriteId,
+    pub soil: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -275,6 +281,10 @@ impl BagSprites {
             ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
             ItemKind::Bamboo => (self.bamboo, palettes::OBJ_FX),
             ItemKind::WaterWheel => (self.water_wheel[turned as usize], palettes::OBJ_FX),
+            ItemKind::DiggingStick => (self.digging_stick[turned as usize], palettes::OBJ_CRAB),
+            ItemKind::BambooSpade => (self.bamboo_spade[turned as usize], palettes::OBJ_FX),
+            ItemKind::Clay => (self.clay, palettes::OBJ_FX),
+            ItemKind::Soil => (self.soil, palettes::OBJ_CRAB),
         }
     }
 }
@@ -329,6 +339,11 @@ pub struct SpriteIds {
     pub lauan_timber: SpriteId,
     pub pine_timber: SpriteId,
     pub bamboo_lying: SpriteId,
+    /// Digging tools lying on the ground, and what they dig.
+    pub digging_stick: SpriteId,
+    pub bamboo_spade: SpriteId,
+    pub clay: SpriteId,
+    pub soil: SpriteId,
     pub bark_pot: SpriteId,
     pub pack_frame: SpriteId,
     pub husk: SpriteId,
@@ -599,6 +614,16 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         },
         fish: bank.add(&item_art::icon_fish()),
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
+        digging_stick: {
+            let d = item_art::icon_digging_stick();
+            [bank.add(&d), bank.add(&d.rotated_cw())]
+        },
+        bamboo_spade: {
+            let b = item_art::icon_bamboo_spade();
+            [bank.add(&b), bank.add(&b.rotated_cw())]
+        },
+        clay: bank.add(&item_art::icon_clay()),
+        soil: bank.add(&item_art::icon_soil()),
         torch: {
             let t = &torch_frames(false)[0];
             [bank.add(t), bank.add(&t.rotated_cw())]
@@ -652,6 +677,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         lauan_timber: bank.add(&as_lauan(&timber())),
         pine_timber: bank.add(&as_pine(&timber())),
         bamboo_lying: bank.add(&bamboo_lying()),
+        digging_stick: bank.add(&digging_stick()),
+        bamboo_spade: bank.add(&bamboo_spade()),
+        clay: bank.add(&clay_lump()),
+        soil: bank.add(&soil_heap()),
         bark_pot: bank.add(&bark_pot()),
         pack_frame: bank.add(&pack_frame()),
         husk: bank.add(&husk()),

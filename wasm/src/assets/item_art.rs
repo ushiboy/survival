@@ -907,6 +907,126 @@ pub fn icon_bamboo() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A digging stick, 16x32: a straight branch, its foot whittled to a pale
+/// point.
+pub fn icon_digging_stick() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    for y in 2..30 {
+        // Leaning a little, the point at the bottom.
+        let cx = 9.5 - (y as f32 - 2.0) * 0.09;
+        let point = y >= 23;
+        let r = if point { 1.6 * (30.0 - y as f32) / 7.0 } else { 1.6 };
+        for x in 0..16 {
+            let dx = x as f32 + 0.5 - cx;
+            if dx.abs() <= r.max(0.5) {
+                let c = if point {
+                    // Fresh-cut wood where the knife took the bark off.
+                    if dx < 0.0 { i('h') } else { i('F') }
+                } else if dx < -0.5 {
+                    i('W')
+                } else if dx > 0.6 || y % 8 == 5 {
+                    i('d')
+                } else {
+                    i('w')
+                };
+                a.set(x, y, c);
+            }
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// A bamboo spade, 16x48: a round culm for a handle, bound with rope where
+/// the split begins, then the split half opening into a curved blade (its
+/// pale inside showing) that ends at the node.
+pub fn icon_bamboo_spade() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 48, 0);
+    // The handle: a culm with a joint.
+    for y in 2..26 {
+        for (k, x) in (6..10).enumerate() {
+            let c = match (y % 12 == 7, k) {
+                (true, _) => i('g'),
+                (_, 0) => i('h'),
+                (_, 3) => i('g'),
+                _ => i('G'),
+            };
+            a.set(x, y, c);
+        }
+    }
+    for x in 6..10 {
+        a.set(x, 1, i('c'));
+    }
+    // The blade: the split half widening, its pale inside up.
+    for y in 26..45 {
+        let t = ((y - 26) as f32 / 6.0).min(1.0);
+        let half = 2.0 + t * 3.0;
+        let end = if y >= 42 { (44 - y) as f32 * 0.9 + 2.5 } else { half };
+        let half = half.min(end);
+        for x in 0..16 {
+            let dx = x as f32 + 0.5 - 8.0;
+            if dx.abs() <= half {
+                let edge = dx.abs() > half - 1.0;
+                let c = if edge { if dx < 0.0 { i('h') } else { i('g') } } else if dx > half - 2.0 { i('W') } else { i('c') };
+                a.set(x, y, c);
+            }
+        }
+    }
+    // The rope binding where the split stops.
+    for y in 25..29 {
+        for x in 5..11 {
+            a.set(x, y, if (x + y) % 2 == 0 { i('W') } else { i('w') });
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// Lumps of clay heaped up, 16x16: a pile of soft blue-grey lumps, each
+/// with a little wet sheen, so it doesn't read as one stone.
+pub fn icon_clay() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    // Back to front, bottom row last so it overlaps the ones above.
+    for (cx, cy, rx, ry) in [(8.0, 5.5, 2.6, 2.0), (5.5, 8.5, 2.8, 2.2), (10.5, 8.5, 2.8, 2.2), (3.5, 12.0, 2.8, 2.0), (8.0, 11.8, 3.0, 2.3), (12.5, 12.0, 2.6, 2.0)] {
+        fill_ellipse(&mut a, cx, cy, rx, ry, |x, y, nx, ny| {
+            // A dark crease where each lump rests on its neighbours.
+            if nx * nx + ny * ny > 0.75 {
+                return Some(i('m'));
+            }
+            let light = sphere_light(nx, ny);
+            Some(if light > 0.93 { i('L') } else if light > 0.55 || (light > 0.35 && (x + y) % 2 == 0) { i('M') } else { i('m') })
+        });
+    }
+    a.outlined(i('o'))
+}
+
+/// Soil heaped up, 16x16: a mound of crumbly brown earth with a lumpy top,
+/// clods on its slopes and crumbs rolled off at its foot.
+pub fn icon_soil() -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    for (cx, cy, rx, ry) in [(8.0, 6.0, 2.4, 2.0), (6.0, 8.5, 3.2, 2.5), (10.5, 8.8, 3.0, 2.4), (8.0, 11.5, 6.5, 2.6)] {
+        fill_ellipse(&mut a, cx, cy, rx, ry, |x, y, nx, ny| {
+            if nx * nx + ny * ny > 0.8 {
+                return Some(i('d'));
+            }
+            let light = sphere_light(nx, ny) * 0.8 + 0.1;
+            let grit = (x * 13 + y * 7) % 7 == 0;
+            Some(if grit { i('d') } else { ramp(&[i('d'), i('w'), i('W')], light, x, y, 0.5) })
+        });
+    }
+    // Clods and a pebble in it.
+    for (x, y) in [(5, 8), (10, 7), (12, 11), (4, 11)] {
+        a.set(x, y, i('W'));
+    }
+    a.set(8, 10, i('s'));
+    // Crumbs rolled off at its foot.
+    a.set(1, 13, i('w'));
+    a.set(14, 13, i('w'));
+    a.outlined(i('o'))
+}
+
 /// The water wheel, 48x48, seen face on: a rim, arms and hub of lauan,
 /// with paddles of split bamboo standing out round it.
 pub fn icon_water_wheel() -> PixelArt {

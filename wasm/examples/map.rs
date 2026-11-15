@@ -323,6 +323,21 @@ fn report_counts(game: &Game) {
         game.debug_shells_per_morning(),
         island["shell_cap"],
     );
+    // Patches, counted by their top-left cells.
+    let patches = |is: &dyn Fn(Feature) -> bool, high: bool| {
+        (0..game.map().height())
+            .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| game.map().is_high(x, y) == high && is(game.map().feature(x, y)))
+            .count()
+    };
+    let clay = |f: Feature| matches!(f, Feature::ClayBed(c) if c.part == 0);
+    let earth = |f: Feature| f == Feature::BareEarth(0);
+    println!(
+        "digging: {} clay beds on the lake shore; bare earth below the cliffs {}, on the high ground {}",
+        patches(&clay, true),
+        patches(&earth, false),
+        patches(&earth, true)
+    );
 }
 
 fn count_shells(map: &WorldMap) -> usize {
@@ -406,12 +421,14 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::Shell => [240, 160, 170],
         Feature::Flower => [230, 220, 90],
         Feature::PineCone => [170, 100, 40],
+        Feature::ClayBed(_) => [150, 160, 175],
+        Feature::BareEarth(_) => [150, 110, 70],
         Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) => [200, 150, 90],
         Feature::None => c,
     }
 }
 
-const LEGEND: [(&str, Rgb); 18] = [
+const LEGEND: [(&str, Rgb); 20] = [
     ("DEEP SEA", [20, 50, 120]),
     ("SHALLOWS", [60, 140, 200]),
     ("RIVER", [40, 110, 230]),
@@ -430,6 +447,8 @@ const LEGEND: [(&str, Rgb); 18] = [
     ("BAMBOO", [150, 190, 60]),
     ("BUSH VINE", [70, 140, 50]),
     ("ROCK", [120, 120, 120]),
+    ("CLAY BED", [150, 160, 175]),
+    ("BARE EARTH", [150, 110, 70]),
 ];
 
 fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32))], s: i32, area: Option<(i32, i32, i32, i32)>) -> Image {
@@ -562,6 +581,8 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::PineCone => 'k',
                 Feature::Bamboo(_) => 'y',
                 Feature::BambooStump(_) => 'Y',
+                Feature::ClayBed(_) => 'C',
+                Feature::BareEarth(_) => 'E',
             });
         }
         s.push('\n');

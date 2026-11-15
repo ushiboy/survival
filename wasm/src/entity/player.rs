@@ -13,7 +13,7 @@ use crate::render::sprites::DrawList;
 use crate::world::map::{BridgeSpan, LadderFit};
 use crate::world::{TILE_SIZE, WorldMap};
 use crate::items::{ItemKind, Use};
-use crate::world::harvest::{can_pull_vine, can_shake, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
+use crate::world::harvest::{Diggable, can_pull_vine, can_shake, diggable, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -71,6 +71,11 @@ const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
 /// Picking something up (frames): crouch, take hold on `PICK_GRAB`, rise.
 const PICK_GRAB: u32 = 7;
 const PICK_TOTAL: u32 = 16;
+/// Digging (frames): crouching to drive the tool in twice (dirt flying at
+/// each), lifting out what's loosened, and standing.
+const DIG_STABS: [u32; 2] = [8, 22];
+const DIG_LIFT: u32 = 32;
+const DIG_TOTAL: u32 = 44;
 
 /// Drawing water (frames): crouch, scoop it up on `SCOOP_GRAB`, and rise
 /// from `SCOOP_RISE`.
@@ -183,6 +188,9 @@ pub enum Action {
     Chop { t: u32 },
     /// Jabbing with the spear.
     Thrust { t: u32 },
+    /// Crouched over the ground at `at` (world px), digging with the tool
+    /// in hand.
+    Dig { t: u32, at: (i32, i32) },
     /// Coming to on the beach; `t` counts frames since the game started,
     /// and it's over at `end`. Waking from sleep picks this up from sitting
     /// up and ends once standing, without looking around.
@@ -264,6 +272,8 @@ pub struct Situation {
 pub enum Deed {
     /// An axe blow connected.
     Chop((i32, i32)),
+    /// What the tool in hand loosened at the point is lifted out.
+    Dig((i32, i32)),
     /// The spear point struck out along the line from the first point to
     /// the second (on the ground, world px).
     Thrust((i32, i32), (i32, i32)),
@@ -406,6 +416,14 @@ impl Player {
             let t = t + 1;
             self.action = if t >= CHOP_TOTAL { Action::Idle } else { Action::Chop { t } };
             return (t == CHOP_STRIKE).then(|| Deed::Chop(self.reach_point()));
+        }
+        if let Action::Dig { t, at } = self.action {
+            let t = t + 1;
+            self.action = if t >= DIG_TOTAL { Action::Idle } else { Action::Dig { t, at } };
+            if DIG_STABS.contains(&t) {
+                return Some(Deed::KickDust(at));
+            }
+            return (t == DIG_LIFT).then_some(Deed::Dig(at));
         }
         if let Action::Thrust { t } = self.action {
             let t = t + 1;
@@ -593,6 +611,21 @@ impl Player {
                 // A water wheel goes into the river at the mill site, the
                 // castaway stepping along the bank to it first.
                 ItemKind::WaterWheel => Action::ToWheel { t: 0, site: self.wheel_ahead(map)? },
+                // A digging stick loosens hard earth but won't lift sticky
+                // clay; a bamboo spade lifts clay but would crack on hard
+                // earth. The wrong one gives pause.
+                ItemKind::DiggingStick | ItemKind::BambooSpade => {
+                    let (cell, what) = self.dig_target(map)?;
+                    let at = (cell.0 * TILE_SIZE + TILE_SIZE / 2, cell.1 * TILE_SIZE + TILE_SIZE / 2);
+                    match (tool, what) {
+                        (ItemKind::DiggingStick, Diggable::Earth) | (ItemKind::BambooSpade, Diggable::Clay { dug: false }) => Action::Dig { t: 0, at },
+                        (_, Diggable::Clay { dug: true }) => return None,
+                        _ => {
+                            self.ponder();
+                            return None;
+                        }
+                    }
+                }
                 _ => Action::Chop { t: 0 },
             };
             self.moving = false;
@@ -629,6 +662,12 @@ impl Player {
                 return None;
             }
             let reach = self.reach_point();
+            // Earth and clay take a tool to dig (clay dug out today has
+            // nothing more to give).
+            if matches!(self.dig_target(map), Some((_, Diggable::Earth | Diggable::Clay { dug: false }))) {
+                self.ponder();
+                return None;
+            }
             // Bamboo won't give to bare hands or a knife: it takes an axe.
             if is_bamboo(map, reach) {
                 self.ponder();
@@ -754,6 +793,13 @@ impl Player {
 
     /// The spot just in front of the feet that hands and tools reach: where
     /// the axe blade lands, the trunk being shaken, things picked up.
+    /// The ground to dig, and what it is: the cell just ahead, or else the
+    /// one underfoot.
+    fn dig_target(&self, map: &WorldMap) -> Option<((i32, i32), Diggable)> {
+        let cell = |(px, py): (i32, i32)| (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE));
+        [cell(self.reach_point()), cell(self.body.feet())].into_iter().find_map(|c| diggable(map, c).map(|d| (c, d)))
+    }
+
     pub fn reach_point(&self) -> (i32, i32) {
         let (fx, fy) = self.body.feet();
         match self.facing {
@@ -1213,6 +1259,17 @@ impl Player {
                 list.actor(depth, body);
             }
             if shadows && !self.wading {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Dig { t, .. } = self.action {
+            // Crouched to drive the tool in, rising between the stabs.
+            let low = DIG_STABS.iter().any(|&s| (s.saturating_sub(4)..s + 6).contains(&t)) || (DIG_LIFT - 4..DIG_LIFT + 4).contains(&t);
+            let gfx = if low { sprites.player.crouch[view] } else { sprites.player.walk[view][0].full };
+            list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
+            if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             return;

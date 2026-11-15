@@ -29,6 +29,8 @@
 | [貝の釣り針（SHELL HOOK）](shell-hook.md) | 素材 | 1×1 | クラフト |
 | [松ぼっくり（PINE CONE）](pine-cone.md) | 素材（燃料） | 1×1 | 落ちているものを拾う。松を揺する・切り倒すと落ちる |
 | [竹（BAMBOO）](bamboo.md) | 素材 | 1×3 | 西の竹林の竹を石斧で切り倒す |
+| [粘土（CLAY）](clay.md) | 素材 | 1×1 | 湖の南岸の粘土の露出を竹のスコップで掘る（1か所1日1回） |
+| [土（SOIL）](soil.md) | 素材 | 1×1 | 草地の土の露出を掘り棒で掘る（何度でも） |
 
 ## 道具
 
@@ -46,6 +48,8 @@
 | [ハシゴ（LADDER）](ladder.md) | 道具（手） | 1×4 | クラフト |
 | [丸太橋（LOG BRIDGE）](log-bridge.md) | 道具（手） | 1×4 | クラフト |
 | [水車（WATER WHEEL）](water-wheel.md) | 道具（手） | 3×3 | クラフト |
+| [掘り棒（DIGGING STICK）](digging-stick.md) | 道具（手） | 1×2 | クラフト |
+| [竹のスコップ（BAMBOO SPADE）](bamboo-spade.md) | 道具（手） | 1×3 | クラフト |
 
 ## 食べ物・飲み物
 

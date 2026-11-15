@@ -25,6 +25,8 @@
   - [貝殻](sea-shell.md)を削って釣り針にする（レシピの道具: [貝の釣り針](../recipes/shell-hook.md)）
   - [樹皮](bark.md)を裂いてロープにする（レシピの道具: [ロープ（樹皮から）](../recipes/rope-from-bark.md)）
   - 竹を割って水車の羽根にする（レシピの道具: [水車](../recipes/water-wheel.md)）
+  - 枯れ枝の先を削って掘り棒にする（レシピの道具: [掘り棒](../recipes/digging-stick.md)）
+  - 竹を縦に割ってスコップの刃にする（レシピの道具: [竹のスコップ](../recipes/bamboo-spade.md)）
 
 ## メモ
 

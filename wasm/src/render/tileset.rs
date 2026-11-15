@@ -24,7 +24,7 @@ use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::map::LADDER_ROWS;
 use crate::world::noise::value_noise;
 use crate::world::harvest::BARK_STRIPS;
-use crate::world::terrain::{BroadleafPart, PalmPart, PinePart, Soil};
+use crate::world::terrain::{BroadleafPart, ClayPart, PalmPart, PinePart, Soil, patch_anchor};
 use crate::world::{CHUNK_CELLS, CHUNK_PX, ChunkId, Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
@@ -461,6 +461,28 @@ impl Builder<'_> {
             }
         }
         self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// A quarter of a bed of clay in the lake shore's mud (rock palette):
+    /// a grey, wet-sheened slab, or, dug today, a dark hole cut in it.
+    fn clay_bed(&mut self, x: i32, y: i32, c: ClayPart) -> MetatileId {
+        let mud = slice(&self.tex.mud, x.rem_euclid(4), y.rem_euclid(4));
+        let anchor = patch_anchor(x, y, c.part);
+        let (ox, oy) = ((c.part % 2) as i32 * 16, (c.part / 2) as i32 * 16);
+        let art = compose(|px, py| clay_bed_pixel(anchor, ox + px as i32, oy + py as i32, c.dug, mud.get(px, py)));
+        self.unique_art(PAL_ROCK, &art)
+    }
+
+    /// A quarter of a patch of bare earth in the grass: the grass (BG1)
+    /// worn through where the earth shows, and the earth (BG2, rock
+    /// palette, whose browns the grass palette lacks) beneath it.
+    fn bare_earth(&mut self, x: i32, y: i32, part: u8) -> (MetatileId, MetatileId) {
+        let grass = slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4));
+        let anchor = patch_anchor(x, y, part);
+        let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
+        let top = compose(|px, py| if earth_shows(anchor, ox + px as i32, oy + py as i32) { 0 } else { grass.get(px, py) });
+        let earth = compose(|px, py| bare_earth_pixel(anchor, ox + px as i32, oy + py as i32));
+        (self.unique_art(PAL_GRASS, &top), self.unique_art(PAL_ROCK, &earth))
     }
 
     /// A quarter of the water wheel standing in the river (grass palette,
@@ -2253,6 +2275,12 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Bridge(part) => b.bridge(map, river.as_ref(), x, y, part),
         Feature::WaterWheel(part) => b.water_wheel(map, river.as_ref(), x, y, part),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
+        Feature::ClayBed(c) => b.clay_bed(x, y, c),
+        Feature::BareEarth(part) => {
+            let (grass, earth) = b.bare_earth(x, y, part);
+            overhead = BgCell { tile: earth, hflip: false, high: false };
+            grass
+        }
         Feature::None => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),
             (Some(r), _) => {
@@ -2300,6 +2328,102 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         overhead = BgCell { tile: b.river_water(map, &r, x, y), hflip: false, high: false };
     }
     (BgCell::new(tile), overhead)
+}
+
+/// How far out from the middle of a two-by-two patch (clay or bare earth)
+/// the pixel at `(u, v)` (0..32 from its top-left cell `anchor`) lies: under
+/// 1 is inside. Its rim wobbles, differently for each patch, so no two look
+/// alike and none looks drawn with compasses.
+fn patch_reach(anchor: (i32, i32), u: i32, v: i32) -> f32 {
+    let (dx, dy) = ((u as f32 + 0.5 - 16.0) / 14.5, (v as f32 + 0.5 - 16.5) / 12.5);
+    let a = dy.atan2(dx);
+    let phase = |k: u32| hash_unit(anchor.0, anchor.1, k) * std::f32::consts::TAU;
+    let wobble = 1.0 + 0.11 * (2.0 * a + phase(1)).sin() + 0.08 * (3.0 * a + phase(2)).sin() + 0.05 * (5.0 * a + phase(3)).sin();
+    dx.hypot(dy) / wobble
+}
+
+/// A ragged rim for a patch: a pixel's own jitter on its reach.
+fn patch_rim(anchor: (i32, i32), u: i32, v: i32, seed: u32) -> f32 {
+    hash_unit(anchor.0 * 32 + u, anchor.1 * 32 + v, seed) * 0.14
+}
+
+/// One pixel of a clay bed (rock palette) over the shore's `mud`: a flat,
+/// slick slab of blue-grey clay lying in the mud, darker where it's
+/// wettest, with streaks of sheen and a dark seam where it meets the mud.
+/// Dug, a hole is cut in its middle, its far side in shadow and water
+/// seeping into its bottom.
+fn clay_bed_pixel(anchor: (i32, i32), u: i32, v: i32, dug: bool, mud: u8) -> u8 {
+    let reach = patch_reach(anchor, u, v);
+    let rim = patch_rim(anchor, u, v, 0xC1A7);
+    if reach > 1.0 - rim {
+        return mud;
+    }
+    let (wx, wy) = (anchor.0 * 32 + u, anchor.1 * 32 + v);
+    let speck = hash_unit(wx, wy, 0x5EE7);
+    if reach > 0.9 - rim {
+        return if speck < 0.6 { rock::WOOD[0] } else { rock::STONE[1] };
+    }
+    if dug {
+        let hole = ((u as f32 + 0.5 - 16.0) / 7.0).powi(2) + ((v as f32 + 0.5 - 17.0) / 5.0).powi(2);
+        if hole < 1.0 {
+            // Water seeping in shines at the bottom of the hole.
+            let pool = v >= 19 && hole < 0.55;
+            return if pool && speck < 0.45 { rock::STONE[3] } else if pool { rock::STONE[2] } else { rock::STONE[0] };
+        }
+        if hole < 1.45 {
+            // The cut sides: the far one in shadow, the near one lit.
+            return if v < 17 { rock::STONE[1] } else { rock::STONE[4] };
+        }
+    }
+    // Flat: wet patches (slow noise) rather than a lit dome; sheen in
+    // short streaks along the slab.
+    let wet = value_noise(wx as f32 / 9.0, wy as f32 / 6.0, anchor.0 as u32 * 31 + anchor.1 as u32);
+    let streak = hash_unit(wx / 4, wy, 0x51EE) > 0.9 && reach < 0.75;
+    let d = bayer(wx, wy);
+    if streak {
+        rock::STONE[4]
+    } else if wet + d * 0.2 > 0.62 {
+        rock::STONE[2]
+    } else if speck > 0.97 {
+        rock::WOOD[1]
+    } else {
+        rock::STONE[3]
+    }
+}
+
+/// Whether the earth shows through the grass at a pixel of a bare patch
+/// (with a few tufts of grass left standing near its rim).
+fn earth_shows(anchor: (i32, i32), u: i32, v: i32) -> bool {
+    let reach = patch_reach(anchor, u, v);
+    let rim = patch_rim(anchor, u, v, 0xEA27);
+    reach < 1.0 - rim && !(reach > 0.86 && hash_unit(anchor.0 * 32 + u, anchor.1 * 32 + v, 0x7F7F) < 0.25)
+}
+
+/// One pixel of bare earth (rock palette): dry, flat brown ground,
+/// mottled darker and lighter, with grit and the odd pebble, and the
+/// grass's shadow along its top rim.
+fn bare_earth_pixel(anchor: (i32, i32), u: i32, v: i32) -> u8 {
+    let (wx, wy) = (anchor.0 * 32 + u, anchor.1 * 32 + v);
+    let speck = hash_unit(wx, wy, 0xD127);
+    let reach = patch_reach(anchor, u, v);
+    // The rim of grass above throws a little shadow onto the earth.
+    if reach > 0.86 && v < 16 {
+        return rock::WOOD[0];
+    }
+    if speck > 0.985 {
+        return rock::STONE[4];
+    }
+    if speck > 0.97 {
+        return rock::STONE[2];
+    }
+    let mottle = value_noise(wx as f32 / 6.0, wy as f32 / 5.0, anchor.0 as u32 * 17 + anchor.1 as u32) + (speck - 0.5) * 0.5;
+    if mottle > 0.6 {
+        rock::WOOD[2]
+    } else if mottle > 0.15 {
+        rock::WOOD[1]
+    } else {
+        rock::WOOD[0]
+    }
 }
 
 /// BG2 cell of a palm part, with the canopy shifted `sway` px (the row

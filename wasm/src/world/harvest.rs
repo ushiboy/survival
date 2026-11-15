@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
-use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart};
+use super::terrain::{BambooPart, BroadleafPart, ClayPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart, patch_anchor, patch_cells};
 use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
 
@@ -135,6 +135,59 @@ pub fn pull_vine(map: &mut WorldMap, point: (i32, i32)) -> Option<(i32, i32)> {
     let cell = (point.0.div_euclid(TILE_SIZE), point.1.div_euclid(TILE_SIZE));
     map.set_feature(cell.0, cell.1, Feature::VineStake);
     Some(cell)
+}
+
+/// Lumps of clay a bamboo spade lifts out of a clay bed (once a day).
+pub const CLAY_PER_DIG: u32 = 2;
+/// Handfuls of soil a digging stick loosens out of bare earth each time.
+pub const SOIL_PER_DIG: u32 = 1;
+
+/// What lies at a cell to dig: bare earth, or a clay bed (dug today or not).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Diggable {
+    Earth,
+    Clay { dug: bool },
+}
+
+/// What can be dug at the cell.
+pub fn diggable(map: &WorldMap, (x, y): (i32, i32)) -> Option<Diggable> {
+    match map.feature(x, y) {
+        Feature::BareEarth(_) => Some(Diggable::Earth),
+        Feature::ClayBed(c) => Some(Diggable::Clay { dug: c.dug }),
+        _ => None,
+    }
+}
+
+/// Lifts clay out of the bed at the cell, leaving the whole bed dug until
+/// the morning. Returns its cells (to redraw), or `None` if there's no bed
+/// there or it's been dug today.
+pub fn dig_clay(map: &mut WorldMap, (x, y): (i32, i32)) -> Option<[(i32, i32); 4]> {
+    let Feature::ClayBed(c) = map.feature(x, y) else { return None };
+    if c.dug {
+        return None;
+    }
+    let cells = patch_cells(patch_anchor(x, y, c.part));
+    for (part, (cx, cy)) in cells.into_iter().enumerate() {
+        map.set_feature(cx, cy, Feature::ClayBed(ClayPart { part: part as u8, dug: true }));
+    }
+    Some(cells)
+}
+
+/// A new morning: the lake's water has seeped back into every clay bed dug
+/// since, softening it again. Returns the cells changed.
+pub fn refill_clay_beds(map: &mut WorldMap) -> Vec<(i32, i32)> {
+    let mut changed = Vec::new();
+    for y in 0..map.height() {
+        for x in 0..map.width() {
+            if let Feature::ClayBed(c) = map.feature(x, y)
+                && c.dug
+            {
+                map.set_feature(x, y, Feature::ClayBed(ClayPart { dug: false, ..c }));
+                changed.push((x, y));
+            }
+        }
+    }
+    changed
 }
 
 /// Leaves a bush gives each time it's picked.

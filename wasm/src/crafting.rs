@@ -42,6 +42,8 @@ pub const RECIPES: &[Recipe] = &[
     Recipe { name: "Ladder", makes: ItemKind::Ladder, needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 3), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
     Recipe { name: "LogBridge", makes: ItemKind::LogBridge, needs: &[(ItemKind::PineTimber, 2), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
     Recipe { name: "WaterWheel", makes: ItemKind::WaterWheel, needs: &[(ItemKind::LauanTimber, 4), (ItemKind::Bamboo, 4), (ItemKind::Stone, 2), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife], at_fire: false },
+    Recipe { name: "DiggingStick", makes: ItemKind::DiggingStick, needs: &[(ItemKind::Branch, 1)], tools: &[ItemKind::StoneKnife], at_fire: false },
+    Recipe { name: "BambooSpade", makes: ItemKind::BambooSpade, needs: &[(ItemKind::Bamboo, 1), (ItemKind::Rope, 1)], tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife], at_fire: false },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the
@@ -264,6 +266,26 @@ mod tests {
     #[test]
     fn a_water_wheel_is_cut_with_the_axe_and_split_with_the_knife() {
         let tools = RECIPES[index(ItemKind::WaterWheel)].tools;
+        assert!(tools.contains(&ItemKind::StoneAxe) && tools.contains(&ItemKind::StoneKnife));
+    }
+
+    #[test]
+    fn a_digging_stick_is_a_branch_whittled_to_a_point_with_the_knife() {
+        let recipe = RECIPES[index(ItemKind::DiggingStick)];
+        assert_eq!(recipe.needs, &[(ItemKind::Branch, 1)]);
+        assert!(recipe.tools.contains(&ItemKind::StoneKnife));
+    }
+
+    #[test]
+    fn a_bamboo_spade_comes_to_mind_with_bamboo_and_rope() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Bamboo, ItemKind::Rope]));
+        assert!(book.listed().contains(&index(ItemKind::BambooSpade)));
+    }
+
+    #[test]
+    fn a_bamboo_spade_is_cut_with_the_axe_and_split_with_the_knife() {
+        let tools = RECIPES[index(ItemKind::BambooSpade)].tools;
         assert!(tools.contains(&ItemKind::StoneAxe) && tools.contains(&ItemKind::StoneKnife));
     }
 

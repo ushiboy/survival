@@ -94,6 +94,10 @@ fn main() {
                 "ladder" => ItemKind::Ladder,
                 "log bridge" | "bridge" => ItemKind::LogBridge,
                 "water wheel" | "wheel" => ItemKind::WaterWheel,
+                "digging stick" | "stick" => ItemKind::DiggingStick,
+                "bamboo spade" | "spade" => ItemKind::BambooSpade,
+                "clay" => ItemKind::Clay,
+                "soil" => ItemKind::Soil,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

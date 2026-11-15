@@ -173,6 +173,27 @@ impl DriftwoodPart {
     }
 }
 
+/// One cell of a bed of clay showing through the lake shore's mud, two
+/// cells by two: `part` is `dx + 2 * dy` from its top-left cell. Once dug
+/// (`dug`, the whole bed) it's a wet hole until the next morning, when the
+/// lake's water has seeped back and softened it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ClayPart {
+    pub part: u8,
+    pub dug: bool,
+}
+
+/// The cells of a two-by-two patch (clay or bare earth) whose top-left is
+/// `anchor`, by part (`dx + 2 * dy`).
+pub fn patch_cells((x, y): (i32, i32)) -> [(i32, i32); 4] {
+    [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)]
+}
+
+/// The top-left cell of the two-by-two patch whose `part` is at `(x, y)`.
+pub fn patch_anchor(x: i32, y: i32, part: u8) -> (i32, i32) {
+    (x - (part % 2) as i32, y - (part / 2) as i32)
+}
+
 /// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct StumpPart {
@@ -220,6 +241,12 @@ pub enum Feature {
     Bamboo(BambooPart),
     /// What's left of a cut bamboo culm: a short stalk, cut aslant.
     BambooStump(StumpPart),
+    /// A bed of clay on the lake's shore; a bamboo spade lifts clay out
+    /// of it once a day.
+    ClayBed(ClayPart),
+    /// Bare earth showing through the grass, two cells by two (`dx + 2 *
+    /// dy` from its top-left cell); a digging stick loosens soil out of it.
+    BareEarth(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

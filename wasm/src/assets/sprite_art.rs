@@ -865,6 +865,52 @@ pub fn droplet() -> PixelArt {
     PixelArt::parse(&["........", "...i....", "..ili...", "..lbl...", "...l....", "........", "........", "........"], FX_LEGEND)
 }
 
+/// A digging stick lying on the ground, 16x8: a straight branch, its point
+/// (right) pale.
+pub fn digging_stick() -> PixelArt {
+    let rows = [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooo..",
+        "oWWWwWWWWWWWhhoo",
+        "odddwddddddwFFho",
+        "ooooooooooooooo.",
+        "................",
+    ];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
+/// A bamboo spade lying on the ground, 32x8: the green handle, the rope
+/// binding, and the split blade (right) showing its pale inside.
+pub fn bamboo_spade() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            "....................ooooooooooo.",
+            "ooooooooooooooooooowWhhhhhhhhhho",
+            "ohhhhhhghhhhhhhhhhhoWwccccccccco",
+            "oGGGGGGgGGGGGGGGGGGoWwWWWWWWWWgo",
+            "ogggggggggggggggggggwWgggggggggo",
+            "oooooooooooooooooooooooooooooo..",
+            "................................",
+        ],
+        FX_LEGEND,
+    )
+}
+
+/// A lump of clay on the ground, 8x8 (effects palette greys).
+pub fn clay_lump() -> PixelArt {
+    let rows = ["........", "...oo...", "..oLMo..", ".ooMmoo.", "oLMooMMo", "oMmmoMmo", ".oooooo.", "........"];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
+/// A little heap of soil on the ground, 8x8.
+pub fn soil_heap() -> PixelArt {
+    let rows = ["........", "...oo...", "..oWwo..", ".oWwdwo.", "oWwdwddo", "odwdddwo", ".oooooo.", "........"];
+    PixelArt::parse(&rows, ITEM_LEGEND)
+}
+
 /// A length of bamboo lying on the ground, 32x8: a green culm with joints,
 /// its cut end (right) pale.
 pub fn bamboo_lying() -> PixelArt {

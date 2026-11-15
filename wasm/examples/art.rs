@@ -45,7 +45,7 @@ use survival_core::render::sprites::DrawList;
 use survival_core::render::tileset::{Tileset, VisualMap};
 use survival_core::world::harvest::BARK_STRIPS;
 use survival_core::world::island::SAND_BELOW;
-use survival_core::world::terrain::{BambooPart, BroadleafPart, DriftwoodPart, PalmPart, PinePart, StumpPart};
+use survival_core::world::terrain::{BambooPart, BroadleafPart, ClayPart, DriftwoodPart, PalmPart, PinePart, StumpPart};
 use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
 
 const BG: Rgb = [24, 24, 32];
@@ -127,6 +127,7 @@ fn specimens(a: &Assets) -> Vec<Specimen> {
     let stump = StumpPart { flip: false };
     let log = |flip| tree(DriftwoodPart::W, 1, move |dx, _| Feature::Driftwood(DriftwoodPart { dx, flip }));
     let culm = |v| tree(1, BambooPart::H, move |_, dy| Feature::Bamboo(BambooPart { dy, v, flip: false }));
+    let clay = |dug| tree(2, 2, move |dx, dy| Feature::ClayBed(ClayPart { part: dx + 2 * dy, dug }));
     let v = vec![
         Specimen { name: "PALM", ground: p.palm.lower[1].ground, parts: palm(false), fruit: Some(3), bark: None },
         Specimen { name: "PALM NO NUTS FLIPPED", ground: p.palm.lower[1].ground, parts: palm(true), fruit: Some(0), bark: None },
@@ -149,6 +150,9 @@ fn specimens(a: &Assets) -> Vec<Specimen> {
         Specimen { name: "DRIFTWOOD FLIPPED", ground: p.driftwood[0].ground, parts: log(true), fruit: None, bark: None },
         Specimen::one("SHELL", p.shell.ground, Feature::Shell),
         Specimen::one("FLOWERS", p.flowers.ground, Feature::Flower),
+        Specimen { name: "CLAY BED", ground: Ground::Sand, parts: clay(false), fruit: None, bark: None },
+        Specimen { name: "CLAY BED DUG", ground: Ground::Sand, parts: clay(true), fruit: None, bark: None },
+        Specimen { name: "BARE EARTH", ground: Ground::Grass, parts: tree(2, 2, |dx, dy| Feature::BareEarth(dx + 2 * dy)), fruit: None, bark: None },
     ];
     for s in &v {
         for (_, f) in &s.parts {
@@ -178,7 +182,9 @@ fn on_sheet(f: Feature) -> bool {
         | Feature::PineStump(_)
         | Feature::PineCone
         | Feature::Bamboo(_)
-        | Feature::BambooStump(_) => true,
+        | Feature::BambooStump(_)
+        | Feature::ClayBed(_)
+        | Feature::BareEarth(_) => true,
         // Bare ground; the ladder, drawn with the cliff it stands against,
         // and the log bridge and water wheel, drawn with the river they're
         // in (see `pnpm map`, `pnpm map --bridge` and `pnpm map --wheel`).

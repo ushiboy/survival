@@ -33,7 +33,7 @@ use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
-use super::terrain::{BambooPart, BroadleafPart, DriftwoodPart, Feature, PalmPart, PinePart, Soil, Terrain};
+use super::terrain::{BambooPart, BroadleafPart, ClayPart, DriftwoodPart, Feature, PalmPart, PinePart, Soil, Terrain, patch_cells};
 use crate::common::rng::{Rng, hash_unit};
 
 /// The island's plan, and the cells each of its characters stands for.
@@ -824,10 +824,98 @@ pub fn generate(seed: u32) -> WorldMap {
     place_scatter(&mut map, &heights, &forest, seed, &in_grove);
     drop_pine_cones(&mut map);
     fill_cliff_feet(&mut map);
-    map.set_elevation(heights);
+    map.set_elevation(heights.clone());
     map.crab_spawns = pick_crab_spawns(&map, seed, spawn_cell);
     map.loot = scatter_loot(&map, seed);
+    // Last of all, so nothing else on the island moves for them.
+    place_clay_beds(&mut map, seed);
+    place_bare_earth(&mut map, &heights, seed, &in_grove);
     map
+}
+
+/// Clay beds lying in the mud of the lake's south shore.
+const CLAY_BEDS: usize = 5;
+/// How far either side of the ladder's column the shore north of it is
+/// left open (the beach a raft would be launched from), and how far out
+/// either side the clay beds lie.
+pub const LAUNCH_HALF_WIDTH: i32 = 3;
+const CLAY_REACH: i32 = 14;
+/// Least distance (cells, either way) between the top-left cells of two
+/// clay beds, and of two patches of bare earth.
+const CLAY_SPACING: i32 = 3;
+const EARTH_SPACING: i32 = 14;
+/// Patches of bare earth in the grass, for each stretch of dry land the
+/// size of the first area's: below the cliffs, and on the high ground.
+const EARTH_PATCHES: usize = 3;
+const HIGH_EARTH_PATCHES: usize = 2;
+
+/// Picks up to `count` two-by-two patches from the top-left cells `fits`
+/// allows, in an order shuffled by `seed`, no two closer than `spacing`
+/// (nor to any of `taken`).
+fn pick_patches(map: &WorldMap, seed: u32, count: usize, spacing: i32, taken: &[(i32, i32)], fits: impl Fn(i32, i32) -> bool) -> Vec<(i32, i32)> {
+    let w = map.width();
+    let mut spots: Vec<(i32, i32)> = (0..map.height() - 1).flat_map(|y| (0..w - 1).map(move |x| (x, y))).filter(|&(x, y)| fits(x, y)).collect();
+    spots.sort_by(|&a, &b| roll(a.0, a.1, seed).total_cmp(&roll(b.0, b.1, seed)));
+    let mut out: Vec<(i32, i32)> = Vec::new();
+    for (x, y) in spots {
+        if out.len() >= count {
+            break;
+        }
+        if out.iter().chain(taken).all(|&(px, py)| (px - x).abs().max((py - y).abs()) >= spacing) {
+            out.push((x, y));
+        }
+    }
+    out
+}
+
+/// The cells of a patch whose top-left is at `(x, y)`, and the ring of
+/// cells round it.
+fn patch_and_ring(x: i32, y: i32) -> impl Iterator<Item = (i32, i32)> {
+    (y - 1..=y + 2).flat_map(move |cy| (x - 1..=x + 2).map(move |cx| (cx, cy)))
+}
+
+/// Lays clay beds in the mud of the lake's south shore, either side of
+/// the beach north of the ladder (left open), each with mud all round it.
+fn place_clay_beds(map: &mut WorldMap, seed: u32) {
+    let Some((lx, ly)) = map.spots.ladder else { return };
+    let mud = |x: i32, y: i32| map.in_bounds(x, y) && map.is_high(x, y) && map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud && map.feature(x, y) == Feature::None;
+    let beds = pick_patches(map, seed ^ 0xC1A7, CLAY_BEDS, CLAY_SPACING, &[], |x, y| {
+        let off = [x - lx, x + 1 - lx];
+        y < ly && off.iter().all(|d| d.abs() > LAUNCH_HALF_WIDTH && d.abs() <= CLAY_REACH) && patch_and_ring(x, y).all(|(cx, cy)| mud(cx, cy))
+    });
+    for anchor in beds {
+        for (part, (x, y)) in patch_cells(anchor).into_iter().enumerate() {
+            map.set_feature(x, y, Feature::ClayBed(ClayPart { part: part as u8, dug: false }));
+        }
+    }
+}
+
+/// Lays patches of bare earth in open grass, below the cliffs and on the
+/// high ground, well apart: clear of trees and everything else, the
+/// riverside, the lake, the clearings kept open (`kept`) and the branches
+/// and stones lying about.
+fn place_bare_earth(map: &mut WorldMap, heights: &[f32], seed: u32, kept: &dyn Fn(i32, i32) -> bool) {
+    let w = map.width();
+    let loot: Vec<(i32, i32)> = map.loot.iter().map(|&(_, (px, py))| (px.div_euclid(TILE_SIZE), py.div_euclid(TILE_SIZE))).collect();
+    let open = |x: i32, y: i32, high: bool| {
+        map.in_bounds(x, y)
+            && map.feature(x, y) == Feature::None
+            && map.is_high(x, y) == high
+            && map.terrain(x, y) == if high { Terrain::Highland } else { Terrain::Grass }
+            && heights[(y * w + x) as usize] > SAND_BELOW + PROP_MARGIN
+            && !map.is_riverside(x, y)
+            && map.foot_fill(x, y) == [false, false]
+            && !kept(x, y)
+            && !(high && by_lake(map, x, y))
+            && !loot.contains(&(x, y))
+    };
+    let low = pick_patches(map, seed ^ 0xEA27, for_area(map, EARTH_PATCHES), EARTH_SPACING, &[], |x, y| patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, false)));
+    let high = pick_patches(map, seed ^ 0xEA28, for_high_area(map, HIGH_EARTH_PATCHES), EARTH_SPACING, &low, |x, y| patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, true)));
+    for anchor in low.into_iter().chain(high) {
+        for (part, (x, y)) in patch_cells(anchor).into_iter().enumerate() {
+            map.set_feature(x, y, Feature::BareEarth(part as u8));
+        }
+    }
 }
 
 /// Share of the trees on the high ground that are pines (the rest are
@@ -1624,6 +1712,91 @@ mod tests {
             map.set_terrain(x, y, Terrain::Sand);
         }
         assert_eq!(for_area(&map, 100), before);
+    }
+
+    /// Every cell of the patches `is` picks out.
+    fn patch_cells(map: &WorldMap, is: impl Fn(Feature) -> bool) -> Vec<(i32, i32)> {
+        let w = map.width();
+        (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| is(map.feature(x, y))).collect()
+    }
+
+    fn clay(map: &WorldMap) -> Vec<(i32, i32)> {
+        patch_cells(map, |f| matches!(f, Feature::ClayBed(_)))
+    }
+
+    fn earth(map: &WorldMap) -> Vec<(i32, i32)> {
+        patch_cells(map, |f| matches!(f, Feature::BareEarth(_)))
+    }
+
+    #[test]
+    fn clay_beds_lie_in_the_mud_of_the_lake_shore() {
+        let map = island();
+        let beds = clay(&map);
+        assert!(!beds.is_empty());
+        for (x, y) in beds {
+            assert!(map.is_high(x, y) && map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud, "{:?}", (x, y));
+        }
+    }
+
+    #[test]
+    fn the_clay_beds_are_reached_up_the_ladder() {
+        let (with, without) = (walk_with_ladder(), Walk::from_landing(island()));
+        let beds = clay(&with.map);
+        assert!(beds.iter().all(|&c| with.can(c)), "every bed is reached from the ladder");
+        assert!(beds.iter().all(|&c| !without.can(c)));
+    }
+
+    #[test]
+    fn the_shore_north_of_the_ladder_is_left_open_to_launch_a_raft_from() {
+        let map = island();
+        let (lx, _) = map.spots.ladder.expect("the island has a low cliff");
+        let in_the_way: Vec<_> = clay(&map).into_iter().filter(|&(x, _)| (x - lx).abs() <= LAUNCH_HALF_WIDTH).collect();
+        assert!(in_the_way.is_empty(), "{in_the_way:?}");
+    }
+
+    #[test]
+    fn bare_earth_shows_through_the_grass_in_the_first_area() {
+        let walk = Walk::from_landing(island());
+        assert!(earth(&walk.map).iter().any(|&c| walk.can(c)));
+    }
+
+    #[test]
+    fn bare_earth_shows_through_the_grass_across_the_bridge_and_up_the_ladder_too() {
+        let (bridge, ladder, first) = (walk_with_bridge(), walk_with_ladder(), Walk::from_landing(island()));
+        let patches = earth(&first.map);
+        assert!(patches.iter().any(|&c| bridge.can(c) && !first.can(c) && !bridge.map.is_high(c.0, c.1)), "on the west coast");
+        assert!(patches.iter().any(|&c| ladder.can(c) && ladder.map.is_high(c.0, c.1)), "on the high ground");
+    }
+
+    #[test]
+    fn bare_earth_is_grass_worn_away_and_can_be_walked_over() {
+        let map = island();
+        for (x, y) in earth(&map) {
+            assert!(matches!(map.terrain(x, y), Terrain::Grass | Terrain::Highland), "{:?}", (x, y));
+            assert!(!map.props(x, y).solid);
+        }
+    }
+
+    #[test]
+    fn patches_of_clay_and_earth_are_two_cells_by_two() {
+        let map = island();
+        for (x, y) in clay(&map).into_iter().chain(earth(&map)) {
+            let part = match map.feature(x, y) {
+                Feature::ClayBed(c) => c.part,
+                Feature::BareEarth(p) => p,
+                _ => unreachable!(),
+            };
+            let anchor = (x - (part % 2) as i32, y - (part / 2) as i32);
+            for k in 0..4u8 {
+                let c = (anchor.0 + (k % 2) as i32, anchor.1 + (k / 2) as i32);
+                let same = match (map.feature(x, y), map.feature(c.0, c.1)) {
+                    (Feature::ClayBed(_), Feature::ClayBed(o)) => o.part == k,
+                    (Feature::BareEarth(_), Feature::BareEarth(o)) => o == k,
+                    _ => false,
+                };
+                assert!(same, "the patch at {anchor:?} is whole");
+            }
+        }
     }
 
     #[test]

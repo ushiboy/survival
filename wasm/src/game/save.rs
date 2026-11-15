@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 14;
+pub const SAVE_VERSION: u32 = 15;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -471,6 +471,14 @@ fn v13_to_v14(save: &mut Value) {
     save["castaway"]["mill_noticed"] = Value::Bool(false);
 }
 
+/// Version 15: clay beds on the lake shore and bare earth in the grass
+/// are new features of the island, and a clay bed dug today is kept (as a
+/// changed feature, like any other). They lie only where the island had
+/// nothing and nothing can be put since (open mud and grass, away from the
+/// beaches driftwood and shells wash up on), so a version 14 save holds
+/// nothing in their way and reads as it is.
+fn v14_to_v15(_save: &mut Value) {}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -623,6 +631,7 @@ mod tests {
         include_str!("save_samples/v12.json"),
         include_str!("save_samples/v13.json"),
         include_str!("save_samples/v14.json"),
+        include_str!("save_samples/v15.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -967,5 +976,19 @@ mod tests {
     #[test]
     fn version_14_keeps_having_come_upon_the_mill_site() {
         assert!(load(14).castaway.mill_noticed, "the sample has come there");
+    }
+
+    #[test]
+    fn version_15_reads_a_version_14_save_as_it_is() {
+        let (old, new) = (load(14), serde_json::from_str::<Value>(SAMPLES[13]).unwrap());
+        assert_eq!(old.island.features.len(), new["island"]["features"].as_array().map_or(0, |v| v.len()));
+    }
+
+    #[test]
+    fn version_15_keeps_a_clay_bed_dug_today() {
+        let s = load(15);
+        let dug = s.island.features.iter().filter(|(_, f)| matches!(f, Feature::ClayBed(c) if c.dug)).count();
+        assert_eq!(dug, 4, "every cell of the bed the sample dug");
+        assert!(s.inventory.bag.has(ItemKind::BambooSpade) && s.inventory.bag.count(ItemKind::Clay) == 2);
     }
 }
