@@ -3,7 +3,7 @@
 //! item icons and cursor (BG3's priority bit is cleared so they show in
 //! front of it).
 
-use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
+use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_HEART, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::crafting::RECIPES;
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
@@ -413,7 +413,7 @@ fn draw_recipe_list(
 }
 
 /// One recipe opened: what it makes and what that's for, the materials
-/// with how many are needed and carried (short ones greyed), the tools it
+/// with how many are needed and carried (short ones marked in red), the tools it
 /// takes, whether it needs a fire, and MAKE / BACK. An item made more than
 /// one way shows which way this is (`< 1/2 >` by NEEDS), with a `!` on
 /// the side of a way not yet looked at.
@@ -466,8 +466,8 @@ fn draw_recipe(
     for (i, &(kind, n)) in recipe.needs.iter().enumerate() {
         let row = top + 1 + i;
         let have = bag.count(kind);
-        let palette = if have >= n { HUD_TEXT } else { HUD_DIM };
-        text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
+        let palette = need_row(bg3, tiles, row, Supply::of(have, n));
+        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
         text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
         text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
     }
@@ -475,32 +475,75 @@ fn draw_recipe(
     for (i, &kind) in recipe.tools.iter().enumerate() {
         let row = top + 1 + recipe.needs.len() + i;
         let have = inventory.carries(kind);
-        let palette = if have { HUD_TEXT } else { HUD_DIM };
-        text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
+        let palette = need_row(bg3, tiles, row, Supply::from(have));
+        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
         text_in(bg3, tiles, NEED_COL - 2, row, "TOOL", palette);
         text_in(bg3, tiles, HAVE_COL - 1, row, if have { "YES" } else { " NO" }, palette);
     }
     if recipe.at_fire {
         let row = top + 1 + recipe.needs.len() + recipe.tools.len();
-        let palette = if near_fire { HUD_TEXT } else { HUD_DIM };
-        text_in(bg3, tiles, GRID_COL + 1, row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
-        text_in(bg3, tiles, GRID_COL + 3, row, "A FIRE", palette);
+        let palette = need_row(bg3, tiles, row, Supply::from(near_fire));
+        text_in(bg3, tiles, GRID_COL + 2, row, "^", if near_fire { HUD_FOOD } else { palette });
+        text_in(bg3, tiles, GRID_COL + 4, row, "A FIRE", palette);
         text_in(bg3, tiles, HAVE_COL - 1, row, if near_fire { "YES" } else { " NO" }, palette);
     }
     if recipe.at_lathe {
         let row = top + 1 + recipe.needs.len() + recipe.tools.len();
-        let palette = if near_lathe { HUD_TEXT } else { HUD_DIM };
-        text_in(bg3, tiles, GRID_COL + 1, row, LATHE_MARK, if near_lathe { HUD_FOOD } else { HUD_DIM });
-        text_in(bg3, tiles, GRID_COL + 3, row, "A LATHE", palette);
+        let palette = need_row(bg3, tiles, row, Supply::from(near_lathe));
+        text_in(bg3, tiles, GRID_COL + 2, row, LATHE_MARK, if near_lathe { HUD_FOOD } else { palette });
+        text_in(bg3, tiles, GRID_COL + 4, row, "A LATHE", palette);
         text_in(bg3, tiles, HAVE_COL - 1, row, if near_lathe { "YES" } else { " NO" }, palette);
     }
 
+    // MAKE greyed while something's short; it can still be chosen.
+    let ready = inventory.can_make(recipe) && menu.in_place_for(recipe);
     for (i, label) in ["MAKE", "BACK"].into_iter().enumerate() {
         let row = CHOICE_ROW + i;
         if i == choice {
             text(bg3, tiles, GRID_COL, row, ">");
         }
-        text(bg3, tiles, GRID_COL + 1, row, label);
+        text_in(bg3, tiles, GRID_COL + 1, row, label, if i == 0 && !ready { HUD_DIM } else { HUD_TEXT });
+    }
+}
+
+/// How much of something a recipe needs is at hand.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Supply {
+    Enough,
+    /// Some, but fewer than needed.
+    Short,
+    None,
+}
+
+impl Supply {
+    fn of(have: u32, need: u32) -> Self {
+        if have >= need {
+            Self::Enough
+        } else if have > 0 {
+            Self::Short
+        } else {
+            Self::None
+        }
+    }
+}
+
+impl From<bool> for Supply {
+    fn from(have: bool) -> Self {
+        if have { Self::Enough } else { Self::None }
+    }
+}
+
+/// Starts a row of what a recipe needs and returns its palette. What's
+/// missing stands out rather than fading (grey reads as "doesn't
+/// matter"): too few in yellow, none at all in red with an X at the head.
+fn need_row(bg3: &mut Bg3Layer, tiles: &HudTiles, row: usize, supply: Supply) -> u8 {
+    match supply {
+        Supply::Enough => HUD_TEXT,
+        Supply::Short => HUD_FOOD,
+        Supply::None => {
+            text_in(bg3, tiles, GRID_COL, row, "X", HUD_HEART);
+            HUD_HEART
+        }
     }
 }
 
