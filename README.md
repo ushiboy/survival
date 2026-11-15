@@ -8,7 +8,7 @@
 
 - [mise](https://mise.jdx.dev/) と [rustup](https://rustup.rs/)
 
-バージョンは固定しています。Node・pnpm・wasm-pack は `mise.toml`、Rust（`wasm32-unknown-unknown` target と clippy を含む）は `rust-toolchain.toml` にあります。
+バージョンは固定しています。Node・pnpm・wasm-pack は `mise.toml`、Rust（`wasm32-unknown-unknown` target と clippy・rustfmt を含む）は `rust-toolchain.toml` にあります。
 
 ```bash
 mise install         # Node・pnpm・wasm-pack を入れる（Rust はこのディレクトリで cargo を初めて動かしたときに rustup が入れる）
@@ -26,6 +26,7 @@ pnpm preview         # 本番ビルドを開く
 pnpm test            # Rust のテスト（cargo test --manifest-path wasm/Cargo.toml）
 pnpm test:web        # TypeScript のテスト（Vitest + Testing Library、jsdom）。見張って回すなら pnpm test:web:watch
 pnpm exec tsc -b     # 型チェック
+pnpm fmt             # Rust のコードを整形（rustfmt。設定は wasm/rustfmt.toml）。確かめるだけなら pnpm fmt:check
 ```
 
 ## テスト

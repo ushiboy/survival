@@ -13,6 +13,8 @@
     "test": "cargo test --manifest-path wasm/Cargo.toml",
     "test:web": "vitest run",
     "test:web:watch": "vitest",
+    "fmt": "cargo fmt --manifest-path wasm/Cargo.toml",
+    "fmt:check": "cargo fmt --manifest-path wasm/Cargo.toml --check",
     "map": "cargo run -q --profile tools --manifest-path wasm/Cargo.toml --example map --",
     "map:watch": "node scripts/map-watch.mjs",
     "art": "cargo run -q --profile tools --manifest-path wasm/Cargo.toml --example art --",

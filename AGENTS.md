@@ -76,6 +76,7 @@
 - 単体テストは対象のファイルの末尾の `#[cfg(test)] mod tests` に、`Game` を外から動かすシナリオテストは `wasm/tests/` に書く。シナリオテストは島の座標に頼らず、デバッグ用の関数（`debug_give` など）で状況を作る。
 - TypeScript（`src/`）の入力やページの振る舞いを変えるときも、Vitest + Testing Library でテストを書く。テストは対象のファイルの隣に `*.test.ts(x)` として置く。wasm を使う部品は `vi.mock` で `game/wasmCore` を差し替え、jsdom にない位置・当たり判定・`matchMedia` は `src/test/dom.ts` の補助を使う。
 - テストを書く途中でバグを見つけたら、その場で直さずにユーザーに報告して相談する。
+- Rust のコードを変えたら、作業の最後に `pnpm fmt` で整形する（`pnpm fmt:check` が通る状態を保つ）。
 - コミットはユーザーに頼まれたときだけする。
 - 仕様を変えるときは、先に案を出してユーザーと合意してから実装する。
 
@@ -87,6 +88,7 @@ pnpm exec tsc -b     # 型チェック
 pnpm dev             # wasm をビルドして開発サーバーを起動
 pnpm test            # Rust のテストを実行（cargo test）
 pnpm test:web        # TypeScript のテストを実行（Vitest + Testing Library）
+pnpm fmt             # Rust のコードを整形（rustfmt）
 pnpm map             # 島の地図（設計・全景・特別な場所・前との差分）を wasm/target/map/ に描く
 pnpm art             # 島に置く物とアイテムの絵の一覧（と前との差分）を wasm/target/art/ に描く
 ```
