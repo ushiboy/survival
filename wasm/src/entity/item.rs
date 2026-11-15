@@ -133,6 +133,7 @@ impl Item {
             ItemKind::PineTimber => (16, [sprites.pine_timber; 2], sprites.shadow_player),
             ItemKind::Bamboo => (32, [sprites.bamboo_lying; 2], sprites.shadow_lying),
             ItemKind::PackFrame => (16, [sprites.pack_frame; 2], sprites.shadow_player),
+            ItemKind::ToolBelt => (16, [sprites.tool_belt; 2], sprites.shadow_player),
             ItemKind::BarkContainer | ItemKind::BoiledWater => (8, [sprites.bark_pot; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),
@@ -175,6 +176,7 @@ impl Item {
             | ItemKind::BarkContainer
             | ItemKind::BoiledWater
             | ItemKind::PackFrame
+            | ItemKind::ToolBelt
             | ItemKind::PalmFrond
             | ItemKind::Thatch
             | ItemKind::Shelter

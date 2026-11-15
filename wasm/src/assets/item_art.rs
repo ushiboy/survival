@@ -160,6 +160,45 @@ pub fn icon_pack_frame() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A tool belt laid out straight, 16x32: a band of plaited bark strips
+/// (the plait running in chevrons), a wooden toggle at the top end and
+/// rope ties at the bottom, and two rope loops on its side for the tools.
+pub fn icon_tool_belt() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    // The band: three strips plaited over and under, lit on the left.
+    for y in 3..27 {
+        for x in 5..10 {
+            let strip = (x - 5 + y) % 4;
+            let c = match strip {
+                0 => i('w'),
+                1 if x == 5 => i('W'),
+                _ if x == 9 => i('w'),
+                _ => i('W'),
+            };
+            a.set(x, y, c);
+        }
+    }
+    // The toggle: a short peg of wood across the top end.
+    for x in 4..11 {
+        a.set(x, 2, i('W'));
+        a.set(x, 1, if x == 4 { i('W') } else { i('w') });
+    }
+    // Rope ties hanging off the bottom end.
+    for (x, y) in [(6, 27), (6, 28), (5, 29), (8, 27), (8, 28), (9, 29), (9, 30)] {
+        a.set(x, y, i('c'));
+    }
+    // Two rope loops sewn onto the band's side, standing off it.
+    for top in [7, 16] {
+        for (x, y) in [(10, top), (11, top), (12, top + 1), (12, top + 2), (12, top + 3), (11, top + 4), (10, top + 4)] {
+            a.set(x, y, i('c'));
+        }
+        a.set(10, top + 1, i('c'));
+        a.set(10, top + 3, i('c'));
+    }
+    a.outlined(i('o'))
+}
+
 /// The bark pot full of boiled water, a wisp of steam rising off it.
 pub fn icon_boiled_water() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);

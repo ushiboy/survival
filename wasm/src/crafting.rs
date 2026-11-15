@@ -92,6 +92,7 @@ pub const RECIPES: &[Recipe] = &[
         tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
         at_fire: false,
     },
+    Recipe { name: "ToolBelt", makes: ItemKind::ToolBelt, needs: &[(ItemKind::Bark, 2), (ItemKind::Rope, 1)], tools: &[ItemKind::StoneKnife], at_fire: false },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the

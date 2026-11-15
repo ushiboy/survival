@@ -31,12 +31,20 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
-/// `n + 1` save into version `n + 2`, editing the JSON in place. There are
-/// none yet: version 1 is the first.
-const MIGRATIONS: &[fn(&mut Value)] = &[];
+/// `n + 1` save into version `n + 2`, editing the JSON in place.
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+
+/// Version 2 added the waist to the gear (the tool belt) and the tools on
+/// its hooks: a version 1 save wears nothing there.
+fn v1_to_v2(save: &mut Value) {
+    if let Some(gear) = save.pointer_mut("/inventory/gear").and_then(Value::as_object_mut) {
+        gear.insert("waist".into(), Value::Null);
+        gear.insert("belt".into(), serde_json::json!([null, null]));
+    }
+}
 
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
@@ -175,7 +183,7 @@ mod tests {
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json")];
+    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json")];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -215,6 +223,25 @@ mod tests {
         let incomplete = format!(r#"{{"version":{SAVE_VERSION}}}"#);
         for text in ["", "not json", "{}", r#"{"version":0}"#, r#"{"version":"1"}"#, incomplete.as_str()] {
             assert_eq!(SaveData::from_json(text).unwrap_err(), LoadError::Unreadable, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_version_1_save_wears_nothing_at_the_waist() {
+        let s = load(1);
+        assert_eq!(s.gear_waist(), (None, [None, None]));
+    }
+
+    #[test]
+    fn the_sample_keeps_the_belt_and_the_tools_on_it() {
+        let s = load(SAVE_VERSION);
+        assert_eq!(s.gear_waist(), (Some(ItemKind::ToolBelt), [Some(ItemKind::StoneAxe), None]));
+        assert!(!s.inventory.bag.has(ItemKind::StoneAxe), "a tool on the belt is out of the bag");
+    }
+
+    impl SaveData {
+        fn gear_waist(&self) -> (Option<ItemKind>, [Option<ItemKind>; 2]) {
+            (self.inventory.gear.waist, self.inventory.gear.belt)
         }
     }
 

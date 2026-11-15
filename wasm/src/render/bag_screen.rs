@@ -5,9 +5,9 @@
 
 use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
-use crate::crafting::{RECIPES, RecipeBook};
-use crate::game::bag::{BAG_W, Bag, Placed, footprint};
-use crate::game::menu::{BagMenu, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices};
+use crate::crafting::RECIPES;
+use crate::game::bag::{BAG_W, Placed, footprint};
+use crate::game::menu::{BagMenu, GearRow, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows};
 use crate::game::state::Inventory;
 use crate::items::Slot;
 use crate::ppu::Bg3Layer;
@@ -40,6 +40,22 @@ fn text(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
     text_in(bg3, tiles, col, row, s, HUD_TEXT);
 }
 
+/// Writes `s` from `col` to the screen's right edge at most, cutting a
+/// name too long to fit and ending it with an ellipsis.
+fn text_fit(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
+    text(bg3, tiles, col, row, &fit(s, HUD_COLS.saturating_sub(col)));
+}
+
+/// `s` cut to `width` characters, ending in `…` if anything was cut (and
+/// no space is left before it).
+fn fit(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        return s.to_string();
+    }
+    let kept: String = s.chars().take(width.saturating_sub(1)).collect();
+    format!("{}…", kept.trim_end())
+}
+
 fn text_in(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str, palette: u8) {
     for (i, c) in s.chars().enumerate() {
         bg3.put(col + i, row, tiles.glyph(c), palette);
@@ -68,7 +84,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         text_in(bg3, tiles, col + 1, TAB_ROW, page.label(), if page == menu.page() { HUD_TEXT } else { HUD_DIM });
     }
     if menu.page() == Page::Craft {
-        draw_craft_page(bg3, tiles, list, sprites, bag, &inventory.recipes, menu);
+        draw_craft_page(bg3, tiles, list, sprites, inventory, menu);
         return;
     }
     if menu.page() == Page::Save {
@@ -218,15 +234,15 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
 }
 
 /// The crafting page: the recipe list, or one recipe opened from it.
-fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, menu: &BagMenu) {
+fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
     if menu.near_fire {
         text_in(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "^", HUD_FOOD);
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
-        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, book, menu.near_fire, recipe, choice),
-        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, Some(choice)),
-        _ => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, None),
+        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, inventory, menu.near_fire, recipe, choice),
+        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu.near_fire, Some(choice)),
+        _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu.near_fire, None),
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
@@ -245,11 +261,11 @@ fn draw_recipe_list(
     tiles: &HudTiles,
     list: &mut DrawList,
     sprites: &SpriteIds,
-    bag: &Bag,
-    book: &RecipeBook,
+    inventory: &Inventory,
     near_fire: bool,
     choice: Option<usize>,
 ) {
+    let book = &inventory.recipes;
     let listed = book.listed();
     let at = choice.unwrap_or(0);
     let page = at / RECIPES_PER_PAGE;
@@ -262,7 +278,7 @@ fn draw_recipe_list(
             text(bg3, tiles, GRID_COL, row, ">");
         }
         // Bright if it can be made now, whichever way.
-        let ready = book.ways(i).iter().any(|&w| bag.can_make(&RECIPES[w]) && (!RECIPES[w].at_fire || near_fire));
+        let ready = book.ways(i).iter().any(|&w| inventory.can_make(&RECIPES[w]) && (!RECIPES[w].at_fire || near_fire));
         let name = r.makes.name();
         text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {
@@ -302,12 +318,12 @@ fn draw_recipe(
     tiles: &HudTiles,
     list: &mut DrawList,
     sprites: &SpriteIds,
-    bag: &Bag,
-    book: &RecipeBook,
+    inventory: &Inventory,
     near_fire: bool,
     index: usize,
     choice: usize,
 ) {
+    let (bag, book) = (&inventory.bag, &inventory.recipes);
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);
@@ -352,7 +368,7 @@ fn draw_recipe(
     // Tools: carried, not used up.
     for (i, &kind) in recipe.tools.iter().enumerate() {
         let row = top + 1 + recipe.needs.len() + i;
-        let have = bag.has(kind);
+        let have = inventory.carries(kind);
         let palette = if have { HUD_TEXT } else { HUD_DIM };
         text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
         text_in(bg3, tiles, NEED_COL - 2, row, "TOOL", palette);
@@ -391,32 +407,81 @@ fn wrap(s: &str, width: usize) -> Vec<String> {
 }
 
 /// The gear page beside the grid: each slot with what's in it (and the
-/// room a pack adds), and the choices for the slot being changed.
+/// room a pack adds), the tools on the belt's hooks under the waist, and
+/// the choices for the line being changed.
 fn draw_gear(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
     let (focus, picking) = match menu.mode {
         Mode::Gear { slot } => (Some(slot), None),
         Mode::GearPick { slot, choice } => (Some(slot), Some(choice)),
         _ => (None, None),
     };
-    for (i, slot) in Slot::ALL.into_iter().enumerate() {
-        let row = GRID_ROW + i * 4;
-        if focus == Some(i) {
-            text(bg3, tiles, INFO_COL, row, ">");
-        }
-        text(bg3, tiles, INFO_COL + 1, row, slot.label());
-        let worn = inventory.gear.worn(slot);
-        text(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
-        if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
-            text(bg3, tiles, INFO_COL + 2, row + 2, &format!("+{} ROOM", k.extra_rows() * BAG_W));
+    let gear = &inventory.gear;
+    let rows = gear_rows(gear);
+    let mut row = GRID_ROW;
+    for (i, &line) in rows.iter().enumerate() {
+        match line {
+            GearRow::Slot(slot) => {
+                if focus == Some(i) {
+                    text(bg3, tiles, INFO_COL, row, ">");
+                }
+                text(bg3, tiles, INFO_COL + 1, row, slot.label());
+                let worn = gear.worn(slot);
+                text_fit(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
+                row += 2;
+                if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
+                    text(bg3, tiles, INFO_COL + 2, row, &format!("+{} ROOM", k.extra_rows() * BAG_W));
+                    row += 1;
+                }
+                // A gap before the next slot, but not before the hooks.
+                if slot != Slot::Waist || gear.hooks() == 0 {
+                    row += 1;
+                }
+            }
+            GearRow::Hook(h) => {
+                // A step in from the belt's name: they hang from it.
+                if focus == Some(i) {
+                    text(bg3, tiles, INFO_COL + 2, row, ">");
+                }
+                text_fit(bg3, tiles, INFO_COL + 3, row, gear.belt[h].map_or("-", |k| k.name()));
+                row += 1;
+            }
         }
     }
     if let (Some(slot), Some(choice)) = (focus, picking) {
-        let top = GRID_ROW + Slot::ALL.len() * 4;
-        for (i, c) in gear_choices(&inventory.bag, &inventory.gear, Slot::ALL[slot]).iter().enumerate() {
+        // As many as fit above the help line, scrolled to keep the choice
+        // in view.
+        let top = row + 1;
+        let room = (LAST_ROW - 2).saturating_sub(top).max(1);
+        let first = (choice + 1).saturating_sub(room);
+        for (i, c) in gear_choices(inventory, rows[slot]).iter().enumerate().skip(first).take(room) {
+            let at = top + i - first;
             if i == choice {
-                text(bg3, tiles, INFO_COL, top + i, ">");
+                text(bg3, tiles, INFO_COL, at, ">");
             }
-            text(bg3, tiles, INFO_COL + 1, top + i, c.label());
+            text_fit(bg3, tiles, INFO_COL + 1, at, c.label());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_name_that_fits_is_left_whole() {
+        assert_eq!(fit("STONE AXE", 12), "STONE AXE");
+        assert_eq!(fit("BAMBOO SPADE", 12), "BAMBOO SPADE");
+    }
+
+    #[test]
+    fn a_name_too_long_is_cut_to_the_width_with_an_ellipsis() {
+        let cut = fit("DIGGING STICK", 12);
+        assert_eq!(cut, "DIGGING STI…");
+        assert_eq!(cut.chars().count(), 12);
+    }
+
+    #[test]
+    fn no_space_is_left_before_the_ellipsis() {
+        assert_eq!(fit("WOOD SPEAR", 6), "WOOD…");
     }
 }

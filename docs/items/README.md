@@ -42,6 +42,7 @@
 | [火起こし器（FIRE DRILL）](fire-drill.md) | 道具 | 1×1 | クラフト |
 | [樹皮の鍋（BARK POT）](bark-container.md) | 道具 | 1×1 | クラフト |
 | [背負子（PACK FRAME）](pack-frame.md) | 道具（背中） | 1×2 | クラフト |
+| [道具帯（TOOL BELT）](tool-belt.md) | 道具（腰） | 1×2 | クラフト |
 | [シェルター（SHELTER）](shelter.md) | 道具（持っているだけで使う） | 2×2 | クラフト |
 | [松明（TORCH）](torch.md) | 持ち物（バッグに入らない） | — | クラフト |
 | [釣り竿（FISHING ROD）](fishing-rod.md) | 道具（手） | 1×3 | クラフト |

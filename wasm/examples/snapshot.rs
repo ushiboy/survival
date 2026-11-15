@@ -77,6 +77,7 @@ fn main() {
                 "pot" => ItemKind::BarkContainer,
                 "boiled" => ItemKind::BoiledWater,
                 "frame" => ItemKind::PackFrame,
+                "tool belt" | "belt" => ItemKind::ToolBelt,
                 "husk" => ItemKind::Husk,
                 "rope" => ItemKind::Rope,
                 "frond" => ItemKind::PalmFrond,

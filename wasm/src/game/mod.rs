@@ -555,7 +555,7 @@ impl Game {
             has_leaf: self.inventory.bag.has(ItemKind::Leaf),
             has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
-            fish_near: !self.inventory.bag.has(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
+            fish_near: !self.inventory.carries(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
         };
         let was_asleep = self.player.is_asleep();
         match self.player.update(&self.input, &self.map, situation) {
@@ -1713,6 +1713,20 @@ impl Game {
         self.inventory.recipes.learn_all();
     }
 
+    /// Debug: puts on the gear of `kind` carried in the bag (as WEAR
+    /// would); false if it couldn't be.
+    pub fn debug_wear(&mut self, kind: ItemKind) -> bool {
+        let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
+        self.inventory.wear(i).is_ok()
+    }
+
+    /// Debug: hangs a tool of `kind` from the bag on the belt (as HANG ON
+    /// BELT would); false if it couldn't be.
+    pub fn debug_hang(&mut self, kind: ItemKind) -> bool {
+        let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
+        self.inventory.hang(i).is_ok()
+    }
+
     pub fn debug_give(&mut self, kind: ItemKind) {
         self.debug_give_n(kind, kind.max_stack());
     }
@@ -1751,9 +1765,9 @@ impl Game {
         &self.clock
     }
 
-    /// Whether the bag holds any of `kind`.
+    /// Whether any of `kind` is carried (in the bag or on the belt).
     pub fn carries(&self, kind: ItemKind) -> bool {
-        self.inventory.bag.has(kind)
+        self.inventory.carries(kind)
     }
 
     /// How many of `kind` the bag holds.

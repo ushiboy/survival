@@ -2,7 +2,7 @@
 
 use super::bag::{BASE_ROWS, Bag};
 use crate::assets::character::Outfit;
-use crate::crafting::RecipeBook;
+use crate::crafting::{Recipe, RecipeBook};
 use crate::items::{ItemKind, Slot};
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
@@ -349,21 +349,39 @@ pub struct Inventory {
     pub gear: Gear,
 }
 
-/// What's held and worn. The tool in hand is one carried in the bag (it
-/// still takes room there); a pack on the back is out of the bag and adds
-/// rows to it.
+/// What's held and worn. The tool in hand is one carried in the bag or
+/// hung on the belt (in the bag it still takes room); a pack on the back
+/// is out of the bag and adds rows to it; a belt at the waist is out of
+/// the bag, and so are the tools hung on its hooks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Gear {
     pub hand: Option<ItemKind>,
     pub back: Option<ItemKind>,
+    pub waist: Option<ItemKind>,
+    /// The tools on the belt's hooks (as many hooks as the belt has).
+    pub belt: [Option<ItemKind>; BELT_HOOKS],
 }
+
+/// Hooks on a tool belt.
+pub const BELT_HOOKS: usize = 2;
 
 impl Gear {
     pub fn worn(&self, slot: Slot) -> Option<ItemKind> {
         match slot {
             Slot::Hand => self.hand,
             Slot::Back => self.back,
+            Slot::Waist => self.waist,
         }
+    }
+
+    /// The hooks there are on what's worn at the waist.
+    pub fn hooks(&self) -> usize {
+        self.waist.map_or(0, |b| b.hooks().min(BELT_HOOKS))
+    }
+
+    /// Whether a tool of `kind` hangs on the belt.
+    pub fn on_belt(&self, kind: ItemKind) -> bool {
+        self.belt.contains(&Some(kind))
     }
 }
 
@@ -398,9 +416,20 @@ impl Inventory {
         self.recipes.notice(|kind| bag.has(kind))
     }
 
+    /// Whether a kind is carried: in the bag or hung on the belt.
+    pub fn carries(&self, kind: ItemKind) -> bool {
+        self.bag.has(kind) || self.gear.on_belt(kind)
+    }
+
+    /// Whether everything a recipe needs is at hand: its materials in the
+    /// bag, and its tools carried (in the bag or on the belt).
+    pub fn can_make(&self, recipe: &Recipe) -> bool {
+        recipe.needs.iter().all(|&(kind, n)| self.bag.count(kind) >= n) && recipe.tools.iter().all(|&kind| self.carries(kind))
+    }
+
     /// Lets go of a tool in hand that's no longer carried.
     pub fn settle_hand(&mut self) {
-        if self.gear.hand.is_some_and(|t| !self.bag.has(t)) {
+        if self.gear.hand.is_some_and(|t| !self.carries(t)) {
             self.gear.hand = None;
         }
     }
@@ -413,10 +442,19 @@ impl Inventory {
         }
     }
 
-    /// Puts on the pack at bag index `i`, the bag growing (or shrinking) to
-    /// suit it; any pack worn before goes into the bag. Nothing changes if
-    /// things would no longer fit.
+    /// Puts on the gear at bag index `i`: a pack on the back, the bag
+    /// growing (or shrinking) to suit it, or a belt at the waist. What was
+    /// worn there before goes into the bag. Nothing changes if things would
+    /// no longer fit.
     pub fn wear(&mut self, i: usize) -> Result<(), &'static str> {
+        match self.bag.items()[i].kind.slot() {
+            Some(Slot::Back) => self.wear_pack(i),
+            Some(Slot::Waist) => self.wear_belt(i),
+            _ => Ok(()),
+        }
+    }
+
+    fn wear_pack(&mut self, i: usize) -> Result<(), &'static str> {
         let pack = self.bag.remove(i);
         let rows = BASE_ROWS + pack.kind.extra_rows();
         if !self.bag.fits_rows(rows) {
@@ -436,8 +474,62 @@ impl Inventory {
         Ok(())
     }
 
+    fn wear_belt(&mut self, i: usize) -> Result<(), &'static str> {
+        let (bag, gear) = (self.bag.clone(), self.gear);
+        let belt = self.bag.remove(i);
+        if self.gear.waist.is_some() && self.take_off(Slot::Waist).is_err() {
+            (self.bag, self.gear) = (bag, gear);
+            return Err("NO ROOM FOR THE OLD ONE");
+        }
+        self.gear.waist = Some(belt.kind);
+        Ok(())
+    }
+
+    /// Hangs the tool at bag index `i` on a free hook of the belt, out of
+    /// the bag.
+    pub fn hang(&mut self, i: usize) -> Result<(), &'static str> {
+        let Some(hook) = self.gear.belt[..self.gear.hooks()].iter().position(Option::is_none) else {
+            return Err(if self.gear.hooks() == 0 { "NO BELT TO HANG IT ON" } else { "NO FREE HOOK" });
+        };
+        self.hang_at(i, hook)
+    }
+
+    /// Hangs the tool at bag index `i` on belt hook `hook`; a tool already
+    /// there goes into the bag in its place.
+    pub fn hang_at(&mut self, i: usize, hook: usize) -> Result<(), &'static str> {
+        let kind = self.bag.items()[i].kind;
+        if hook >= self.gear.hooks() {
+            return Err("NO BELT TO HANG IT ON");
+        }
+        if !kind.hangs_on_belt() {
+            return Err("IT WON'T HANG ON THE BELT");
+        }
+        let bag = self.bag.clone();
+        self.bag.take_one(i);
+        if let Some(old) = self.gear.belt[hook]
+            && !self.bag.stow_one(old)
+        {
+            self.bag = bag;
+            return Err("NO ROOM FOR THE OLD ONE");
+        }
+        self.gear.belt[hook] = Some(kind);
+        Ok(())
+    }
+
+    /// Takes the tool on belt hook `hook` back into the bag.
+    pub fn unhang(&mut self, hook: usize) -> Result<(), &'static str> {
+        let Some(kind) = self.gear.belt[hook] else { return Ok(()) };
+        if !self.bag.stow_one(kind) {
+            return Err("NO ROOM IN THE BAG FOR IT");
+        }
+        self.gear.belt[hook] = None;
+        Ok(())
+    }
+
     /// Takes off what's worn in `slot`: a tool is just let go of; a pack
-    /// goes into the bag, which shrinks back, if everything still fits.
+    /// goes into the bag, which shrinks back, if everything still fits; a
+    /// belt goes into the bag with the tools on it, if there's room for
+    /// them all.
     pub fn take_off(&mut self, slot: Slot) -> Result<(), &'static str> {
         match slot {
             Slot::Hand => self.gear.hand = None,
@@ -453,6 +545,17 @@ impl Inventory {
                     return Err("NO ROOM IN THE BAG FOR IT");
                 }
                 self.gear.back = None;
+            }
+            Slot::Waist => {
+                let Some(belt) = self.gear.waist else { return Ok(()) };
+                let mut bag = self.bag.clone();
+                let all = self.gear.belt.iter().flatten().chain([&belt]).all(|&k| bag.stow_one(k));
+                if !all {
+                    return Err("NO ROOM IN THE BAG FOR IT");
+                }
+                self.bag = bag;
+                self.gear.waist = None;
+                self.gear.belt = [None; BELT_HOOKS];
             }
         }
         Ok(())
@@ -796,6 +899,199 @@ mod tests {
         assert!(inv.take_off(Slot::Hand).is_ok());
         assert_eq!(inv.gear.hand, None);
         assert!(inv.bag.has(tool()));
+    }
+
+    fn recipe(makes: ItemKind) -> &'static Recipe {
+        crate::crafting::RECIPES.iter().find(|r| r.makes == makes).unwrap()
+    }
+
+    #[test]
+    fn making_needs_every_material_in_number() {
+        // Two stones make a stone knife.
+        let knife = recipe(ItemKind::StoneKnife);
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Stone, 1);
+        assert!(!inv.can_make(knife));
+        inv.bag.stow(ItemKind::Stone, 1);
+        assert!(inv.can_make(knife));
+    }
+
+    #[test]
+    fn making_uses_up_the_materials_but_not_the_tools() {
+        // A coconut is opened with a stone knife.
+        let opened = recipe(ItemKind::OpenedCoconut);
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Coconut, 1);
+        assert!(!inv.can_make(opened));
+        inv.bag.stow(ItemKind::StoneKnife, 1);
+        assert!(inv.can_make(opened));
+        inv.bag.use_up(opened);
+        assert!(!inv.bag.has(ItemKind::Coconut));
+        assert!(inv.bag.has(ItemKind::StoneKnife));
+    }
+
+    // The tool belt, worn at the waist: tools hung on it are carried out
+    // of the bag.
+
+    /// Wearing a tool belt, with `tools` in the bag.
+    fn belted(tools: &[ItemKind]) -> Inventory {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(ItemKind::ToolBelt);
+        inv.wear(find(&inv, ItemKind::ToolBelt)).unwrap();
+        for &t in tools {
+            inv.bag.stow_one(t);
+        }
+        inv
+    }
+
+    fn hangable() -> Vec<ItemKind> {
+        ItemKind::ALL.iter().copied().filter(|k| k.hangs_on_belt()).collect()
+    }
+
+    #[test]
+    fn wearing_a_tool_belt_takes_it_out_of_the_bag_and_leaves_its_rows_alone() {
+        let inv = belted(&[]);
+        assert_eq!(inv.gear.waist, Some(ItemKind::ToolBelt));
+        assert!(!inv.bag.has(ItemKind::ToolBelt));
+        assert_eq!(inv.bag.rows(), BASE_ROWS);
+    }
+
+    #[test]
+    fn a_tool_hung_on_the_belt_takes_no_room_in_the_bag_but_is_still_carried() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        assert!(inv.hang(find(&inv, tool)).is_ok());
+        assert!(!inv.bag.has(tool));
+        assert!(inv.carries(tool));
+    }
+
+    #[test]
+    fn a_tool_on_the_belt_can_be_held_and_stays_in_hand() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.took(tool);
+        inv.hang(find(&inv, tool)).unwrap();
+        inv.settle_hand();
+        assert_eq!(inv.gear.hand, Some(tool));
+    }
+
+    #[test]
+    fn the_belt_holds_two_tools_at_most() {
+        let tools = hangable();
+        let mut inv = belted(&tools[..3]);
+        assert!(inv.hang(find(&inv, tools[0])).is_ok());
+        assert!(inv.hang(find(&inv, tools[1])).is_ok());
+        assert!(inv.hang(find(&inv, tools[2])).is_err());
+        assert!(inv.bag.has(tools[2]), "the third stays in the bag");
+    }
+
+    #[test]
+    fn big_tools_dont_hang_on_the_belt() {
+        for big in [ItemKind::Ladder, ItemKind::LogBridge, ItemKind::WaterWheel] {
+            assert!(!big.hangs_on_belt(), "{big:?}");
+            let mut inv = belted(&[big]);
+            assert!(inv.hang(find(&inv, big)).is_err());
+        }
+    }
+
+    #[test]
+    fn nothing_hangs_without_a_belt() {
+        let tool = hangable()[0];
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(tool);
+        assert!(inv.hang(find(&inv, tool)).is_err());
+        assert!(inv.bag.has(tool));
+    }
+
+    #[test]
+    fn a_tool_taken_off_the_belt_goes_back_in_the_bag() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        assert!(inv.unhang(0).is_ok());
+        assert!(inv.bag.has(tool));
+        assert_eq!(inv.gear.belt, [None, None]);
+    }
+
+    #[test]
+    fn a_tool_cant_come_off_the_belt_with_no_room_in_the_bag() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        fill_rows(&mut inv, 0..BASE_ROWS);
+        assert!(inv.unhang(0).is_err());
+        assert_eq!(inv.gear.belt[0], Some(tool));
+    }
+
+    #[test]
+    fn taking_off_the_belt_puts_it_and_its_tools_in_the_bag() {
+        let tools = hangable();
+        let mut inv = belted(&tools[..2]);
+        inv.hang(find(&inv, tools[0])).unwrap();
+        inv.hang(find(&inv, tools[1])).unwrap();
+        assert!(inv.take_off(Slot::Waist).is_ok());
+        assert_eq!(inv.gear.waist, None);
+        assert_eq!(inv.gear.belt, [None, None]);
+        assert!(inv.bag.has(ItemKind::ToolBelt) && inv.bag.has(tools[0]) && inv.bag.has(tools[1]));
+    }
+
+    #[test]
+    fn the_belt_cant_come_off_with_no_room_for_it_and_its_tools() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        fill_rows(&mut inv, 0..BASE_ROWS);
+        let (bag, gear) = (inv.bag.clone(), inv.gear);
+        assert!(inv.take_off(Slot::Waist).is_err());
+        assert_eq!((inv.bag, inv.gear), (bag, gear), "nothing changes");
+    }
+
+    #[test]
+    fn only_one_belt_is_worn_another_puts_the_first_back_in_the_bag_with_its_tools() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        inv.bag.stow_one(ItemKind::ToolBelt);
+        assert!(inv.wear(find(&inv, ItemKind::ToolBelt)).is_ok());
+        assert_eq!(inv.gear.waist, Some(ItemKind::ToolBelt));
+        assert_eq!(inv.bag.count(ItemKind::ToolBelt), 1, "the first belt is back in the bag");
+        assert_eq!(inv.gear.belt, [None, None], "the new belt has nothing on it");
+        assert!(inv.bag.has(tool), "the first belt's tool is back in the bag");
+    }
+
+    #[test]
+    fn another_belt_isnt_put_on_with_no_room_for_the_first_and_its_tools() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        // The bag full but for the second belt.
+        inv.bag.put(Placed { kind: ItemKind::ToolBelt, x: 0, y: 0, turned: false, count: 1 });
+        for y in 0..BASE_ROWS {
+            for x in 0..BAG_W {
+                if inv.bag.at(x, y).is_none() {
+                    inv.bag.put(Placed { kind: ItemKind::Stone, x, y, turned: false, count: 1 });
+                }
+            }
+        }
+        let (bag, gear) = (inv.bag.clone(), inv.gear);
+        assert!(inv.wear(find(&inv, ItemKind::ToolBelt)).is_err());
+        assert_eq!((inv.bag, inv.gear), (bag, gear), "nothing changes");
+    }
+
+    #[test]
+    fn a_tool_on_the_belt_serves_for_a_recipe() {
+        let recipe = crate::crafting::RECIPES.iter().find(|r| r.tools.iter().any(|t| t.hangs_on_belt())).expect("a recipe with a tool that hangs");
+        let tool = *recipe.tools.iter().find(|t| t.hangs_on_belt()).unwrap();
+        let others: Vec<ItemKind> = recipe.tools.iter().copied().filter(|&t| t != tool).collect();
+        let mut inv = belted(&[tool]);
+        for &o in &others {
+            inv.bag.stow_one(o);
+        }
+        for &(kind, n) in recipe.needs {
+            inv.bag.stow(kind, n);
+        }
+        inv.hang(find(&inv, tool)).unwrap();
+        assert!(inv.can_make(recipe));
     }
 
     // An upset stomach (from something eaten or drunk raw).

@@ -199,6 +199,7 @@ pub struct BagSprites {
     pub boiled_water: SpriteId,
     /// Upright, turned.
     pub pack_frame: [SpriteId; 2],
+    pub tool_belt: [SpriteId; 2],
     pub husk: SpriteId,
     pub rope: SpriteId,
     pub stone_knife: SpriteId,
@@ -260,6 +261,7 @@ impl BagSprites {
             ItemKind::BarkContainer => (self.bark_container, palettes::OBJ_FX),
             ItemKind::BoiledWater => (self.boiled_water, palettes::OBJ_FX),
             ItemKind::PackFrame => (self.pack_frame[turned as usize], palettes::OBJ_FX),
+            ItemKind::ToolBelt => (self.tool_belt[turned as usize], palettes::OBJ_FX),
             ItemKind::Branch => (self.branch[turned as usize], palettes::OBJ_CRAB),
             ItemKind::Stone => (self.stone, palettes::OBJ_CRAB),
             ItemKind::Vine => (self.vine, palettes::OBJ_FX),
@@ -346,6 +348,7 @@ pub struct SpriteIds {
     pub soil: SpriteId,
     pub bark_pot: SpriteId,
     pub pack_frame: SpriteId,
+    pub tool_belt: SpriteId,
     pub husk: SpriteId,
     pub rope: SpriteId,
     pub palm_frond: SpriteId,
@@ -580,6 +583,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let f = item_art::icon_pack_frame();
             [bank.add(&f), bank.add(&f.rotated_cw())]
         },
+        tool_belt: {
+            let b = item_art::icon_tool_belt();
+            [bank.add(&b), bank.add(&b.rotated_cw())]
+        },
         husk: bank.add(&item_art::icon_husk()),
         rope: bank.add(&item_art::icon_rope()),
         stone_knife: bank.add(&item_art::icon_stone_knife()),
@@ -683,6 +690,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         soil: bank.add(&soil_heap()),
         bark_pot: bank.add(&bark_pot()),
         pack_frame: bank.add(&pack_frame()),
+        tool_belt: bank.add(&tool_belt()),
         husk: bank.add(&husk()),
         rope: bank.add(&rope_coil()),
         palm_frond: bank.add(&palm_frond()),
