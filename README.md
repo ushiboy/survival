@@ -2,6 +2,8 @@
 
 A top-down survival action RPG set on a desert island. The game logic and rendering are written in Rust and compiled to WebAssembly, drawing through a software PPU modelled on Mode 1 of the SNES (Super Famicom). The page is built with Vite, React and TypeScript.
 
+**[Demo Site](https://ushiboy.github.io/survival/)** (it can also be installed as a PWA and played offline).
+
 > [!NOTE]
 > This game is under development. Everything about it is a beta: rules, items, recipes, the island and the save format may change without notice, and saves from an earlier version may stop loading.
 
@@ -110,7 +112,7 @@ cd wasm && cargo run --release --example palms -- 1        # cells of the water 
 
 ## Deploying
 
-Every push to `main` builds the game and publishes it to GitHub Pages (`.github/workflows/deploy.yml`); it can also be run by hand from the Actions tab. The workflow installs Node, pnpm and wasm-pack from `mise.toml` and Rust from `rust-toolchain.toml`, checks the formatting, runs both test suites, and deploys `dist/`.
+Every push to `main` builds the game and publishes it to GitHub Pages as the [Demo Site](https://ushiboy.github.io/survival/) (`.github/workflows/deploy.yml`); it can also be run by hand from the Actions tab. The workflow installs Node, pnpm and wasm-pack from `mise.toml` and Rust from `rust-toolchain.toml`, checks the formatting, runs both test suites, and deploys `dist/`.
 
 - In the repository's **Settings → Pages**, set **Source** to **GitHub Actions** (once).
 - A project site is served under `/<repository>/`, so the workflow builds with `BASE_PATH` set to that path (taken from `actions/configure-pages`). To try such a build locally: `BASE_PATH=/survival/ pnpm build`. Without `BASE_PATH` the build is for `/`.
