@@ -48,11 +48,11 @@
 ### docs と一緒に直し忘れやすいコード
 
 - アイテムを追加したとき:
-  - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグパネルの一覧。追加しないとデバッグパネルに出ない）
+  - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグのダイアログの一覧。追加しないとデバッグのダイアログに出ない）
   - `wasm/examples/snapshot.rs` の `SNAP_GIVE` の名前
   - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵（`pnpm art` で並べて確かめる）
 - ページ（`src/`）の文言を足す・変えるとき: 画面に直接書かず、`src/i18n/messages/ja.ts` と `en.ts` の両方に書いて `useTranslations` で出す（`en.ts` は `ja.ts` と同じ項目をそろえないと型チェックとテストで落ちる）。
-- 操作を変えたとき: `src/components/controls.ts` の操作の一覧（役割の言葉は `src/i18n/messages/` の `controls`）（PC の操作パネル `ControlsHelp.tsx` と、スマートフォンで最初に出る操作説明 `TouchHelp.tsx` の両方に出る）。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
+- 操作を変えたとき: `src/components/controls.ts` の操作の一覧（役割の言葉は `src/i18n/messages/` の `controls`）（操作説明のダイアログ `ControlsHelp.tsx` に出る。PC ではキーボードのキーも、タッチ端末では画面のボタンの名前だけ）。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。
 - 開発用ツールの使い方を変えたとき: [README.md](README.md)
 
 ## 設計の方針
@@ -103,4 +103,4 @@ pnpm art             # 島に置く物とアイテムの絵の一覧（と前と
   4. 終わったら `pnpm art --clear-base` で、比べる元を直前の実行に戻す。
   - 新しい資源（島の配置物 `Feature`）は、絵を詰める前に `wasm/examples/art.rs` の `on_sheet` と `specimens` に足してシートに出す（`Feature` を足すと、ここに足すまでコンパイルできない）。新しいアイテムは `ItemKind::ALL` に足せばシートに出る。
 - ゲームの画面での見え方の確認には、Rust だけで任意のフレームを画像に書き出すスナップショットツールを使う（`wasm/examples/snapshot.rs`）。使い方と環境変数（`SNAP_AT`、`SNAP_GIVE`、`SNAP_HOURS`、`SNAP_RECIPES` など）は [README.md](README.md) にある。
-- ブラウザでは URL に `?debug=true` を付けるとデバッグパネルが出て、好きなアイテムを持たせたり、全レシピを解放したり、主人公を好きなマスや決まった場所（水汲み場・湖の南岸など）へ移したりできる。
+- ブラウザでは URL に `?debug=true` を付けると「デバッグ」ボタンが出て、開いたダイアログで好きなアイテムを持たせたり、全レシピを解放したり、主人公を好きなマスや決まった場所（水汲み場・湖の南岸など）へ移したりできる。

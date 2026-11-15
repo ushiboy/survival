@@ -69,6 +69,21 @@ describe('InputController', () => {
     field.remove();
   });
 
+  it('モーダルダイアログ（操作説明）が開いている間のキーはボタンにせず、ダイアログに任せる', () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    const close = document.createElement('button');
+    dialog.append(close);
+    document.body.append(dialog);
+    const enter = key('keydown', 'Enter', close);
+    key('keydown', 'ArrowUp');
+    expect(input.read()).toBe(0);
+    // Enter は閉じるボタンを押すのに使う
+    expect(enter.defaultPrevented).toBe(false);
+    dialog.remove();
+  });
+
   it('ウィンドウからフォーカスが外れると、押していたキーはすべて離れる', () => {
     key('keydown', 'KeyW');
     key('keydown', 'KeyE');

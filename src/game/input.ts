@@ -72,6 +72,11 @@ function isFormControl(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
 }
 
+/** Whether a modal dialog (the controls help) is open: the keys are its, not the game's, until it closes. */
+function modalOpen(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
+
 /** Another source of button bits, e.g. the on-screen touch controller. */
 export interface ButtonSource {
   readonly bits: number;
@@ -85,7 +90,7 @@ export class InputController {
 
   private onKeyDown = (e: KeyboardEvent) => {
     // Leave keys alone while typing into a form control (the debug tools).
-    if (isFormControl(e.target)) return;
+    if (isFormControl(e.target) || modalOpen()) return;
     const bit = KEY_MAP[e.code];
     if (bit === undefined) return;
     e.preventDefault();
