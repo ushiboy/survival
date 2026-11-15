@@ -89,6 +89,9 @@ fn once_the_water_wheel_is_in_there_is_nothing_more_to_think_about() {
     face_the_river(&mut game);
     press(&mut game, Buttons::B);
     hold(&mut game, 0, 120);
+    // With a lathe in hand (there's then nothing to think about the lathe
+    // either: the wheel turning, the bank beside it is where it goes).
+    game.debug_give(ItemKind::WoodLathe);
     press(&mut game, Buttons::A);
     assert!(!game.is_pondering());
 }

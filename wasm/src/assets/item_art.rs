@@ -160,6 +160,45 @@ pub fn icon_pack_frame() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// A tool belt laid out straight, 16x32: a band of plaited bark strips
+/// (the plait running in chevrons), a wooden toggle at the top end and
+/// rope ties at the bottom, and two rope loops on its side for the tools.
+pub fn icon_tool_belt() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 32, 0);
+    // The band: three strips plaited over and under, lit on the left.
+    for y in 3..27 {
+        for x in 5..10 {
+            let strip = (x - 5 + y) % 4;
+            let c = match strip {
+                0 => i('w'),
+                1 if x == 5 => i('W'),
+                _ if x == 9 => i('w'),
+                _ => i('W'),
+            };
+            a.set(x, y, c);
+        }
+    }
+    // The toggle: a short peg of wood across the top end.
+    for x in 4..11 {
+        a.set(x, 2, i('W'));
+        a.set(x, 1, if x == 4 { i('W') } else { i('w') });
+    }
+    // Rope ties hanging off the bottom end.
+    for (x, y) in [(6, 27), (6, 28), (5, 29), (8, 27), (8, 28), (9, 29), (9, 30)] {
+        a.set(x, y, i('c'));
+    }
+    // Two rope loops sewn onto the band's side, standing off it.
+    for top in [7, 16] {
+        for (x, y) in [(10, top), (11, top), (12, top + 1), (12, top + 2), (12, top + 3), (11, top + 4), (10, top + 4)] {
+            a.set(x, y, i('c'));
+        }
+        a.set(10, top + 1, i('c'));
+        a.set(10, top + 3, i('c'));
+    }
+    a.outlined(i('o'))
+}
+
 /// The bark pot full of boiled water, a wisp of steam rising off it.
 pub fn icon_boiled_water() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);
@@ -1189,4 +1228,390 @@ pub fn water_wheel_pixel(dx: f32, dy: f32, rx: f32, ry: f32, turn: f32) -> Optio
         return Some(WheelPart::Spoke);
     }
     None
+}
+
+/// The wood lathe standing upright, 32x48: two lauan rails with feet, the
+/// headstock at the top with a stone bearing and the pulley the rope drive
+/// runs round, a billet held between centres being turned (pale where the
+/// tool has cut it, ringed with grooves), and the tailstock at the foot.
+pub fn icon_wood_lathe() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 48, 0);
+    let block = |a: &mut PixelArt, x0: usize, y0: usize, x1: usize, y1: usize| {
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let c = if y == y0 || x == x0 {
+                    'c'
+                } else if y == y1 || x == x1 {
+                    'w'
+                } else {
+                    'W'
+                };
+                a.set(x, y, i(c));
+            }
+        }
+    };
+    // The rails, and the feet across their ends.
+    for y in 12..44 {
+        for x in [8, 9, 22, 23] {
+            a.set(x, y, i(if x % 2 == 0 { 'W' } else { 'w' }));
+        }
+    }
+    for x in 5..27 {
+        a.set(x, 43, i('W'));
+        a.set(x, 44, i('w'));
+    }
+    // The billet between the centres, turned: grooves ringing it.
+    for y in 16..35 {
+        for x in 12..20 {
+            let c = if y % 5 == 0 || x == 12 {
+                'W'
+            } else if x == 19 {
+                'w'
+            } else {
+                'c'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The headstock, with its stone bearing.
+    block(&mut a, 6, 6, 23, 15);
+    for (x, y) in [(14, 9), (15, 9), (16, 9), (17, 9), (14, 10), (15, 10), (16, 10), (17, 10), (15, 11), (16, 11)] {
+        a.set(
+            x,
+            y,
+            i(if y == 9 {
+                'L'
+            } else if x == 14 {
+                'M'
+            } else {
+                'm'
+            }),
+        );
+    }
+    // The tailstock.
+    block(&mut a, 9, 35, 22, 40);
+    for (x, y) in [(15, 37), (16, 37), (15, 38), (16, 38)] {
+        a.set(x, y, i(if y == 37 { 'L' } else { 'm' }));
+    }
+    // The pulley on the spindle (seen edge on), the rope drive round it
+    // running off up toward the wheel.
+    for y in 2..16 {
+        for x in 24..29 {
+            let c = if x == 26 {
+                'c'
+            } else if x == 24 {
+                'W'
+            } else {
+                'w'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    for (k, y) in (0..4).enumerate() {
+        a.set(27 + k / 2, y, i('c'));
+    }
+    a.outlined(i('o'))
+}
+
+/// The wood lathe lying on the ground, 32x16: on its side, the bed seen
+/// along its length, the headstock (left) and the pale billet.
+pub fn wood_lathe_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 16, 0);
+    for x in 2..30 {
+        a.set(x, 11, i('W'));
+        a.set(x, 12, i('w'));
+    }
+    for y in 4..11 {
+        for x in 2..9 {
+            a.set(
+                x,
+                y,
+                i(if y == 4 || x == 2 {
+                    'c'
+                } else if x == 8 {
+                    'w'
+                } else {
+                    'W'
+                }),
+            );
+        }
+        for x in 25..29 {
+            a.set(x, y + 2, i(if x == 25 { 'c' } else { 'W' }));
+        }
+    }
+    a.set(5, 6, i('L'));
+    a.set(5, 7, i('m'));
+    for y in 6..10 {
+        for x in 9..25 {
+            a.set(
+                x,
+                y,
+                i(if x % 5 == 0 {
+                    'W'
+                } else if y == 9 {
+                    'w'
+                } else {
+                    'c'
+                }),
+            );
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// A spoked wheel, 32x32: a lauan rim lit on the upper left, eight pale
+/// turned spokes and the hub.
+pub fn icon_spoked_wheel() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    spoked_wheel_disc(&mut a, 16.0, 16.0, 14.5, 14.5);
+    a.outlined(i('o'))
+}
+
+/// A spoked wheel lying flat on the ground, 16x8.
+pub fn spoked_wheel_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 8, 0);
+    spoked_wheel_disc(&mut a, 8.0, 4.0, 7.0, 3.2);
+    a.outlined(i('o'))
+}
+
+/// Paints a spoked wheel round `(cx, cy)`, `rx` across and `ry` up and
+/// down, in the effects palette.
+fn spoked_wheel_disc(a: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32) {
+    let i = |c| ix(FX_LEGEND, c);
+    for y in 0..a.h {
+        for x in 0..a.w {
+            let (dx, dy) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+            let r = (dx * dx + dy * dy).sqrt();
+            if r > 1.0 {
+                continue;
+            }
+            let rim = 3.0 / rx.max(ry);
+            let c = if r > 1.0 - rim {
+                // Lit on the upper left.
+                if dx + dy < -0.3 { 'W' } else { 'w' }
+            } else if r < 0.22 {
+                if r < 0.1 { 'w' } else { 'W' }
+            } else {
+                let a8 = dy.atan2(dx) / std::f32::consts::TAU * 8.0;
+                let off = (a8 - a8.round()).abs() * r * rx.max(ry) * std::f32::consts::TAU / 8.0;
+                if off < 0.9 {
+                    'c'
+                } else {
+                    continue;
+                }
+            };
+            a.set(x, y, i(c));
+        }
+    }
+}
+
+/// The handcart for its picture in the bag screen, 32x32: seen from the
+/// side at a slant, a lauan bed on a spoked wheel, the bamboo poles
+/// running off to the right.
+pub fn icon_handcart() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    // The poles, rising off the bed toward the right.
+    for x in 16..31 {
+        let y = 12 - (x - 16) / 3;
+        a.set(x, y, i('G'));
+        a.set(x, y + 1, i('g'));
+    }
+    // The bed: a lauan box, its top lit.
+    for y in 8..19 {
+        for x in 2..22 {
+            let c = if y == 8 {
+                'c'
+            } else if x == 2 || y == 18 || x == 21 || (x + 2) % 5 == 0 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheel under it.
+    spoked_wheel_disc(&mut a, 11.0, 22.0, 8.5, 8.5);
+    a.outlined(i('o'))
+}
+
+/// How many pictures of the side-on cart there are with its wheel turned
+/// round a step further each (the six spokes come round to where they
+/// started after this many steps).
+pub const CART_WHEEL_STEPS: usize = 3;
+
+/// The handcart seen side on, 32x24, facing right (its front, where the
+/// handle comes out, on the right): as the castaway pulls it along (or it
+/// stands) facing across the screen. A tall lauan bed, and under its back
+/// half a small spoked wheel showing face on, its foot (with its outline)
+/// on the bottom row, level with the soles of the castaway's shoes. The
+/// handle is drawn on its own (`handcart_handle`), running on from the
+/// bed's front at its rail (rows 10 and 11). Its wheel is turned `step`
+/// steps (of `CART_WHEEL_STEPS`) clockwise, for it to roll.
+pub fn handcart_side_turned(step: usize) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let turn = step as f32 / CART_WHEEL_STEPS as f32;
+    let mut a = PixelArt::filled(32, 24, 0);
+    // The bed: a lauan box seen from the side, its top rail lit.
+    for y in 8..17 {
+        for x in 1..24 {
+            let c = if y == 8 {
+                'c'
+            } else if y == 16 || x == 1 || x == 23 || y == 11 || (x - 1) % 6 == 0 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The rail the handle runs on from, along the top of the bed.
+    for x in 1..24 {
+        a.set(x, 10, i('c'));
+    }
+    // The wheel, face on, under the bed's back half (its foot on row 22,
+    // the outline below it on the bottom row): small, so a thin rim, lit
+    // on the upper left, round six spokes and the hub.
+    let (cx, cy, r) = (12.0f32, 17.0f32, 5.6f32);
+    for y in 10..24 {
+        for x in 5..20 {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let d = dx.hypot(dy);
+            if d > r {
+                continue;
+            }
+            let spoke = {
+                let a6 = dy.atan2(dx) / std::f32::consts::TAU * 6.0 - turn;
+                (a6 - a6.round()).abs() * d * std::f32::consts::TAU / 6.0 < 0.55
+            };
+            let c = if d > r - 1.5 {
+                if dx + dy < -1.0 { 'c' } else { 'w' }
+            } else if d < 1.2 {
+                'w'
+            } else if spoke {
+                'c'
+            } else {
+                continue;
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart's handle seen side on, 16x8, running right from the bed's
+/// front (the left edge) past the castaway pulling it to the crossbar in
+/// front of them, where their hands hold it (rows 1 and 2).
+pub fn handcart_handle() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 8, 0);
+    for x in 0..15 {
+        a.set(x, 1, i('G'));
+        a.set(x, 2, i('g'));
+    }
+    a.set(15, 1, i('h'));
+    a.set(15, 2, i('G'));
+    a.outlined(i('o'))
+}
+
+/// The handcart seen from its front, 24x24, as the castaway pulls it
+/// down the screen (it's behind them): the bed's front panel, its top
+/// showing over their head, and a wheel edge on at each side, poking out
+/// beside them. The handle is drawn on its own (`handcart_front_handle`),
+/// in front of them.
+pub fn handcart_front() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 24, 0);
+    // The bed's top edge, then its front panel, planked.
+    for y in 1..16 {
+        for x in 3..21 {
+            let c = if y == 1 {
+                'c'
+            } else if y == 2 || y % 5 == 1 || x == 3 || x == 20 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheels, edge on, at its sides.
+    for y in 7..21 {
+        for x in [0, 1, 2, 21, 22, 23] {
+            let rim = x == 0 || x == 23 || y == 7 || y == 20;
+            a.set(
+                x,
+                y,
+                i(if rim {
+                    'w'
+                } else if (y + x) % 3 == 0 {
+                    'c'
+                } else {
+                    'W'
+                }),
+            );
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart's handle seen from the front, 24x16: two rails running
+/// down from under the bed beside the castaway pulling it, to the
+/// crossbar across in front of them (rows 10 and 11), where they hold it.
+pub fn handcart_front_handle() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 16, 0);
+    for y in 1..12 {
+        for (x, c) in [(3, 'G'), (4, 'g'), (19, 'g'), (20, 'G')] {
+            a.set(x, y, i(c));
+        }
+    }
+    for x in 3..21 {
+        a.set(x, 10, i(if x % 2 == 0 { 'G' } else { 'h' }));
+        a.set(x, 11, i('g'));
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart seen from its back, 24x24, as the castaway pulls it up the
+/// screen (it's in front of them, nearer the eye): the bed's back panel,
+/// hiding them from the waist down to the ankles, its top edge with the
+/// rails of the handle rising from it beside them (the crossbar is in
+/// front of them, out of sight); under the bed a gap their feet show
+/// through, and a wheel edge on at each side, down on the ground (row 19,
+/// level with the soles of their shoes).
+pub fn handcart_back() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 24, 0);
+    // The rails, rising beside the castaway.
+    for y in 0..6 {
+        for (x, c) in [(3, 'G'), (4, 'g'), (19, 'g'), (20, 'G')] {
+            a.set(x, y, i(c));
+        }
+    }
+    // The bed's top, then its back panel, planked; open underneath.
+    for y in 4..14 {
+        for x in 2..22 {
+            let c = if y <= 5 {
+                'c'
+            } else if y == 6 || y == 13 || y % 4 == 1 || x == 2 || x == 21 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheels, edge on, at its sides, down on the ground.
+    for y in 8..20 {
+        for x in [0, 1, 22, 23] {
+            let rim = x == 0 || x == 23 || y == 8 || y == 19;
+            a.set(x, y, i(if rim { 'w' } else { 'W' }));
+        }
+    }
+    a.outlined(i('o'))
 }

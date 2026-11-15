@@ -19,41 +19,82 @@ pub struct Recipe {
     /// Only made beside a burning campfire, by holding the first material
     /// over the flames.
     pub at_fire: bool,
+    /// Only made beside the wood lathe (set by the water wheel), which
+    /// turns it round.
+    pub at_lathe: bool,
 }
 
 pub const RECIPES: &[Recipe] = &[
-    Recipe { name: "StoneKnife", makes: ItemKind::StoneKnife, needs: &[(ItemKind::Stone, 2)], tools: &[], at_fire: false },
-    Recipe { name: "OpenedCoconut", makes: ItemKind::OpenedCoconut, needs: &[(ItemKind::Coconut, 1)], tools: &[ItemKind::StoneKnife], at_fire: false },
+    Recipe { name: "StoneKnife", makes: ItemKind::StoneKnife, needs: &[(ItemKind::Stone, 2)], tools: &[], at_fire: false, at_lathe: false },
+    Recipe {
+        name: "OpenedCoconut",
+        makes: ItemKind::OpenedCoconut,
+        needs: &[(ItemKind::Coconut, 1)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
     Recipe {
         name: "StoneAxe",
         makes: ItemKind::StoneAxe,
         needs: &[(ItemKind::Stone, 1), (ItemKind::Rope, 1), (ItemKind::Branch, 1)],
         tools: &[],
         at_fire: false,
+        at_lathe: false,
     },
-    Recipe { name: "WoodSpear", makes: ItemKind::WoodSpear, needs: &[(ItemKind::Branch, 1), (ItemKind::Stone, 1)], tools: &[], at_fire: false },
-    Recipe { name: "ShellHook", makes: ItemKind::ShellHook, needs: &[(ItemKind::SeaShell, 1)], tools: &[ItemKind::StoneKnife], at_fire: false },
+    Recipe {
+        name: "WoodSpear",
+        makes: ItemKind::WoodSpear,
+        needs: &[(ItemKind::Branch, 1), (ItemKind::Stone, 1)],
+        tools: &[],
+        at_fire: false,
+        at_lathe: false,
+    },
+    Recipe {
+        name: "ShellHook",
+        makes: ItemKind::ShellHook,
+        needs: &[(ItemKind::SeaShell, 1)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
     Recipe {
         name: "FishingRod",
         makes: ItemKind::FishingRod,
         needs: &[(ItemKind::Branch, 1), (ItemKind::Rope, 1), (ItemKind::ShellHook, 1)],
         tools: &[],
         at_fire: false,
+        at_lathe: false,
     },
-    Recipe { name: "GrilledCrab", makes: ItemKind::GrilledCrab, needs: &[(ItemKind::Crab, 1)], tools: &[ItemKind::StoneKnife], at_fire: true },
-    Recipe { name: "GrilledFish", makes: ItemKind::GrilledFish, needs: &[(ItemKind::Fish, 1)], tools: &[ItemKind::StoneKnife], at_fire: true },
-    Recipe { name: "BarkContainer", makes: ItemKind::BarkContainer, needs: &[(ItemKind::Bark, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
-    Recipe { name: "BoiledWater", makes: ItemKind::BoiledWater, needs: &[(ItemKind::BarkContainer, 1), (ItemKind::RawWater, 1)], tools: &[], at_fire: true },
-    Recipe { name: "Torch", makes: ItemKind::Torch, needs: &[(ItemKind::Branch, 1), (ItemKind::Husk, 1)], tools: &[], at_fire: true },
-    Recipe { name: "Rope", makes: ItemKind::Rope, needs: &[(ItemKind::Husk, 2)], tools: &[], at_fire: false },
-    Recipe { name: "RopeFromBark", makes: ItemKind::Rope, needs: &[(ItemKind::Bark, 3)], tools: &[ItemKind::StoneKnife], at_fire: false },
-    Recipe { name: "Thatch", makes: ItemKind::Thatch, needs: &[(ItemKind::PalmFrond, 4), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
+    Recipe { name: "GrilledCrab", makes: ItemKind::GrilledCrab, needs: &[(ItemKind::Crab, 1)], tools: &[ItemKind::StoneKnife], at_fire: true, at_lathe: false },
+    Recipe { name: "GrilledFish", makes: ItemKind::GrilledFish, needs: &[(ItemKind::Fish, 1)], tools: &[ItemKind::StoneKnife], at_fire: true, at_lathe: false },
+    Recipe {
+        name: "BarkContainer",
+        makes: ItemKind::BarkContainer,
+        needs: &[(ItemKind::Bark, 2), (ItemKind::Vine, 1)],
+        tools: &[],
+        at_fire: false,
+        at_lathe: false,
+    },
+    Recipe {
+        name: "BoiledWater",
+        makes: ItemKind::BoiledWater,
+        needs: &[(ItemKind::BarkContainer, 1), (ItemKind::RawWater, 1)],
+        tools: &[],
+        at_fire: true,
+        at_lathe: false,
+    },
+    Recipe { name: "Torch", makes: ItemKind::Torch, needs: &[(ItemKind::Branch, 1), (ItemKind::Husk, 1)], tools: &[], at_fire: true, at_lathe: false },
+    Recipe { name: "Rope", makes: ItemKind::Rope, needs: &[(ItemKind::Husk, 2)], tools: &[], at_fire: false, at_lathe: false },
+    Recipe { name: "RopeFromBark", makes: ItemKind::Rope, needs: &[(ItemKind::Bark, 3)], tools: &[ItemKind::StoneKnife], at_fire: false, at_lathe: false },
+    Recipe { name: "Thatch", makes: ItemKind::Thatch, needs: &[(ItemKind::PalmFrond, 4), (ItemKind::Vine, 1)], tools: &[], at_fire: false, at_lathe: false },
     Recipe {
         name: "Shelter",
         makes: ItemKind::Shelter,
         needs: &[(ItemKind::Branch, 4), (ItemKind::Rope, 2), (ItemKind::Thatch, 2)],
         tools: &[],
         at_fire: false,
+        at_lathe: false,
     },
     Recipe {
         name: "PackFrame",
@@ -61,14 +102,16 @@ pub const RECIPES: &[Recipe] = &[
         needs: &[(ItemKind::Branch, 4), (ItemKind::Rope, 2), (ItemKind::Bark, 2)],
         tools: &[],
         at_fire: false,
+        at_lathe: false,
     },
-    Recipe { name: "FireDrill", makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
+    Recipe { name: "FireDrill", makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false, at_lathe: false },
     Recipe {
         name: "Ladder",
         makes: ItemKind::Ladder,
         needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 3), (ItemKind::Rope, 2)],
         tools: &[ItemKind::StoneAxe],
         at_fire: false,
+        at_lathe: false,
     },
     Recipe {
         name: "LogBridge",
@@ -76,6 +119,7 @@ pub const RECIPES: &[Recipe] = &[
         needs: &[(ItemKind::PineTimber, 2), (ItemKind::Rope, 2)],
         tools: &[ItemKind::StoneAxe],
         at_fire: false,
+        at_lathe: false,
     },
     Recipe {
         name: "WaterWheel",
@@ -83,14 +127,55 @@ pub const RECIPES: &[Recipe] = &[
         needs: &[(ItemKind::LauanTimber, 4), (ItemKind::Bamboo, 4), (ItemKind::Stone, 2), (ItemKind::Rope, 2)],
         tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
         at_fire: false,
+        at_lathe: false,
     },
-    Recipe { name: "DiggingStick", makes: ItemKind::DiggingStick, needs: &[(ItemKind::Branch, 1)], tools: &[ItemKind::StoneKnife], at_fire: false },
+    Recipe {
+        name: "DiggingStick",
+        makes: ItemKind::DiggingStick,
+        needs: &[(ItemKind::Branch, 1)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
     Recipe {
         name: "BambooSpade",
         makes: ItemKind::BambooSpade,
         needs: &[(ItemKind::Bamboo, 1), (ItemKind::Rope, 1)],
         tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
         at_fire: false,
+        at_lathe: false,
+    },
+    Recipe {
+        name: "ToolBelt",
+        makes: ItemKind::ToolBelt,
+        needs: &[(ItemKind::Bark, 2), (ItemKind::Rope, 1)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
+    Recipe {
+        name: "WoodLathe",
+        makes: ItemKind::WoodLathe,
+        needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 2), (ItemKind::Stone, 2), (ItemKind::Rope, 3)],
+        tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
+    Recipe {
+        name: "SpokedWheel",
+        makes: ItemKind::SpokedWheel,
+        needs: &[(ItemKind::LauanTimber, 1), (ItemKind::Branch, 4)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: true,
+    },
+    Recipe {
+        name: "Handcart",
+        makes: ItemKind::Handcart,
+        needs: &[(ItemKind::SpokedWheel, 2), (ItemKind::LauanTimber, 2), (ItemKind::Bamboo, 2), (ItemKind::Rope, 2)],
+        tools: &[ItemKind::StoneAxe],
+        at_fire: false,
+        at_lathe: false,
     },
 ];
 
@@ -331,6 +416,40 @@ mod tests {
     fn a_water_wheel_is_cut_with_the_axe_and_split_with_the_knife() {
         let tools = RECIPES[index(ItemKind::WaterWheel)].tools;
         assert!(tools.contains(&ItemKind::StoneAxe) && tools.contains(&ItemKind::StoneKnife));
+    }
+
+    #[test]
+    fn a_wood_lathe_is_lauan_with_branches_stones_and_rope_for_its_drive() {
+        let recipe = &RECIPES[index(ItemKind::WoodLathe)];
+        let count = |kind| recipe.needs.iter().find(|&&(k, _)| k == kind).map_or(0, |&(_, n)| n);
+        assert!(count(ItemKind::LauanTimber) > 0 && count(ItemKind::Branch) > 0 && count(ItemKind::Stone) > 0);
+        assert!(count(ItemKind::Rope) > count(ItemKind::LauanTimber), "most of the rope drives it off the wheel");
+        assert!(recipe.tools.contains(&ItemKind::StoneAxe) && recipe.tools.contains(&ItemKind::StoneKnife));
+        assert!(!recipe.at_lathe, "it is made before there is a lathe");
+    }
+
+    #[test]
+    fn a_spoked_wheel_is_turned_on_the_lathe() {
+        let recipe = &RECIPES[index(ItemKind::SpokedWheel)];
+        assert!(recipe.at_lathe && !recipe.at_fire);
+        assert!(recipe.needs.iter().any(|&(k, _)| k == ItemKind::LauanTimber));
+        assert!(recipe.needs.iter().any(|&(k, n)| k == ItemKind::Branch && n > 1), "branches turned into spokes");
+    }
+
+    #[test]
+    fn the_lathe_is_not_needed_to_think_of_a_recipe_made_at_it() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::LauanTimber, ItemKind::Branch]));
+        assert!(book.listed().contains(&index(ItemKind::SpokedWheel)));
+    }
+
+    #[test]
+    fn a_handcart_rolls_on_two_spoked_wheels_and_is_shaped_with_the_axe() {
+        let recipe = &RECIPES[index(ItemKind::Handcart)];
+        assert!(recipe.needs.contains(&(ItemKind::SpokedWheel, 2)));
+        assert!(recipe.needs.iter().any(|&(k, _)| k == ItemKind::Bamboo), "bamboo poles to pull it by");
+        assert!(recipe.tools.contains(&ItemKind::StoneAxe));
+        assert!(!ItemKind::Handcart.goes_in_bag());
     }
 
     #[test]

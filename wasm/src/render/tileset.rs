@@ -560,6 +560,35 @@ impl Builder<'_> {
         self.unique(PAL_GRASS, frames, WHEEL_PERIOD)
     }
 
+    /// A quarter of the wood lathe on the bank beside the water wheel
+    /// (grass palette, over the bank as the wheel is), seen from above at
+    /// the slant everything is: its bed running along the bank's edge, the
+    /// tailstock and the headstock holding a billet between them, and the
+    /// rope drive running from a pulley on the wheel's axle to one on the
+    /// headstock's spindle.
+    fn lathe(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, part: u8) -> MetatileId {
+        let mut art = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
+        for py in 0..16 {
+            for px in 0..16 {
+                let (bx, by) = (ox + px as i32, oy + py as i32);
+                let c = lathe_top(bx, by).or_else(|| {
+                    let edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| lathe_top(bx + dx, by + dy).is_some());
+                    // Outlined, its shadow cast down onto the grass below.
+                    let shadow = (1..=2).any(|d| lathe_top(bx, by - d).is_some()) && (bx + by) % 2 == 0;
+                    (edge || shadow).then_some(grass::RAMP[0])
+                });
+                if let Some(c) = c {
+                    art.set(px, py, c);
+                }
+            }
+        }
+        self.unique_art(PAL_GRASS, &art)
+    }
+
     /// Beach along the river, inland of the surf (sand palette): a cut lip
     /// at the water, sand darkened by the wet in a ragged band, and
     /// pebbles the river has washed down.
@@ -1821,6 +1850,99 @@ fn water_wheel_top(x: i32, y: i32, f: u32) -> Option<u8> {
     Some(if facing > 0.85 { grass::SOIL } else { grass::RAMP[0] })
 }
 
+/// The wood lathe in its two-by-two block of cells (px): the rows its bed
+/// rails run along, the columns of its tailstock and headstock, and the
+/// pulleys of the rope drive, on the wheel's axle (by the block's east
+/// edge, on the axle's rows) and on the headstock's spindle.
+const LATHE_RAILS: [i32; 2] = [19, 27];
+const LATHE_BED: (i32, i32) = (3, 24);
+const LATHE_TAIL: (i32, i32) = (3, 8);
+const LATHE_HEAD: (i32, i32) = (16, 23);
+const LATHE_DRIVE: (i32, i32, i32) = (28, 9, 22);
+const LATHE_SPINDLE: (i32, i32, i32) = (24, 18, 27);
+
+/// The colour of the wood lathe seen from above at `(x, y)` in its block
+/// (px), if any of it is there: lauan (sand browns, lit on the top and the
+/// left, the soil brown in shade), stone bearings (white), the billet
+/// turned pale with grooves round it, and the rope.
+fn lathe_top(x: i32, y: i32) -> Option<u8> {
+    if !(0..32).contains(&x) || !(0..32).contains(&y) {
+        return None;
+    }
+    let wood = |lit: bool, shade: bool| {
+        if lit {
+            grass::SAND[1]
+        } else if shade {
+            grass::SOIL
+        } else {
+            grass::SAND[0]
+        }
+    };
+    // The wheel's axle comes in from the east to the drive pulley.
+    if (WHEEL_AXLE.0..=WHEEL_AXLE.1).contains(&y) && x > LATHE_DRIVE.0 {
+        return Some(if y == WHEEL_AXLE.0 { grass::SAND[0] } else { grass::SOIL });
+    }
+    // The pulleys, seen edge on: a rim of lauan, a groove of rope.
+    for (px, top, bottom) in [LATHE_DRIVE, LATHE_SPINDLE] {
+        if (px..=px + 1).contains(&x) && (top..=bottom).contains(&y) {
+            return Some(if x == px { grass::SAND[2] } else { wood(false, y == bottom) });
+        }
+    }
+    // The rope drive, running down from the axle's pulley to the
+    // spindle's, crossed.
+    for (from, to) in
+        [((LATHE_DRIVE.0, LATHE_DRIVE.1), (LATHE_SPINDLE.0 + 1, LATHE_SPINDLE.2)), ((LATHE_DRIVE.0, LATHE_DRIVE.2), (LATHE_SPINDLE.0 + 1, LATHE_SPINDLE.1))]
+    {
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        if (from.1.min(to.1)..=from.1.max(to.1)).contains(&y) {
+            let along = (y - from.1) as f32 / dy as f32;
+            if (x as f32 - (from.0 as f32 + along * dx as f32)).abs() < 0.6 {
+                return Some(if y % 2 == 0 { grass::SAND[2] } else { grass::SAND[1] });
+            }
+        }
+    }
+    // The headstock: a tall block, its top lit, with a stone bearing for
+    // the spindle.
+    let (h0, h1) = LATHE_HEAD;
+    if (h0..=h1).contains(&x) && (13..=29).contains(&y) {
+        if (h0 + 2..=h0 + 4).contains(&x) && (15..=16).contains(&y) {
+            return Some(if y == 15 { grass::WHITE } else { grass::SAND[2] });
+        }
+        return Some(wood(y <= 16 || x == h0, x == h1 || y >= 28));
+    }
+    // The tailstock, lower, with its own bearing.
+    let (t0, t1) = LATHE_TAIL;
+    if (t0..=t1).contains(&x) && (17..=29).contains(&y) {
+        if (t0 + 2..=t0 + 3).contains(&x) && (19..=20).contains(&y) {
+            return Some(if y == 19 { grass::WHITE } else { grass::SAND[2] });
+        }
+        return Some(wood(y <= 19 || x == t0, x == t1 || y >= 28));
+    }
+    // The billet held between them, turned round: pale, ringed by grooves.
+    if (t1 + 1..h0).contains(&x) && (21..=24).contains(&y) {
+        return Some(if x % 3 == 0 {
+            grass::SAND[0]
+        } else if y == 21 {
+            grass::WHITE
+        } else if y == 24 {
+            grass::SAND[1]
+        } else {
+            grass::SAND[2]
+        });
+    }
+    // The bed: two rails along the bank, legs under their ends.
+    let (b0, b1) = LATHE_BED;
+    for rail in LATHE_RAILS {
+        if (b0..=b1).contains(&x) && (rail..=rail + 1).contains(&y) {
+            return Some(wood(y == rail, false));
+        }
+    }
+    if [b0 + 1, b1 - 1].contains(&x) && (LATHE_RAILS[1] + 2..=LATHE_RAILS[1] + 3).contains(&y) {
+        return Some(grass::SOIL);
+    }
+    None
+}
+
 /// Row of the cliff's edge cell from which a stood ladder's tops stick up.
 const LADDER_TOP: usize = 9;
 
@@ -2332,6 +2454,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Ladder(part) => b.ladder(map, x, y, part),
         Feature::Bridge(part) => b.bridge(map, river.as_ref(), x, y, part),
         Feature::WaterWheel(part) => b.water_wheel(map, river.as_ref(), x, y, part),
+        Feature::Lathe(part) => b.lathe(map, river.as_ref(), x, y, part),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),
         Feature::BareEarth(part) => {

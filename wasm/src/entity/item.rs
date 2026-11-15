@@ -133,6 +133,7 @@ impl Item {
             ItemKind::PineTimber => (16, [sprites.pine_timber; 2], sprites.shadow_player),
             ItemKind::Bamboo => (32, [sprites.bamboo_lying; 2], sprites.shadow_lying),
             ItemKind::PackFrame => (16, [sprites.pack_frame; 2], sprites.shadow_player),
+            ItemKind::ToolBelt => (16, [sprites.tool_belt; 2], sprites.shadow_player),
             ItemKind::BarkContainer | ItemKind::BoiledWater => (8, [sprites.bark_pot; 2], sprites.shadow_coconut),
             ItemKind::Branch => (16, [sprites.branch; 2], sprites.shadow_player),
             ItemKind::Stone => (8, [sprites.stone; 2], sprites.shadow_coconut),
@@ -150,6 +151,8 @@ impl Item {
             ItemKind::Ladder => (32, [sprites.ladder_lying; 2], sprites.shadow_lying),
             ItemKind::LogBridge => (32, [sprites.log_bridge_lying; 2], sprites.shadow_lying),
             ItemKind::WaterWheel => (32, [sprites.water_wheel_lying; 2], sprites.shadow_lying),
+            ItemKind::WoodLathe => (32, [sprites.wood_lathe_lying; 2], sprites.shadow_lying),
+            ItemKind::SpokedWheel => (16, [sprites.spoked_wheel_lying; 2], sprites.shadow_player),
             ItemKind::DiggingStick => (16, [sprites.digging_stick; 2], sprites.shadow_player),
             ItemKind::BambooSpade => (32, [sprites.bamboo_spade; 2], sprites.shadow_lying),
             ItemKind::Clay => (8, [sprites.clay; 2], sprites.shadow_coconut),
@@ -157,7 +160,7 @@ impl Item {
             ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),
             ItemKind::GrilledFish => (16, [sprites.grilled_fish; 2], sprites.shadow_crab),
             // Water and a burning torch never lie on the ground.
-            ItemKind::RawWater | ItemKind::Torch => return,
+            ItemKind::RawWater | ItemKind::Torch | ItemKind::Handcart => return,
         };
         let (wx, wy) = (self.x as i32 - w / 2, (self.y - self.z) as i32 - 7);
         if !camera.sees(wx, wy, w, 8 + self.z as i32) {
@@ -175,6 +178,7 @@ impl Item {
             | ItemKind::BarkContainer
             | ItemKind::BoiledWater
             | ItemKind::PackFrame
+            | ItemKind::ToolBelt
             | ItemKind::PalmFrond
             | ItemKind::Thatch
             | ItemKind::Shelter
@@ -184,6 +188,8 @@ impl Item {
             | ItemKind::Ladder
             | ItemKind::Bamboo
             | ItemKind::WaterWheel
+            | ItemKind::WoodLathe
+            | ItemKind::SpokedWheel
             | ItemKind::BambooSpade
             | ItemKind::Clay => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,

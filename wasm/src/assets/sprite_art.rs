@@ -352,6 +352,22 @@ pub fn pack_frame() -> PixelArt {
     PixelArt::parse(&rows, FX_LEGEND)
 }
 
+/// A tool belt lying on the ground, 16x8: the plaited bark band in a
+/// loose curve, the toggle at its left end and a rope loop on top.
+pub fn tool_belt() -> PixelArt {
+    let rows = [
+        "................",
+        "..........ooo...",
+        ".oo......ocococ.",
+        "oWWoooooooooowWo",
+        "owWWwWWwWWwWWwwo",
+        ".owwWwwWwwWwwwo.",
+        "..oooooooooooco.",
+        "............oco.",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}
+
 /// A small Z drifting up from a sleeper, 8x8 (effects palette).
 pub fn snore() -> PixelArt {
     let rows = ["........", ".ooooo..", ".oLLLo..", "..ooLo..", "..oLo...", ".oLooo..", ".oLLLo..", ".ooooo.."];

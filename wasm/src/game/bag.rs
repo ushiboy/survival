@@ -2,7 +2,8 @@
 //! rectangle the size of its footprint. Items may be turned a quarter (their
 //! footprint swaps width and height) to fit; nothing may overlap or stick out.
 //! Some things (leaves) stack: one placement holds up to `max_stack` of them.
-//! The bag is always `BAG_W` wide; a pack frame on the back adds rows.
+//! The bag is always `BAG_W` wide; a pack frame on the back adds rows. A
+//! handcart's load is a grid of the same kind, of its own size.
 
 use crate::crafting::Recipe;
 use crate::items::ItemKind;
@@ -38,10 +39,10 @@ impl Placed {
         self.x < o.x + ow && o.x < self.x + w && self.y < o.y + oh && o.y < self.y + h
     }
 
-    /// Whether it lies within a bag `rows` deep.
-    pub fn in_bounds(&self, rows: i32) -> bool {
+    /// Whether it lies within a grid `width` cells wide and `rows` deep.
+    pub fn in_bounds(&self, width: i32, rows: i32) -> bool {
         let (w, h) = self.size();
-        self.x >= 0 && self.y >= 0 && self.x + w <= BAG_W && self.y + h <= rows
+        self.x >= 0 && self.y >= 0 && self.x + w <= width && self.y + h <= rows
     }
 
     /// How many more the stack has room for.
@@ -60,15 +61,37 @@ pub fn footprint(kind: ItemKind, turned: bool) -> (i32, i32) {
 pub struct Bag {
     items: Vec<Placed>,
     rows: i32,
+    /// Cells across: the bag's `BAG_W` (not written in a save), or a
+    /// cart's own.
+    #[serde(default = "bag_width", skip_serializing_if = "is_bag_width")]
+    width: i32,
+}
+
+fn bag_width() -> i32 {
+    BAG_W
+}
+
+fn is_bag_width(w: &i32) -> bool {
+    *w == BAG_W
 }
 
 impl Default for Bag {
     fn default() -> Self {
-        Self { items: Vec::new(), rows: BASE_ROWS }
+        Self { items: Vec::new(), rows: BASE_ROWS, width: BAG_W }
     }
 }
 
 impl Bag {
+    /// An empty grid `width` cells across and `rows` deep (a cart's load).
+    pub fn with_size(width: i32, rows: i32) -> Self {
+        Self { items: Vec::new(), rows, width }
+    }
+
+    /// How many cells across it is.
+    pub fn width(&self) -> i32 {
+        self.width
+    }
+
     /// How many rows of cells the bag has now.
     pub fn rows(&self) -> i32 {
         self.rows
@@ -76,7 +99,7 @@ impl Bag {
 
     /// Whether everything in it would still fit if it had `rows` rows.
     pub fn fits_rows(&self, rows: i32) -> bool {
-        self.items.iter().all(|p| p.in_bounds(rows))
+        self.items.iter().all(|p| p.in_bounds(self.width, rows))
     }
 
     /// Grows or shrinks the bag to `rows`; the caller has checked
@@ -101,7 +124,7 @@ impl Bag {
     }
 
     pub fn fits(&self, p: &Placed) -> bool {
-        p.in_bounds(self.rows) && self.overlapping(p).is_empty()
+        p.in_bounds(self.width, self.rows) && self.overlapping(p).is_empty()
     }
 
     /// Puts an item in; the caller has checked it `fits`.
@@ -169,7 +192,7 @@ impl Bag {
                 continue;
             }
             for y in 0..self.rows {
-                for x in 0..BAG_W {
+                for x in 0..self.width {
                     let p = Placed { kind, x, y, turned, count: 1 };
                     if self.fits(&p) {
                         return Some(p);
@@ -189,13 +212,8 @@ impl Bag {
         self.items.iter().any(|p| p.kind == kind)
     }
 
-    /// Whether the bag holds every material and tool a recipe needs.
-    pub fn can_make(&self, recipe: &Recipe) -> bool {
-        recipe.needs.iter().all(|&(kind, n)| self.count(kind) >= n) && recipe.tools.iter().all(|&kind| self.has(kind))
-    }
-
-    /// Takes a recipe's materials out of the bag; the caller has checked it
-    /// `can_make` it.
+    /// Takes a recipe's materials out of the bag; the caller has checked
+    /// they can be made (`Inventory::can_make`).
     pub fn use_up(&mut self, recipe: &Recipe) {
         for &(kind, n) in recipe.needs {
             for _ in 0..n {
@@ -209,7 +227,6 @@ impl Bag {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crafting::RECIPES;
 
     fn stacking() -> ItemKind {
         *ItemKind::ALL.iter().find(|k| k.max_stack() > 1 && k.size() == (1, 1)).expect("something stacks")
@@ -223,8 +240,12 @@ mod tests {
         *ItemKind::ALL.iter().find(|k| k.size().1 > 1 && k.size().0 == 1).expect("something is long")
     }
 
-    fn recipe(makes: ItemKind) -> &'static Recipe {
-        RECIPES.iter().find(|r| r.makes == makes).unwrap()
+    #[test]
+    fn a_bag_of_another_size_holds_what_its_cells_hold() {
+        // Eight cells by six: two-by-two lengths of timber, four by three.
+        let mut cart = Bag::with_size(8, 6);
+        assert_eq!(cart.width(), 8);
+        assert_eq!(cart.stow(ItemKind::LauanTimber, 13), 1, "twelve fit");
     }
 
     #[test]
@@ -337,30 +358,5 @@ mod tests {
         assert!(bag.take_kind(kind));
         assert!(bag.items().is_empty());
         assert!(!bag.take_kind(kind));
-    }
-
-    #[test]
-    fn making_needs_every_material_in_number() {
-        // Two stones make a stone knife.
-        let knife = recipe(ItemKind::StoneKnife);
-        let mut bag = Bag::default();
-        bag.stow(ItemKind::Stone, 1);
-        assert!(!bag.can_make(knife));
-        bag.stow(ItemKind::Stone, 1);
-        assert!(bag.can_make(knife));
-    }
-
-    #[test]
-    fn making_uses_up_the_materials_but_not_the_tools() {
-        // A coconut is opened with a stone knife.
-        let opened = recipe(ItemKind::OpenedCoconut);
-        let mut bag = Bag::default();
-        bag.stow(ItemKind::Coconut, 1);
-        assert!(!bag.can_make(opened));
-        bag.stow(ItemKind::StoneKnife, 1);
-        assert!(bag.can_make(opened));
-        bag.use_up(opened);
-        assert!(!bag.has(ItemKind::Coconut));
-        assert!(bag.has(ItemKind::StoneKnife));
     }
 }

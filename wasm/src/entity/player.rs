@@ -141,6 +141,8 @@ const PULL_TOTAL: u32 = 26;
 /// Longest (frames) stepping over to where a ladder goes may take.
 const TO_LADDER_FRAMES: u32 = 90;
 const PITCH_SET: u32 = 12;
+/// Longest the walk over to set a wood lathe may take (frames).
+const TO_LATHE_FRAMES: u32 = 240;
 const PITCH_TOTAL: u32 = 24;
 /// Trying to scramble up a rock face too tall to climb bare-handed
 /// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
@@ -301,6 +303,17 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
+    /// Walking over to the place to stand to set the wood lathe beside
+    /// the water wheel off the mill site's bank `site` (`Install`).
+    ToLathe {
+        t: u32,
+        site: (i32, i32),
+    },
+    /// Setting the wood lathe on the bank beside the water wheel.
+    Install {
+        t: u32,
+        site: (i32, i32),
+    },
     /// Come upon a place by the river (the mill site, the narrow): struck
     /// by an idea, then walking straight over to its bank (`to`,
     /// a cell) and turning `across` the river; then, if `think`, stopping
@@ -337,6 +350,9 @@ pub struct Situation {
     /// Fish are swimming in the water just ahead, and there's no rod to
     /// catch them with.
     pub fish_near: bool,
+    /// A goes to the handcart (it's being pulled, or set down just ahead):
+    /// a hint about the place doesn't take it.
+    pub cart_ahead: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -384,6 +400,9 @@ pub enum Deed {
     /// The water wheel was set in the river off the mill site's bank
     /// (the cell).
     SetWheel((i32, i32)),
+    /// The wood lathe was set on the bank beside the water wheel off the
+    /// mill site's bank (the cell).
+    SetLathe((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -409,6 +428,9 @@ pub struct Player {
     pub queasy: bool,
     /// On a ladder: moving only up and down it, slowly, facing the rock.
     pub climbing: bool,
+    /// Pulling the handcart: no running (walking is no slower), and not
+    /// into the shallows or onto a ladder.
+    pub pulling: bool,
     /// Frames left of the "!" over the head after a recipe came to mind.
     eureka: u32,
     walk_timer: u32,
@@ -442,6 +464,7 @@ impl Player {
             can_run: true,
             queasy: false,
             climbing: false,
+            pulling: false,
             noticing: None,
             eureka: 0,
             moving: false,
@@ -457,7 +480,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead } = situation;
         self.eureka = self.eureka.saturating_sub(1);
         if self.action == Action::Collapsed {
             return None;
@@ -638,6 +661,15 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Mount { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetWheel(site));
         }
+        if let Action::ToLathe { t, site } = self.action {
+            self.step_to_lathe(t + 1, site, map);
+            return None;
+        }
+        if let Action::Install { t, site } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Install { t, site } };
+            return (t == PITCH_SET).then_some(Deed::SetLathe(site));
+        }
         if let Action::Survey { t, to, across, think } = self.action {
             self.survey_step(t + 1, to, across, think, map);
             return None;
@@ -685,6 +717,9 @@ impl Player {
                 // A water wheel goes into the river at the mill site, the
                 // castaway stepping along the bank to it first.
                 ItemKind::WaterWheel => Action::ToWheel { t: 0, site: self.wheel_ahead(map)? },
+                // A wood lathe goes on the bank beside the turning wheel:
+                // held anywhere near, the castaway walks over to set it.
+                ItemKind::WoodLathe => Action::ToLathe { t: 0, site: self.lathe_near(map)? },
                 // A digging stick loosens hard earth but won't lift sticky
                 // clay; a bamboo spade lifts clay but would crack on hard
                 // earth. The wrong one gives pause.
@@ -791,6 +826,11 @@ impl Player {
                 self.action = Action::Scoop { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
+                return None;
+            }
+            // Near the bank beside the turning wheel with no lathe in hand.
+            if tool != Some(ItemKind::WoodLathe) && !cart_ahead && self.lathe_near(map).is_some() {
+                self.ponder();
                 return None;
             }
             // Fish swimming just there, and nothing to catch them with.
@@ -907,7 +947,7 @@ impl Player {
         // Water drags at the legs too much to run, and so do hunger and an
         // upset stomach.
         let was_running = self.running;
-        self.running = self.moving && !self.wading && self.can_run && input.held(Buttons::R);
+        self.running = self.moving && !self.wading && self.can_run && !self.pulling && input.held(Buttons::R);
         if self.running != was_running {
             self.walk_timer = 0;
         }
@@ -921,7 +961,12 @@ impl Player {
             (false, false, true) => SPEED_WALK_DIAG,
         };
         let speed = if self.weak { speed * WEAK_PACE_QUARTERS / 4 } else { speed };
-        self.body.move_by(ax * speed, ay * speed, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
+        // The cart takes no part in what's in the way: the castaway bumps
+        // into things as ever, pulling it or not (only where it can't be
+        // pulled keeps them out).
+        let pulling = self.pulling;
+        let blocked = |r: Rect| map.is_solid_rect(r) || (pulling && map.stops_a_cart(r));
+        self.body.move_by(ax * speed, ay * speed, CORNER_ASSIST_PX, &blocked);
 
         // Keep walking in place against walls, like classic action RPGs.
         self.walk_timer = if self.moving { self.walk_timer + 1 } else { 0 };
@@ -1069,6 +1114,51 @@ impl Player {
         map.wheel_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
     }
 
+    /// The mill site, if a wood lathe held here would be set on the bank
+    /// beside the turning water wheel (the castaway is near enough).
+    fn lathe_near(&self, map: &WorldMap) -> Option<(i32, i32)> {
+        let (fx, fy) = self.body.feet();
+        map.lathe_spot(fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
+    }
+
+    /// A frame of `Action::ToLathe`: walking (across, then along) until the
+    /// feet are in the middle of the place to stand to set the lathe, then
+    /// turning east to it. Stopped by something in the way (or taking too
+    /// long), it isn't set.
+    fn step_to_lathe(&mut self, t: u32, site: (i32, i32), map: &WorldMap) {
+        let (sx, sy) = crate::world::map::lathe_stand(site);
+        let to = (sx * TILE_SIZE + TILE_SIZE / 2, sy * TILE_SIZE + TILE_SIZE / 2);
+        let (fx, fy) = self.body.feet();
+        if (fx, fy) == to {
+            self.facing = Dir::Right;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Install { t: 0, site };
+            return;
+        }
+        // One axis at a time (the longer way first), the last pixel exactly.
+        let step = |d: i32, sub: i32| if d.abs() * 256 < SPEED_WALK { d * 256 - sub } else { d.signum() * SPEED_WALK };
+        let (ddx, ddy) = (to.0 - fx, to.1 - fy);
+        let along_x = ddx != 0 && (ddx.abs() >= ddy.abs() || ddy == 0);
+        let (dx, dy) = if along_x { (step(ddx, self.body.x.rem_euclid(256)), 0) } else { (0, step(ddy, self.body.y.rem_euclid(256))) };
+        let moved = self.body.move_by(dx, dy, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
+        if !moved || t > TO_LATHE_FRAMES {
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Idle;
+            return;
+        }
+        self.facing = match (dx.signum(), dy.signum()) {
+            (1, _) => Dir::Right,
+            (-1, _) => Dir::Left,
+            (_, -1) => Dir::Up,
+            _ => Dir::Down,
+        };
+        self.moving = true;
+        self.walk_timer += 1;
+        self.action = Action::ToLathe { t, site };
+    }
+
     /// Walks along the bank (up or down) until the feet are in the middle
     /// of `row`, then turns `across` the river: `Some(true)` once there,
     /// `Some(false)` on the way, and `None` if something is in the way (or
@@ -1181,6 +1271,11 @@ impl Player {
     }
 
     /// Standing ready: not mid-action (so the bag can be opened).
+    /// Whether the castaway is wading in the shallows.
+    pub fn is_wading(&self) -> bool {
+        self.wading
+    }
+
     pub fn is_idle(&self) -> bool {
         self.action == Action::Idle
     }
@@ -1477,7 +1572,7 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } = self.action {
+        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } | Action::Install { t, .. } = self.action {
             // Lifting the ladder (or bridge), then leaning in to set it
             // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;
@@ -1515,6 +1610,11 @@ impl Player {
             list.actor(depth, ObjEntry::new(cx, cy, frame.legs, OBJ_WADE, prio).flipped(flip));
         } else {
             list.actor(depth, ObjEntry::new(cx, cy, frame.full, OBJ_PLAYER, prio).flipped(flip));
+            if self.pulling && view != 1 {
+                // The hands over the cart's handle, held in front of them
+                // (from behind, they're out of sight).
+                list.actor(depth + 2, ObjEntry::new(cx, cy, frame.hands, OBJ_PLAYER, prio).flipped(flip));
+            }
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }
@@ -1675,7 +1775,13 @@ impl Player {
     /// The walk (and standing) frames to draw: holding the belly with an
     /// upset stomach.
     fn walk_set<'a>(&self, sprites: &'a SpriteIds) -> &'a [[crate::assets::CharFrame; 4]; 3] {
-        if self.queasy { &sprites.player.queasy } else { &sprites.player.walk }
+        if self.pulling {
+            &sprites.player.pull
+        } else if self.queasy {
+            &sprites.player.queasy
+        } else {
+            &sprites.player.walk
+        }
     }
 
     /// The torch held in the near hand (the screen-right one facing toward
@@ -1692,7 +1798,13 @@ impl Player {
         (clock, low): (u32, bool),
         prio: u8,
     ) {
-        let poses = if self.queasy { &sprites.player.queasy_poses } else { &sprites.player.walk_poses };
+        let poses = if self.pulling {
+            &sprites.player.pull_poses
+        } else if self.queasy {
+            &sprites.player.queasy_poses
+        } else {
+            &sprites.player.walk_poses
+        };
         let pose = &poses[view][phase];
         // Held a little out from the body, so the flame stands clear of
         // the face, and steady: the arm holding it doesn't swing, it only

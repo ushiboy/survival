@@ -107,6 +107,22 @@ pub enum ItemKind {
     Clay,
     /// A handful of earth dug from bare ground.
     Soil,
+    /// A belt of plaited bark strips with rope loops, cut to shape with the
+    /// knife: worn at the waist, it holds two tools out of the bag.
+    ToolBelt,
+    /// A lauan bed with a headstock and a tailstock holding work between
+    /// them on stone bearings, and a rope drive: held in hand and set on
+    /// the bank beside the turning water wheel (B), which drives it to
+    /// turn wood round.
+    WoodLathe,
+    /// A cartwheel of lauan (hub and rim) with spokes of branch, all
+    /// turned round on the lathe.
+    SpokedWheel,
+    /// A cart of a lauan bed on two spoked wheels, pulled by two bamboo
+    /// poles lashed on with rope. Like a torch it never goes in the bag:
+    /// once made it follows the castaway, pulled behind, carrying a load of
+    /// its own.
+    Handcart,
 }
 
 /// Where a piece of gear goes.
@@ -116,15 +132,18 @@ pub enum Slot {
     Hand,
     /// Worn on the back (a pack frame).
     Back,
+    /// Worn at the waist (a tool belt).
+    Waist,
 }
 
 impl Slot {
-    pub const ALL: [Slot; 2] = [Slot::Hand, Slot::Back];
+    pub const ALL: [Slot; 3] = [Slot::Hand, Slot::Back, Slot::Waist];
 
     pub fn label(self) -> &'static str {
         match self {
             Slot::Hand => "HAND",
             Slot::Back => "BACK",
+            Slot::Waist => "WAIST",
         }
     }
 }
@@ -149,7 +168,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 40] = [
+    pub const ALL: [ItemKind; 44] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -190,6 +209,10 @@ impl ItemKind {
         ItemKind::BambooSpade,
         ItemKind::Clay,
         ItemKind::Soil,
+        ItemKind::ToolBelt,
+        ItemKind::WoodLathe,
+        ItemKind::SpokedWheel,
+        ItemKind::Handcart,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -217,12 +240,19 @@ impl ItemKind {
             | ItemKind::PineCone
             | ItemKind::Clay
             | ItemKind::Soil => (1, 1),
-            ItemKind::Branch | ItemKind::DiggingStick | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
+            ItemKind::Branch
+            | ItemKind::DiggingStick
+            | ItemKind::StoneAxe
+            | ItemKind::PackFrame
+            | ItemKind::PalmFrond
+            | ItemKind::Torch
+            | ItemKind::ToolBelt => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WaterWheel => (3, 3),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade => (1, 3),
             ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
-            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter | ItemKind::SpokedWheel | ItemKind::Handcart => (2, 2),
+            ItemKind::WoodLathe => (2, 3),
         }
     }
 
@@ -268,6 +298,10 @@ impl ItemKind {
             ItemKind::BambooSpade => "BAMBOO SPADE",
             ItemKind::Clay => "CLAY",
             ItemKind::Soil => "SOIL",
+            ItemKind::ToolBelt => "TOOL BELT",
+            ItemKind::WoodLathe => "WOOD LATHE",
+            ItemKind::SpokedWheel => "SPOKED WHEEL",
+            ItemKind::Handcart => "HANDCART",
         }
     }
 
@@ -315,6 +349,10 @@ impl ItemKind {
             ItemKind::BambooSpade => "SPLIT BAMBOO BOUND WITH ROPE. IT LIFTS SOFT, STICKY GROUND.",
             ItemKind::Clay => "WET, STICKY CLAY. IT CAN BE SHAPED, AND HARDENS IN A FIRE.",
             ItemKind::Soil => "A HANDFUL OF EARTH.",
+            ItemKind::ToolBelt => "WORN AT THE WAIST, IT HOLDS TWO TOOLS OUT OF THE BAG.",
+            ItemKind::WoodLathe => "A LAUAN BED AND SPINDLE WITH A ROPE DRIVE. SOMETHING TURNING COULD SPIN IT.",
+            ItemKind::SpokedWheel => "A HUB, SPOKES AND RIM, ALL TURNED ROUND. IT ROLLS UNDER A LOAD.",
+            ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
         }
     }
 
@@ -396,10 +434,26 @@ impl ItemKind {
             | ItemKind::LogBridge
             | ItemKind::WaterWheel
             | ItemKind::DiggingStick
-            | ItemKind::BambooSpade => Some(Slot::Hand),
+            | ItemKind::BambooSpade
+            | ItemKind::WoodLathe => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
+            ItemKind::ToolBelt => Some(Slot::Waist),
             _ => None,
         }
+    }
+
+    /// Tools a belt worn at the waist holds.
+    pub fn hooks(self) -> usize {
+        match self {
+            ItemKind::ToolBelt => 2,
+            _ => 0,
+        }
+    }
+
+    /// Whether it can hang on a tool belt: hand tools short and light
+    /// enough to carry at the waist (not a ladder, a bridge or a wheel).
+    pub fn hangs_on_belt(self) -> bool {
+        matches!(self, ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::DiggingStick | ItemKind::BambooSpade)
     }
 
     /// Rows a pack worn on the back adds to the bag.
@@ -418,7 +472,7 @@ impl ItemKind {
     /// Whether it goes in the bag once made or picked up (a lit torch is
     /// carried instead).
     pub fn goes_in_bag(self) -> bool {
-        self != ItemKind::Torch
+        !matches!(self, ItemKind::Torch | ItemKind::Handcart)
     }
 
     /// How getting rid of it from the bag reads: the command, and what's
@@ -439,6 +493,21 @@ mod tests {
     fn a_log_bridge_is_carried_in_hand_like_the_ladder() {
         assert_eq!(ItemKind::LogBridge.slot(), ItemKind::Ladder.slot());
         assert_eq!(ItemKind::LogBridge.max_stack(), 1);
+    }
+
+    #[test]
+    fn the_tool_belt_is_worn_at_the_waist() {
+        assert_eq!(ItemKind::ToolBelt.slot(), Some(Slot::Waist));
+        assert!(ItemKind::ToolBelt.hooks() > 0);
+    }
+
+    #[test]
+    fn only_tools_held_in_hand_hang_on_the_belt() {
+        for kind in ItemKind::ALL {
+            if kind.hangs_on_belt() {
+                assert_eq!(kind.slot(), Some(Slot::Hand), "{kind:?}");
+            }
+        }
     }
 
     #[test]

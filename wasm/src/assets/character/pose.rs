@@ -157,6 +157,31 @@ pub fn walk(view: View, phase: usize) -> Pose {
     if contact { p.shift_upper(1.0) } else { p }
 }
 
+/// Walking (or standing, phase 0) pulling the handcart: the legs as in
+/// `walk`, the hands holding the crossbar at the end of its poles, so the
+/// arms don't swing. The handle runs from the cart behind past the body to
+/// a crossbar in front of it, and both hands hold that, arms forward (seen
+/// from behind, they're hidden by the body). `game::cart::hitch_offset`
+/// puts the crossbar in the hands.
+pub fn pull(view: View, phase: usize) -> Pose {
+    let mut p = walk(view, phase);
+    let bob = p.pelvis.1 - 21.0;
+    p.arms = match view {
+        View::Side => {
+            [limb((12.4, 14.8 + bob), (14.4, 17.6 + bob), (17.4, 18.6 + bob), false), limb((11.6, 15.0 + bob), (13.8, 17.9 + bob), (17.0, 18.9 + bob), true)]
+        }
+        // Holding the crossbar before the belly: seen from the front, the
+        // hands over it; from behind, hidden by the body.
+        View::Front => {
+            [limb((7.9, 14.8 + bob), (6.6, 17.6 + bob), (7.4, 19.6 + bob), true), limb((16.1, 14.8 + bob), (17.4, 17.6 + bob), (16.6, 19.6 + bob), true)]
+        }
+        View::Back => {
+            [limb((7.9, 14.8 + bob), (7.4, 17.4 + bob), (9.2, 18.8 + bob), false), limb((16.1, 14.8 + bob), (16.6, 17.4 + bob), (14.8, 18.8 + bob), false)]
+        }
+    };
+    p
+}
+
 /// Walking (or standing, phase 0) with an upset stomach: the far hand (the
 /// screen-left one facing toward or away) held to the belly, the head
 /// hung a little. The near arm swings as in `walk`, so a torch is held the

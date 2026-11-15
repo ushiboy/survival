@@ -3,6 +3,7 @@
 //! separate so the host can run fixed-rate updates independent of display.
 
 pub mod bag;
+pub mod cart;
 pub mod fishing;
 pub mod menu;
 pub mod regions;
@@ -39,6 +40,7 @@ use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::map::BridgeSpan;
 use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
 use bag::Bag;
+use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
 use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
 use regions::Regions;
@@ -84,6 +86,9 @@ const FISH_NEAR: i32 = 40;
 
 /// Standing within this distance of a campfire counts as being by it (px).
 const NEAR_FIRE: i32 = 40;
+/// How far from the middle of the wood lathe (px) things can be turned on
+/// it, as far as from a fire.
+const NEAR_LATHE: i32 = 40;
 /// No two fires closer than this (px).
 const FIRE_SPACING: i32 = 24;
 /// Frames between embers rising from a fire (on average).
@@ -189,6 +194,9 @@ pub struct Game {
     /// (`Some(true)`) upsets the stomach, instead of by chance.
     stomach_luck: Option<bool>,
     inventory: Inventory,
+    /// The handcart on the island, once one has been made (its load is in
+    /// `inventory.cart`).
+    cart: Option<Cart>,
     input: InputState,
     paused: bool,
     /// The bag screen, while open (the world stands still).
@@ -291,6 +299,7 @@ impl Game {
             ran_frames: 0,
             stomach_luck: None,
             inventory: Inventory::default(),
+            cart: save.and_then(|s| s.island.cart.clone()),
             input: InputState::default(),
             paused: false,
             menu: None,
@@ -307,6 +316,7 @@ impl Game {
                 inv.torch = s.inventory.torch;
                 inv.recipes = s.inventory.recipes.clone();
                 inv.gear = s.inventory.gear;
+                inv.cart = s.inventory.cart.clone();
                 let outfit = s.castaway.outfit();
                 if outfit != game.inventory.outfit {
                     game.equip(outfit);
@@ -360,7 +370,7 @@ impl Game {
                 mill_noticed: self.mill_noticed,
                 bridge_noticed: self.bridge_noticed,
             },
-            inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
+            inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone() },
             island: save::IslandState {
                 features,
                 fruit,
@@ -374,6 +384,7 @@ impl Game {
                 shell_day: self.shell_day,
                 shell_cap: self.shell_cap,
                 asleep_since: self.regions.asleep_since(),
+                cart: self.cart.clone(),
             },
         }
     }
@@ -485,9 +496,11 @@ impl Game {
         }
 
         self.frame_count = self.frame_count.wrapping_add(1);
-        let near_fire = self.near_fire();
+        let (near_fire, near_lathe, cart_at_hand) = (self.near_fire(), self.is_near_lathe(), self.cart_at_hand());
         if let Some(menu) = &mut self.menu {
             menu.near_fire = near_fire;
+            menu.near_lathe = near_lathe;
+            menu.cart_at_hand = cart_at_hand;
             let outcome = menu.update(&self.input, &mut self.inventory);
             // A tool lifted out to be moved is still in hand.
             let moving = menu.held_placement().map(|p| p.kind);
@@ -550,12 +563,18 @@ impl Game {
             self.hitstop -= 1;
             return;
         }
+        self.player.pulling = self.cart.as_ref().is_some_and(|c| c.pulled);
+        let idle_before = self.player.is_idle();
         let situation = Situation {
             tool: self.inventory.gear.hand,
             has_leaf: self.inventory.bag.has(ItemKind::Leaf),
             has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
-            fish_near: !self.inventory.bag.has(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
+            fish_near: !self.inventory.carries(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
+            cart_ahead: self
+                .cart
+                .as_ref()
+                .is_some_and(|c| c.pulled || cart_reach(c).overlaps(&Rect::new(self.player.reach_point().0, self.player.reach_point().1, 1, 1))),
         };
         let was_asleep = self.player.is_asleep();
         match self.player.update(&self.input, &self.map, situation) {
@@ -585,7 +604,18 @@ impl Game {
             Some(Deed::StandLadder(foot, rows)) => self.stand_ladder(foot, rows),
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
-            None => {}
+            Some(Deed::SetLathe(site)) => self.set_lathe(site),
+            None => {
+                // A with nothing else to do: set the cart down, or take
+                // up the one set down just ahead.
+                if idle_before && self.player.is_idle() && self.input.pressed(Buttons::A) {
+                    self.handle_cart();
+                }
+            }
+        }
+        let (feet, facing) = (self.player.body.feet(), self.player.facing);
+        if let Some(cart) = &mut self.cart {
+            cart.hitch(feet, facing);
         }
         self.come_upon_the_mill_site();
         self.come_upon_the_narrow();
@@ -787,6 +817,34 @@ impl Game {
         self.inventory.settle_hand();
         let changed = self.map.set_wheel(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The wood lathe in hand is set on the bank beside the water wheel off
+    /// the mill site's bank `site`: it leaves the bag and stays there, the
+    /// wheel driving it.
+    fn set_lathe(&mut self, site: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::WoodLathe) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.set_lathe(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
+    }
+
+    /// Steps the castaway out of anything just set down where they stand
+    /// (the lathe takes cells they may be at the edge of): the shortest way
+    /// out, west, south, east or north.
+    fn step_clear(&mut self) {
+        let feet = self.player.body.world_hitbox();
+        if !self.map.is_solid_rect(feet) {
+            return;
+        }
+        let way = (1..=2 * TILE_SIZE).flat_map(|d| [(-d, 0), (0, d), (d, 0), (0, -d)]).find(|&(dx, dy)| !self.map.is_solid_rect(feet.translate(dx, dy)));
+        if let Some((dx, dy)) = way {
+            self.player.body.x += crate::common::math::px_to_fx(dx);
+            self.player.body.y += crate::common::math::px_to_fx(dy);
+        }
     }
 
     /// The first time the castaway comes near the mill site (with no wheel
@@ -1116,13 +1174,62 @@ impl Game {
         }
     }
 
+    /// Something made or given that never goes in the bag: a torch is
+    /// lit and carried; a handcart is pulled off behind (there's only ever
+    /// the one).
+    fn carry_off(&mut self, kind: ItemKind) {
+        match kind {
+            ItemKind::Handcart => {
+                if self.cart.is_none() {
+                    self.cart = Some(Cart::behind(self.player.body.feet(), self.player.facing));
+                    self.inventory.cart = Some(Bag::with_size(CART_W, CART_ROWS));
+                }
+            }
+            _ => self.inventory.light_torch(self.clock.total_minutes()),
+        }
+    }
+
+    /// A pressed with nothing else to do: a cart being pulled is set down
+    /// where it stands; a cart set down just ahead is taken up.
+    fn handle_cart(&mut self) {
+        let reach = self.player.reach_point();
+        let Some(cart) = &mut self.cart else { return };
+        if cart.pulled {
+            cart.set_down();
+            return;
+        }
+        if !cart_reach(cart).overlaps(&Rect::new(reach.0, reach.1, 1, 1)) {
+            return;
+        }
+        // Step round to its poles, facing the way they point, and take
+        // hold (not if there's no room to stand there).
+        let (dx, dy) = cart::hitch_offset(cart.poles);
+        let to = (cart.at.0 - dx, cart.at.1 - dy);
+        let (fx, fy) = self.player.body.feet();
+        let feet = self.player.body.world_hitbox().translate(to.0 - fx, to.1 - fy);
+        if self.map.is_solid_rect(feet) {
+            return;
+        }
+        self.player.body.x += crate::common::math::px_to_fx(to.0 - fx);
+        self.player.body.y += crate::common::math::px_to_fx(to.1 - fy);
+        self.player.facing = cart.poles;
+        cart.take_up();
+    }
+
+    /// Whether the cart's load is at hand: it's being pulled, or set down
+    /// close by.
+    fn cart_at_hand(&self) -> bool {
+        let (fx, fy) = self.player.body.feet();
+        self.cart.as_ref().is_some_and(|c| c.pulled || (c.at.0 - fx).pow(2) + (c.at.1 - fy).pow(2) <= CART_REACH * CART_REACH)
+    }
+
     /// Puts `count` of something just obtained into the bag; if they don't
     /// all fit, the bag opens with the rest in hand so room can be made (or
     /// they can be left).
     fn take(&mut self, kind: ItemKind, count: u32) {
         if !kind.goes_in_bag() {
             // A torch lit at the fire is carried straight off.
-            self.inventory.light_torch(self.clock.total_minutes());
+            self.carry_off(kind);
             return;
         }
         let left = self.inventory.bag.stow(kind, count);
@@ -1152,6 +1259,7 @@ impl Game {
             }
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
+            Outcome::Made(kind) => self.carry_off(kind),
             Outcome::Save => {
                 self.save();
                 if let Some(menu) = &mut self.menu {
@@ -1202,6 +1310,14 @@ impl Game {
     /// Whether the castaway stands by a burning campfire.
     fn near_fire(&self) -> bool {
         self.nearest_fire().is_some()
+    }
+
+    /// Whether the castaway is by the wood lathe (it stands beside the
+    /// water wheel), where things are turned on it.
+    pub fn is_near_lathe(&self) -> bool {
+        let Some((lx, ly)) = self.map.lathe_middle() else { return false };
+        let (fx, fy) = self.player.body.feet();
+        (fx - lx).pow(2) + (fy - ly).pow(2) <= NEAR_LATHE * NEAR_LATHE
     }
 
     /// The campfire the castaway stands by, if any.
@@ -1430,6 +1546,11 @@ impl Game {
         for item in &self.items {
             item.draw(list, &camera, sprites, night);
         }
+        if let Some(cart) = &self.cart {
+            // Pulled, the handle crosses in front of the castaway.
+            let handle_depth = cart.pulled.then(|| self.player.depth() + 1);
+            draw_cart(list, &camera, sprites, cart, night, handle_depth);
+        }
         self.particles.draw(list, &camera, sprites, self.frame_count);
         if !night {
             for gull in &self.gulls {
@@ -1493,6 +1614,18 @@ impl Game {
             return false;
         };
         let changed = self.map.set_wheel(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
+    }
+
+    /// Dev tools: sets a wood lathe beside the water wheel at the mill site
+    /// (none needed in the bag; the wheel must be in). Returns whether one
+    /// went in.
+    pub fn debug_set_lathe(&mut self) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|&(x, y)| self.map.lathe_spot(x, y).is_some()) else {
+            return false;
+        };
+        let changed = self.map.set_lathe(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
         true
     }
@@ -1713,6 +1846,20 @@ impl Game {
         self.inventory.recipes.learn_all();
     }
 
+    /// Debug: puts on the gear of `kind` carried in the bag (as WEAR
+    /// would); false if it couldn't be.
+    pub fn debug_wear(&mut self, kind: ItemKind) -> bool {
+        let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
+        self.inventory.wear(i).is_ok()
+    }
+
+    /// Debug: hangs a tool of `kind` from the bag on the belt (as HANG ON
+    /// BELT would); false if it couldn't be.
+    pub fn debug_hang(&mut self, kind: ItemKind) -> bool {
+        let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
+        self.inventory.hang(i).is_ok()
+    }
+
     pub fn debug_give(&mut self, kind: ItemKind) {
         self.debug_give_n(kind, kind.max_stack());
     }
@@ -1720,7 +1867,7 @@ impl Game {
     /// Puts up to `n` of a kind in the bag; returns how many went in.
     pub fn debug_give_n(&mut self, kind: ItemKind, n: u32) -> u32 {
         if !kind.goes_in_bag() {
-            self.inventory.light_torch(self.clock.total_minutes());
+            self.carry_off(kind);
             return n.min(1);
         }
         let given = n - self.inventory.bag.stow(kind, n);
@@ -1751,14 +1898,45 @@ impl Game {
         &self.clock
     }
 
-    /// Whether the bag holds any of `kind`.
+    /// Whether any of `kind` is carried (in the bag or on the belt).
     pub fn carries(&self, kind: ItemKind) -> bool {
-        self.inventory.bag.has(kind)
+        self.inventory.carries(kind)
     }
 
     /// How many of `kind` the bag holds.
     pub fn carried(&self, kind: ItemKind) -> u32 {
         self.inventory.bag.count(kind)
+    }
+
+    /// Where the castaway's feet are (world px).
+    pub fn player_feet(&self) -> (i32, i32) {
+        self.player.body.feet()
+    }
+
+    /// Whether the castaway is wading in the shallows.
+    pub fn is_wading(&self) -> bool {
+        self.player.is_wading()
+    }
+
+    /// Whether the castaway is pulling the handcart.
+    pub fn is_pulling_cart(&self) -> bool {
+        self.cart.as_ref().is_some_and(|c| c.pulled)
+    }
+
+    /// Where the handcart stands (its middle, world px), once made.
+    pub fn cart_at(&self) -> Option<(i32, i32)> {
+        self.cart.as_ref().map(|c| c.at)
+    }
+
+    /// How many of `kind` the handcart is loaded with.
+    pub fn cart_load(&self, kind: ItemKind) -> u32 {
+        self.inventory.cart.as_ref().map_or(0, |c| c.count(kind))
+    }
+
+    /// Debug: puts up to `n` of `kind` in the handcart; returns how many
+    /// went in.
+    pub fn debug_load_cart(&mut self, kind: ItemKind, n: u32) -> u32 {
+        self.inventory.cart.as_mut().map_or(0, |c| n - c.stow(kind, n))
     }
 
     /// Whether a "!" is over the castaway's head (an idea has struck).
@@ -1939,5 +2117,56 @@ fn draw_line(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, line: &L
         let ripple = sprites.ripples[(clock / 6) as usize % sprites.ripples.len()];
         let (rx, ry) = camera.to_screen(fx - 12, fy - 3);
         list.actor(fy - 1, ObjEntry::new(rx, ry, ripple, OBJ_WATER_FX, ACTOR_PRIORITY));
+    }
+}
+
+/// Where reaching takes hold of a cart set down (a little round it).
+fn cart_reach(cart: &Cart) -> Rect {
+    let r = cart.rect();
+    Rect::new(r.x - 4, r.y - 4, r.w + 8, r.h + 8)
+}
+
+/// How far (px) the side-on cart rolls for its wheel to turn round one
+/// step (a sixth of the way round between spokes over `CART_WHEEL_STEPS`
+/// pictures, on a wheel 11px across).
+const CART_WHEEL_STEP_PX: i32 = 2;
+
+/// Draws the handcart where it stands, its poles pointing the way it was
+/// last pulled (at night in the dark palette, as things on the ground are).
+fn draw_cart(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, cart: &Cart, night: bool, handle_depth: Option<i32>) {
+    let _ = night;
+    // The picture for the way its poles point, where it goes from the
+    // cart's middle (the wheel's hub side on; the middle of its ground end
+    // on), and mirrored or not.
+    // Side on, its wheel turns as it rolls: a step round for every
+    // `CART_WHEEL_STEP_PX` along the ground (clockwise rolling right; the
+    // picture is mirrored rolling left, so it's turned the other way first).
+    let rolled = if cart.poles == Dir::Left { -cart.at.0 } else { cart.at.0 };
+    let wheel = sprites.handcart_side[rolled.div_euclid(CART_WHEEL_STEP_PX).rem_euclid(sprites.handcart_side.len() as i32) as usize];
+    let (gfx, (w, h), (bx, by), flip) = match cart.poles {
+        Dir::Right => (wheel, (32, 24), (-12, -17), false),
+        Dir::Left => (wheel, (32, 24), (-19, -17), true),
+        Dir::Down => (sprites.handcart[0], (24, 24), (-12, -19), false),
+        Dir::Up => (sprites.handcart[1], (24, 24), (-12, -23), false),
+    };
+    let (wx, wy) = (cart.at.0 + bx, cart.at.1 + by);
+    if !camera.sees(wx, wy - 16, w, h + 32) {
+        return;
+    }
+    let (sx, sy) = camera.to_screen(wx, wy);
+    list.actor(cart.at.1, ObjEntry::new(sx, sy, gfx, OBJ_FX, 2).flipped(flip));
+    // The handle, side on or from the front, runs from the bed past the
+    // castaway pulling it to the crossbar before them (`handle_depth`: over
+    // their body, under their hands); set down, it lies with the cart. From
+    // behind it's part of the cart's picture (the crossbar out of sight).
+    let handle = match cart.poles {
+        Dir::Right => Some((sprites.handcart_handle[0], (12, -8), false)),
+        Dir::Left => Some((sprites.handcart_handle[0], (-28, -8), true)),
+        Dir::Down => Some((sprites.handcart_handle[1], (-12, -5), false)),
+        Dir::Up => None,
+    };
+    if let Some((gfx, (hx, hy), flip)) = handle {
+        let (sx, sy) = camera.to_screen(cart.at.0 + hx, cart.at.1 + hy);
+        list.actor(handle_depth.unwrap_or(cart.at.1), ObjEntry::new(sx, sy, gfx, OBJ_FX, 2).flipped(flip));
     }
 }

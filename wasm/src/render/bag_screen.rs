@@ -5,11 +5,11 @@
 
 use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
-use crate::crafting::{RECIPES, RecipeBook};
+use crate::crafting::RECIPES;
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
-use crate::game::menu::{BagMenu, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices};
+use crate::game::menu::{BagMenu, GearRow, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows};
 use crate::game::state::Inventory;
-use crate::items::Slot;
+use crate::items::{ItemKind, Slot};
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
 use crate::render::hud::{HUD_COLS, HUD_ROWS};
@@ -25,10 +25,17 @@ const INFO_COL: usize = 17;
 /// The page tabs and each one's column (its `>`; the label follows), a
 /// space apart, leaving room for CRAFT's `!`.
 const TAB_ROW: usize = 5;
+/// With the cart's page there are five, packed closer (a `>` and no
+/// space between them), and the L and R marks go to the screen's edges.
 const TAB_COLS: [usize; 4] = [3, 10, 18, 24];
+const TAB_COLS_FIVE: [usize; 5] = [1, 7, 14, 20, 25];
 /// The L and R marks either side of the tabs.
 const TAB_L_COL: usize = 1;
 const TAB_R_COL: usize = 30;
+const TAB_L_COL_FIVE: usize = 0;
+const TAB_R_COL_FIVE: usize = 31;
+/// The cart page: the cart's grid starts this column, right of the bag's.
+const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
 /// list; in a recipe, its picture's right edge (tiles), the description's
 /// width, the material count columns, and the MAKE / BACK rows.
@@ -39,9 +46,28 @@ const NEED_COL: usize = 20;
 const HAVE_COL: usize = 26;
 const CHOICE_ROW: usize = 21;
 const NOTICE_ROW: usize = 24;
+/// The mark of the lathe (a cog), by recipes turned on it as `^` (a
+/// flame) is by those made at a fire.
+const LATHE_MARK: &str = "*";
 
 fn text(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
     text_in(bg3, tiles, col, row, s, HUD_TEXT);
+}
+
+/// Writes `s` from `col` to the screen's right edge at most, cutting a
+/// name too long to fit and ending it with an ellipsis.
+fn text_fit(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
+    text(bg3, tiles, col, row, &fit(s, HUD_COLS.saturating_sub(col)));
+}
+
+/// `s` cut to `width` characters, ending in `…` if anything was cut (and
+/// no space is left before it).
+fn fit(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        return s.to_string();
+    }
+    let kept: String = s.chars().take(width.saturating_sub(1)).collect();
+    format!("{}…", kept.trim_end())
 }
 
 fn text_in(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str, palette: u8) {
@@ -64,7 +90,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     clear(bg3);
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
-    for (page, col) in Page::ALL.into_iter().zip(TAB_COLS) {
+    let pages = menu.pages();
+    let (cols, l_col, r_col): (&[usize], usize, usize) =
+        if pages.len() > TAB_COLS.len() { (&TAB_COLS_FIVE, TAB_L_COL_FIVE, TAB_R_COL_FIVE) } else { (&TAB_COLS, TAB_L_COL, TAB_R_COL) };
+    for (page, &col) in pages.into_iter().zip(cols) {
         if menu.mode == Mode::Tabs(page) {
             text(bg3, tiles, col, TAB_ROW, ">");
         }
@@ -74,14 +103,18 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         }
     }
     // L and R either side of the tabs: they switch pages.
-    text_in(bg3, tiles, TAB_L_COL, TAB_ROW, "L", HUD_DIM);
-    text_in(bg3, tiles, TAB_R_COL, TAB_ROW, "R", HUD_DIM);
+    text_in(bg3, tiles, l_col, TAB_ROW, "L", HUD_DIM);
+    text_in(bg3, tiles, r_col, TAB_ROW, "R", HUD_DIM);
     if menu.page() == Page::Craft {
-        draw_craft_page(bg3, tiles, list, sprites, bag, &inventory.recipes, menu);
+        draw_craft_page(bg3, tiles, list, sprites, inventory, menu);
         return;
     }
     if menu.page() == Page::Save {
         draw_save_page(bg3, tiles, menu);
+        return;
+    }
+    if menu.page() == Page::Cart {
+        draw_cart_page(bg3, tiles, list, sprites, inventory, menu);
         return;
     }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
@@ -205,6 +238,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
         Mode::Saving => "A SAVE   B CLOSE",
+        Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
 }
@@ -226,16 +260,90 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
     }
 }
 
+/// The cart page: the bag's grid on the left, the cart's on the right,
+/// each with the room it has used; the cursor on a cell of one of them,
+/// and what's there named below.
+fn draw_cart_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
+    let Some(cart) = inventory.cart.as_ref() else { return };
+    let bag = &inventory.bag;
+    let hand = inventory.gear.hand;
+    draw_grid(bg3, tiles, list, sprites, bag, GRID_COL, hand);
+    draw_grid(bg3, tiles, list, sprites, cart, CART_COL, None);
+    let in_cart = matches!(menu.mode, Mode::Cart { in_cart: true });
+    let (on, col) = if in_cart { (cart, CART_COL) } else { (bag, GRID_COL) };
+    let rows = bag.rows().max(cart.rows()) as usize;
+    if let Mode::Cart { .. } = menu.mode {
+        let (cx, cy) = menu.cursor;
+        let item = on.at(cx, cy).map(|i| on.items()[i]);
+        let (bx, by, bw, bh) = item.map_or((cx, cy, 1, 1), |p| (p.x, p.y, p.size().0, p.size().1));
+        let x0 = col as i32 * 8 + bx * CELL;
+        let y0 = GRID_ROW as i32 * 8 + by * CELL;
+        let (x1, y1) = (x0 + bw * CELL - 8, y0 + bh * CELL - 8);
+        for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {
+            let mut e = ObjEntry::new(x, y, sprites.bag.corner, OBJ_FX, 3).flipped(fh);
+            e.flip_v = fv;
+            list.sky(e);
+        }
+        if let Some(p) = item {
+            let row = GRID_ROW + rows * 2 + 2;
+            text(bg3, tiles, GRID_COL, row, p.kind.name());
+            if p.kind.max_stack() > 1 {
+                text(bg3, tiles, GRID_COL + p.kind.name().len() + 1, row, &format!("{} OF {}", p.count, p.kind.max_stack()));
+            }
+        }
+    }
+    text_in(bg3, tiles, CART_COL, GRID_ROW - 1, "CART", HUD_DIM);
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// A grid (the bag's, or the cart's) from column `col`: its cells, the
+/// icons in it with their counts, a mark on the tool in hand, and the
+/// room used under it.
+fn draw_grid(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, grid: &Bag, col: usize, hand: Option<ItemKind>) {
+    let (w, rows) = (grid.width() as usize, grid.rows() as usize);
+    for y in 0..rows {
+        for x in 0..w {
+            for q in 0..4 {
+                bg3.put(col + x * 2 + q % 2, GRID_ROW + y * 2 + q / 2, tiles.bag_cell[q], HUD_MENU);
+            }
+        }
+    }
+    let used: i32 = grid.items().iter().map(|p| p.size().0 * p.size().1).sum();
+    let room = format!("{used:02}/{}", w * rows);
+    text(bg3, tiles, col + w * 2 - room.len(), GRID_ROW + rows * 2, &room);
+    let at = |p: &Placed| (col as i32 * 8 + p.x * CELL, GRID_ROW as i32 * 8 + p.y * CELL);
+    for p in grid.items() {
+        draw_count(list, sprites, p, at(p));
+        if hand == Some(p.kind) {
+            let (px, py) = at(p);
+            list.sky(ObjEntry::new(px, py, sprites.bag.equipped, OBJ_FX, 3));
+        }
+    }
+    for p in grid.items() {
+        let (px, py) = at(p);
+        let (gfx, pal) = sprites.bag.icon(p.kind, p.turned);
+        list.sky(ObjEntry::new(px, py, gfx, pal, 3));
+    }
+}
+
 /// The crafting page: the recipe list, or one recipe opened from it.
-fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, menu: &BagMenu) {
-    if menu.near_fire {
+fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
+    // Where the castaway is, if it's somewhere things are made (the lathe
+    // first: a fire can be lit by it, but the lathe is what's rare).
+    if menu.near_lathe {
+        text_in(bg3, tiles, INFO_COL + 2, TAB_ROW + 1, LATHE_MARK, HUD_FOOD);
+        text(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "BY THE LATHE");
+    } else if menu.near_fire {
         text_in(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "^", HUD_FOOD);
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
-        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, bag, book, menu.near_fire, recipe, choice),
-        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, Some(choice)),
-        _ => draw_recipe_list(bg3, tiles, list, sprites, bag, book, menu.near_fire, None),
+        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, inventory, menu, recipe, choice),
+        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, Some(choice)),
+        _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, None),
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
@@ -254,11 +362,12 @@ fn draw_recipe_list(
     tiles: &HudTiles,
     list: &mut DrawList,
     sprites: &SpriteIds,
-    bag: &Bag,
-    book: &RecipeBook,
-    near_fire: bool,
+    inventory: &Inventory,
+    menu: &BagMenu,
     choice: Option<usize>,
 ) {
+    let near_fire = menu.near_fire;
+    let book = &inventory.recipes;
     let listed = book.listed();
     let at = choice.unwrap_or(0);
     let page = at / RECIPES_PER_PAGE;
@@ -271,11 +380,14 @@ fn draw_recipe_list(
             text(bg3, tiles, GRID_COL, row, ">");
         }
         // Bright if it can be made now, whichever way.
-        let ready = book.ways(i).iter().any(|&w| bag.can_make(&RECIPES[w]) && (!RECIPES[w].at_fire || near_fire));
+        let ready = book.ways(i).iter().any(|&w| inventory.can_make(&RECIPES[w]) && menu.in_place_for(&RECIPES[w]));
         let name = r.makes.name();
         text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {
             text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+        }
+        if r.at_lathe {
+            text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, LATHE_MARK, if menu.near_lathe { HUD_FOOD } else { HUD_DIM });
         }
         if book.item_fresh(i) {
             text_in(bg3, tiles, GRID_COL + 4 + name.len(), row, "!", HUD_FOOD);
@@ -311,12 +423,13 @@ fn draw_recipe(
     tiles: &HudTiles,
     list: &mut DrawList,
     sprites: &SpriteIds,
-    bag: &Bag,
-    book: &RecipeBook,
-    near_fire: bool,
+    inventory: &Inventory,
+    menu: &BagMenu,
     index: usize,
     choice: usize,
 ) {
+    let (near_fire, near_lathe) = (menu.near_fire, menu.near_lathe);
+    let (bag, book) = (&inventory.bag, &inventory.recipes);
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);
@@ -361,7 +474,7 @@ fn draw_recipe(
     // Tools: carried, not used up.
     for (i, &kind) in recipe.tools.iter().enumerate() {
         let row = top + 1 + recipe.needs.len() + i;
-        let have = bag.has(kind);
+        let have = inventory.carries(kind);
         let palette = if have { HUD_TEXT } else { HUD_DIM };
         text_in(bg3, tiles, GRID_COL + 1, row, kind.name(), palette);
         text_in(bg3, tiles, NEED_COL - 2, row, "TOOL", palette);
@@ -373,6 +486,13 @@ fn draw_recipe(
         text_in(bg3, tiles, GRID_COL + 1, row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
         text_in(bg3, tiles, GRID_COL + 3, row, "A FIRE", palette);
         text_in(bg3, tiles, HAVE_COL - 1, row, if near_fire { "YES" } else { " NO" }, palette);
+    }
+    if recipe.at_lathe {
+        let row = top + 1 + recipe.needs.len() + recipe.tools.len();
+        let palette = if near_lathe { HUD_TEXT } else { HUD_DIM };
+        text_in(bg3, tiles, GRID_COL + 1, row, LATHE_MARK, if near_lathe { HUD_FOOD } else { HUD_DIM });
+        text_in(bg3, tiles, GRID_COL + 3, row, "A LATHE", palette);
+        text_in(bg3, tiles, HAVE_COL - 1, row, if near_lathe { "YES" } else { " NO" }, palette);
     }
 
     for (i, label) in ["MAKE", "BACK"].into_iter().enumerate() {
@@ -400,32 +520,81 @@ fn wrap(s: &str, width: usize) -> Vec<String> {
 }
 
 /// The gear page beside the grid: each slot with what's in it (and the
-/// room a pack adds), and the choices for the slot being changed.
+/// room a pack adds), the tools on the belt's hooks under the waist, and
+/// the choices for the line being changed.
 fn draw_gear(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
     let (focus, picking) = match menu.mode {
         Mode::Gear { slot } => (Some(slot), None),
         Mode::GearPick { slot, choice } => (Some(slot), Some(choice)),
         _ => (None, None),
     };
-    for (i, slot) in Slot::ALL.into_iter().enumerate() {
-        let row = GRID_ROW + i * 4;
-        if focus == Some(i) {
-            text(bg3, tiles, INFO_COL, row, ">");
-        }
-        text(bg3, tiles, INFO_COL + 1, row, slot.label());
-        let worn = inventory.gear.worn(slot);
-        text(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
-        if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
-            text(bg3, tiles, INFO_COL + 2, row + 2, &format!("+{} ROOM", k.extra_rows() * BAG_W));
+    let gear = &inventory.gear;
+    let rows = gear_rows(gear);
+    let mut row = GRID_ROW;
+    for (i, &line) in rows.iter().enumerate() {
+        match line {
+            GearRow::Slot(slot) => {
+                if focus == Some(i) {
+                    text(bg3, tiles, INFO_COL, row, ">");
+                }
+                text(bg3, tiles, INFO_COL + 1, row, slot.label());
+                let worn = gear.worn(slot);
+                text_fit(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
+                row += 2;
+                if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
+                    text(bg3, tiles, INFO_COL + 2, row, &format!("+{} ROOM", k.extra_rows() * BAG_W));
+                    row += 1;
+                }
+                // A gap before the next slot, but not before the hooks.
+                if slot != Slot::Waist || gear.hooks() == 0 {
+                    row += 1;
+                }
+            }
+            GearRow::Hook(h) => {
+                // A step in from the belt's name: they hang from it.
+                if focus == Some(i) {
+                    text(bg3, tiles, INFO_COL + 2, row, ">");
+                }
+                text_fit(bg3, tiles, INFO_COL + 3, row, gear.belt[h].map_or("-", |k| k.name()));
+                row += 1;
+            }
         }
     }
     if let (Some(slot), Some(choice)) = (focus, picking) {
-        let top = GRID_ROW + Slot::ALL.len() * 4;
-        for (i, c) in gear_choices(&inventory.bag, &inventory.gear, Slot::ALL[slot]).iter().enumerate() {
+        // As many as fit above the help line, scrolled to keep the choice
+        // in view.
+        let top = row + 1;
+        let room = (LAST_ROW - 2).saturating_sub(top).max(1);
+        let first = (choice + 1).saturating_sub(room);
+        for (i, c) in gear_choices(inventory, rows[slot]).iter().enumerate().skip(first).take(room) {
+            let at = top + i - first;
             if i == choice {
-                text(bg3, tiles, INFO_COL, top + i, ">");
+                text(bg3, tiles, INFO_COL, at, ">");
             }
-            text(bg3, tiles, INFO_COL + 1, top + i, c.label());
+            text_fit(bg3, tiles, INFO_COL + 1, at, c.label());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_name_that_fits_is_left_whole() {
+        assert_eq!(fit("STONE AXE", 12), "STONE AXE");
+        assert_eq!(fit("BAMBOO SPADE", 12), "BAMBOO SPADE");
+    }
+
+    #[test]
+    fn a_name_too_long_is_cut_to_the_width_with_an_ellipsis() {
+        let cut = fit("DIGGING STICK", 12);
+        assert_eq!(cut, "DIGGING STI…");
+        assert_eq!(cut.chars().count(), 12);
+    }
+
+    #[test]
+    fn no_space_is_left_before_the_ellipsis() {
+        assert_eq!(fit("WOOD SPEAR", 6), "WOOD…");
     }
 }
