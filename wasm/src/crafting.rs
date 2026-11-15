@@ -41,7 +41,7 @@ pub const RECIPES: &[Recipe] = &[
     Recipe { name: "FireDrill", makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
     Recipe { name: "Ladder", makes: ItemKind::Ladder, needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 3), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
     Recipe { name: "LogBridge", makes: ItemKind::LogBridge, needs: &[(ItemKind::PineTimber, 2), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
-    Recipe { name: "WaterWheel", makes: ItemKind::WaterWheel, needs: &[(ItemKind::LauanTimber, 3), (ItemKind::Bamboo, 4), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife], at_fire: false },
+    Recipe { name: "WaterWheel", makes: ItemKind::WaterWheel, needs: &[(ItemKind::LauanTimber, 4), (ItemKind::Bamboo, 4), (ItemKind::Stone, 2), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife], at_fire: false },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the
@@ -247,10 +247,18 @@ mod tests {
     }
 
     #[test]
-    fn a_water_wheel_comes_to_mind_with_lauan_timber_bamboo_and_rope() {
+    fn a_water_wheel_comes_to_mind_with_lauan_timber_bamboo_stone_and_rope() {
         let mut book = RecipeBook::default();
-        book.notice(carrying(&[ItemKind::Bamboo, ItemKind::LauanTimber, ItemKind::Rope]));
+        book.notice(carrying(&[ItemKind::Bamboo, ItemKind::LauanTimber, ItemKind::Stone, ItemKind::Rope]));
         assert!(book.listed().contains(&index(ItemKind::WaterWheel)));
+    }
+
+    #[test]
+    fn a_water_wheel_comes_with_stone_bearings_on_posts_to_hold_its_axle() {
+        let needs = RECIPES[index(ItemKind::WaterWheel)].needs;
+        let count = |kind| needs.iter().find(|&&(k, _)| k == kind).map_or(0, |&(_, n)| n);
+        assert!(count(ItemKind::Stone) >= 2, "a bearing at each end of the axle");
+        assert!(count(ItemKind::LauanTimber) > 3, "lauan for the posts besides the wheel");
     }
 
     #[test]

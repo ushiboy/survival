@@ -91,8 +91,9 @@ pub enum ItemKind {
     /// coast: long, hollow and light.
     Bamboo,
     /// A wheel of lauan (axle, arms and rim, strong enough to drive work)
-    /// with paddles of split bamboo lashed on with rope: held in hand and
-    /// set in the river at the mill site (B), where the current turns it.
+    /// with paddles of split bamboo lashed on with rope, and two lauan posts
+    /// with stone bearings to hold its axle: held in hand and set in the
+    /// river at the mill site (B), where the current turns it.
     WaterWheel,
 }
 

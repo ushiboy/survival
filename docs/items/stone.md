@@ -17,7 +17,7 @@
 
 ## 使い道
 
-- レシピの材料: [石器ナイフ](../recipes/stone-knife.md)、[石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)
+- レシピの材料: [石器ナイフ](../recipes/stone-knife.md)、[石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)、[水車](../recipes/water-wheel.md)（軸受け）
 
 ## メモ
 

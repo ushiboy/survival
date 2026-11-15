@@ -1667,11 +1667,14 @@ const WHEEL_PERIOD: u32 = 8;
 /// The water wheel seen from above, in its two-by-two block of cells (px):
 /// the rims' columns (west and east), how far it runs up and down the
 /// river, and how many paddles go round it.
-const WHEEL_RIMS: (i32, i32) = (3, 14);
+const WHEEL_RIMS: (i32, i32) = (6, 16);
 const WHEEL_ENDS: (i32, i32) = (2, 29);
 const WHEEL_PADDLES: u32 = 12;
 /// The axle's rows, reaching from the west edge across the wheel.
 const WHEEL_AXLE: (i32, i32) = (15, 16);
+/// Where the posts holding the axle's ends stand (their bearing stones'
+/// west column): on the bank's edge, and in the river past the far rim.
+const WHEEL_POSTS: [i32; 2] = [0, 21];
 
 /// The colour of the water wheel seen from above at `(x, y)` in its block
 /// (px) on frame `f`, if any of it is there. It is a drum lying across the
@@ -1686,9 +1689,21 @@ fn water_wheel_top(x: i32, y: i32, f: u32) -> Option<u8> {
     if !(0..32).contains(&x) {
         return None;
     }
-    // The axle, from the bank across to a stub out of the far rim.
-    if (WHEEL_AXLE.0..=WHEEL_AXLE.1).contains(&y) && (x < west || x == east + 2) {
+    // The axle, from the bearing on the bank's edge across to the one on
+    // the post in the river beyond the far rim.
+    if (WHEEL_AXLE.0..=WHEEL_AXLE.1).contains(&y) && ((WHEEL_POSTS[0] + 4..west).contains(&x) || (east + 2..WHEEL_POSTS[1]).contains(&x)) {
         return Some(if y == WHEEL_AXLE.0 { grass::SAND[0] } else { grass::SOIL });
+    }
+    // Each end rests on a stone bearing atop a lauan post (its foot going
+    // down toward the viewer into the bank or the water).
+    for post in WHEEL_POSTS {
+        let (dx, dy) = (x - post, y - WHEEL_AXLE.0);
+        if (0..4).contains(&dx) && (-3..3).contains(&dy) {
+            return Some(if dx == 0 || dy == -3 { grass::SAND[0] } else if dy == 2 { grass::SAND[2] } else { grass::SAND[1] });
+        }
+        if (1..3).contains(&dx) && (3..9).contains(&dy) {
+            return Some(if dx == 1 { grass::SAND[2] } else { grass::SOIL });
+        }
     }
     // Foam churned up below the lower end, flickering.
     if (bottom + 1..=bottom + 2).contains(&y) && (west..=east + 1).contains(&x) {

@@ -17,4 +17,4 @@
 
 ## 使い道
 
-- レシピの材料: [ハシゴ](../recipes/ladder.md)、[水車](../recipes/water-wheel.md)（軸・腕・輪）
+- レシピの材料: [ハシゴ](../recipes/ladder.md)、[水車](../recipes/water-wheel.md)（軸・腕・輪と、支えの柱）
