@@ -35,6 +35,9 @@ const NEED_COL: usize = 20;
 const HAVE_COL: usize = 26;
 const CHOICE_ROW: usize = 21;
 const NOTICE_ROW: usize = 24;
+/// The mark of the lathe (a cog), by recipes turned on it as `^` (a
+/// flame) is by those made at a fire.
+const LATHE_MARK: &str = "*";
 
 fn text(bg3: &mut Bg3Layer, tiles: &HudTiles, col: usize, row: usize, s: &str) {
     text_in(bg3, tiles, col, row, s, HUD_TEXT);
@@ -235,14 +238,19 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
 
 /// The crafting page: the recipe list, or one recipe opened from it.
 fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
-    if menu.near_fire {
+    // Where the castaway is, if it's somewhere things are made (the lathe
+    // first: a fire can be lit by it, but the lathe is what's rare).
+    if menu.near_lathe {
+        text_in(bg3, tiles, INFO_COL + 2, TAB_ROW + 1, LATHE_MARK, HUD_FOOD);
+        text(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "BY THE LATHE");
+    } else if menu.near_fire {
         text_in(bg3, tiles, INFO_COL + 3, TAB_ROW + 1, "^", HUD_FOOD);
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
-        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, inventory, menu.near_fire, recipe, choice),
-        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu.near_fire, Some(choice)),
-        _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu.near_fire, None),
+        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, inventory, menu, recipe, choice),
+        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, Some(choice)),
+        _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, None),
     }
     if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
@@ -262,9 +270,10 @@ fn draw_recipe_list(
     list: &mut DrawList,
     sprites: &SpriteIds,
     inventory: &Inventory,
-    near_fire: bool,
+    menu: &BagMenu,
     choice: Option<usize>,
 ) {
+    let near_fire = menu.near_fire;
     let book = &inventory.recipes;
     let listed = book.listed();
     let at = choice.unwrap_or(0);
@@ -278,11 +287,14 @@ fn draw_recipe_list(
             text(bg3, tiles, GRID_COL, row, ">");
         }
         // Bright if it can be made now, whichever way.
-        let ready = book.ways(i).iter().any(|&w| inventory.can_make(&RECIPES[w]) && (!RECIPES[w].at_fire || near_fire));
+        let ready = book.ways(i).iter().any(|&w| inventory.can_make(&RECIPES[w]) && menu.in_place_for(&RECIPES[w]));
         let name = r.makes.name();
         text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {
             text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
+        }
+        if r.at_lathe {
+            text_in(bg3, tiles, GRID_COL + 2 + name.len(), row, LATHE_MARK, if menu.near_lathe { HUD_FOOD } else { HUD_DIM });
         }
         if book.item_fresh(i) {
             text_in(bg3, tiles, GRID_COL + 4 + name.len(), row, "!", HUD_FOOD);
@@ -319,10 +331,11 @@ fn draw_recipe(
     list: &mut DrawList,
     sprites: &SpriteIds,
     inventory: &Inventory,
-    near_fire: bool,
+    menu: &BagMenu,
     index: usize,
     choice: usize,
 ) {
+    let (near_fire, near_lathe) = (menu.near_fire, menu.near_lathe);
     let (bag, book) = (&inventory.bag, &inventory.recipes);
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
@@ -380,6 +393,13 @@ fn draw_recipe(
         text_in(bg3, tiles, GRID_COL + 1, row, "^", if near_fire { HUD_FOOD } else { HUD_DIM });
         text_in(bg3, tiles, GRID_COL + 3, row, "A FIRE", palette);
         text_in(bg3, tiles, HAVE_COL - 1, row, if near_fire { "YES" } else { " NO" }, palette);
+    }
+    if recipe.at_lathe {
+        let row = top + 1 + recipe.needs.len() + recipe.tools.len();
+        let palette = if near_lathe { HUD_TEXT } else { HUD_DIM };
+        text_in(bg3, tiles, GRID_COL + 1, row, LATHE_MARK, if near_lathe { HUD_FOOD } else { HUD_DIM });
+        text_in(bg3, tiles, GRID_COL + 3, row, "A LATHE", palette);
+        text_in(bg3, tiles, HAVE_COL - 1, row, if near_lathe { "YES" } else { " NO" }, palette);
     }
 
     for (i, label) in ["MAKE", "BACK"].into_iter().enumerate() {

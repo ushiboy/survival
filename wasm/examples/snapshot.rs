@@ -78,6 +78,8 @@ fn main() {
                 "boiled" => ItemKind::BoiledWater,
                 "frame" => ItemKind::PackFrame,
                 "tool belt" | "belt" => ItemKind::ToolBelt,
+                "wood lathe" | "lathe" => ItemKind::WoodLathe,
+                "spoked wheel" | "spoked" => ItemKind::SpokedWheel,
                 "husk" => ItemKind::Husk,
                 "rope" => ItemKind::Rope,
                 "frond" => ItemKind::PalmFrond,

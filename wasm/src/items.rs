@@ -110,6 +110,14 @@ pub enum ItemKind {
     /// A belt of plaited bark strips with rope loops, cut to shape with the
     /// knife: worn at the waist, it holds two tools out of the bag.
     ToolBelt,
+    /// A lauan bed with a headstock and a tailstock holding work between
+    /// them on stone bearings, and a rope drive: held in hand and set on
+    /// the bank beside the turning water wheel (B), which drives it to
+    /// turn wood round.
+    WoodLathe,
+    /// A cartwheel of lauan (hub and rim) with spokes of branch, all
+    /// turned round on the lathe.
+    SpokedWheel,
 }
 
 /// Where a piece of gear goes.
@@ -155,7 +163,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 41] = [
+    pub const ALL: [ItemKind; 43] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -197,6 +205,8 @@ impl ItemKind {
         ItemKind::Clay,
         ItemKind::Soil,
         ItemKind::ToolBelt,
+        ItemKind::WoodLathe,
+        ItemKind::SpokedWheel,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -235,7 +245,8 @@ impl ItemKind {
             ItemKind::WaterWheel => (3, 3),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade => (1, 3),
             ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
-            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter | ItemKind::SpokedWheel => (2, 2),
+            ItemKind::WoodLathe => (2, 3),
         }
     }
 
@@ -282,6 +293,8 @@ impl ItemKind {
             ItemKind::Clay => "CLAY",
             ItemKind::Soil => "SOIL",
             ItemKind::ToolBelt => "TOOL BELT",
+            ItemKind::WoodLathe => "WOOD LATHE",
+            ItemKind::SpokedWheel => "SPOKED WHEEL",
         }
     }
 
@@ -330,6 +343,8 @@ impl ItemKind {
             ItemKind::Clay => "WET, STICKY CLAY. IT CAN BE SHAPED, AND HARDENS IN A FIRE.",
             ItemKind::Soil => "A HANDFUL OF EARTH.",
             ItemKind::ToolBelt => "WORN AT THE WAIST, IT HOLDS TWO TOOLS OUT OF THE BAG.",
+            ItemKind::WoodLathe => "A LAUAN BED AND SPINDLE WITH A ROPE DRIVE. SOMETHING TURNING COULD SPIN IT.",
+            ItemKind::SpokedWheel => "A HUB, SPOKES AND RIM, ALL TURNED ROUND. IT ROLLS UNDER A LOAD.",
         }
     }
 
@@ -411,7 +426,8 @@ impl ItemKind {
             | ItemKind::LogBridge
             | ItemKind::WaterWheel
             | ItemKind::DiggingStick
-            | ItemKind::BambooSpade => Some(Slot::Hand),
+            | ItemKind::BambooSpade
+            | ItemKind::WoodLathe => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             ItemKind::ToolBelt => Some(Slot::Waist),
             _ => None,

@@ -84,6 +84,9 @@ const FISH_NEAR: i32 = 40;
 
 /// Standing within this distance of a campfire counts as being by it (px).
 const NEAR_FIRE: i32 = 40;
+/// How far from the middle of the wood lathe (px) things can be turned on
+/// it, as far as from a fire.
+const NEAR_LATHE: i32 = 40;
 /// No two fires closer than this (px).
 const FIRE_SPACING: i32 = 24;
 /// Frames between embers rising from a fire (on average).
@@ -485,9 +488,10 @@ impl Game {
         }
 
         self.frame_count = self.frame_count.wrapping_add(1);
-        let near_fire = self.near_fire();
+        let (near_fire, near_lathe) = (self.near_fire(), self.is_near_lathe());
         if let Some(menu) = &mut self.menu {
             menu.near_fire = near_fire;
+            menu.near_lathe = near_lathe;
             let outcome = menu.update(&self.input, &mut self.inventory);
             // A tool lifted out to be moved is still in hand.
             let moving = menu.held_placement().map(|p| p.kind);
@@ -585,6 +589,7 @@ impl Game {
             Some(Deed::StandLadder(foot, rows)) => self.stand_ladder(foot, rows),
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
+            Some(Deed::SetLathe(site)) => self.set_lathe(site),
             None => {}
         }
         self.come_upon_the_mill_site();
@@ -787,6 +792,34 @@ impl Game {
         self.inventory.settle_hand();
         let changed = self.map.set_wheel(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The wood lathe in hand is set on the bank beside the water wheel off
+    /// the mill site's bank `site`: it leaves the bag and stays there, the
+    /// wheel driving it.
+    fn set_lathe(&mut self, site: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::WoodLathe) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.set_lathe(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
+    }
+
+    /// Steps the castaway out of anything just set down where they stand
+    /// (the lathe takes cells they may be at the edge of): the shortest way
+    /// out, west, south, east or north.
+    fn step_clear(&mut self) {
+        let feet = self.player.body.world_hitbox();
+        if !self.map.is_solid_rect(feet) {
+            return;
+        }
+        let way = (1..=2 * TILE_SIZE).flat_map(|d| [(-d, 0), (0, d), (d, 0), (0, -d)]).find(|&(dx, dy)| !self.map.is_solid_rect(feet.translate(dx, dy)));
+        if let Some((dx, dy)) = way {
+            self.player.body.x += crate::common::math::px_to_fx(dx);
+            self.player.body.y += crate::common::math::px_to_fx(dy);
+        }
     }
 
     /// The first time the castaway comes near the mill site (with no wheel
@@ -1204,6 +1237,14 @@ impl Game {
         self.nearest_fire().is_some()
     }
 
+    /// Whether the castaway is by the wood lathe (it stands beside the
+    /// water wheel), where things are turned on it.
+    pub fn is_near_lathe(&self) -> bool {
+        let Some((lx, ly)) = self.map.lathe_middle() else { return false };
+        let (fx, fy) = self.player.body.feet();
+        (fx - lx).pow(2) + (fy - ly).pow(2) <= NEAR_LATHE * NEAR_LATHE
+    }
+
     /// The campfire the castaway stands by, if any.
     fn nearest_fire(&self) -> Option<&Campfire> {
         let (fx, fy) = self.player.body.feet();
@@ -1493,6 +1534,18 @@ impl Game {
             return false;
         };
         let changed = self.map.set_wheel(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
+    }
+
+    /// Dev tools: sets a wood lathe beside the water wheel at the mill site
+    /// (none needed in the bag; the wheel must be in). Returns whether one
+    /// went in.
+    pub fn debug_set_lathe(&mut self) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|&(x, y)| self.map.lathe_spot(x, y).is_some()) else {
+            return false;
+        };
+        let changed = self.map.set_lathe(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
         true
     }

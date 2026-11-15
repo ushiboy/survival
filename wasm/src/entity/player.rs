@@ -301,6 +301,11 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
+    /// Setting the wood lathe on the bank beside the water wheel.
+    Install {
+        t: u32,
+        site: (i32, i32),
+    },
     /// Come upon a place by the river (the mill site, the narrow): struck
     /// by an idea, then walking straight over to its bank (`to`,
     /// a cell) and turning `across` the river; then, if `think`, stopping
@@ -384,6 +389,9 @@ pub enum Deed {
     /// The water wheel was set in the river off the mill site's bank
     /// (the cell).
     SetWheel((i32, i32)),
+    /// The wood lathe was set on the bank beside the water wheel off the
+    /// mill site's bank (the cell).
+    SetLathe((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -638,6 +646,11 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Mount { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetWheel(site));
         }
+        if let Action::Install { t, site } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Install { t, site } };
+            return (t == PITCH_SET).then_some(Deed::SetLathe(site));
+        }
         if let Action::Survey { t, to, across, think } = self.action {
             self.survey_step(t + 1, to, across, think, map);
             return None;
@@ -685,6 +698,9 @@ impl Player {
                 // A water wheel goes into the river at the mill site, the
                 // castaway stepping along the bank to it first.
                 ItemKind::WaterWheel => Action::ToWheel { t: 0, site: self.wheel_ahead(map)? },
+                // A wood lathe goes on the bank beside the turning wheel,
+                // set down just ahead (the castaway steps clear of it).
+                ItemKind::WoodLathe => Action::Install { t: 0, site: self.lathe_ahead(map)? },
                 // A digging stick loosens hard earth but won't lift sticky
                 // clay; a bamboo spade lifts clay but would crack on hard
                 // earth. The wrong one gives pause.
@@ -784,6 +800,12 @@ impl Player {
             }
             // Looking at the river off the mill site with no wheel in hand.
             if tool != Some(ItemKind::WaterWheel) && self.wheel_ahead(map).is_some() {
+                self.ponder();
+                return None;
+            }
+            // Looking at the bank beside the turning wheel with no lathe in
+            // hand.
+            if tool != Some(ItemKind::WoodLathe) && self.lathe_ahead(map).is_some() {
                 self.ponder();
                 return None;
             }
@@ -1067,6 +1089,13 @@ impl Player {
         }
         let (rx, ry) = self.reach_point();
         map.wheel_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
+    }
+
+    /// The mill site, if a wood lathe would be set on the bank just ahead
+    /// beside the turning water wheel.
+    fn lathe_ahead(&self, map: &WorldMap) -> Option<(i32, i32)> {
+        let (rx, ry) = self.reach_point();
+        map.lathe_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
     }
 
     /// Walks along the bank (up or down) until the feet are in the middle
@@ -1477,7 +1506,7 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } = self.action {
+        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } | Action::Install { t, .. } = self.action {
             // Lifting the ladder (or bridge), then leaning in to set it
             // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;

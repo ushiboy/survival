@@ -1229,3 +1229,182 @@ pub fn water_wheel_pixel(dx: f32, dy: f32, rx: f32, ry: f32, turn: f32) -> Optio
     }
     None
 }
+
+/// The wood lathe standing upright, 32x48: two lauan rails with feet, the
+/// headstock at the top with a stone bearing and the pulley the rope drive
+/// runs round, a billet held between centres being turned (pale where the
+/// tool has cut it, ringed with grooves), and the tailstock at the foot.
+pub fn icon_wood_lathe() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 48, 0);
+    let block = |a: &mut PixelArt, x0: usize, y0: usize, x1: usize, y1: usize| {
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let c = if y == y0 || x == x0 {
+                    'c'
+                } else if y == y1 || x == x1 {
+                    'w'
+                } else {
+                    'W'
+                };
+                a.set(x, y, i(c));
+            }
+        }
+    };
+    // The rails, and the feet across their ends.
+    for y in 12..44 {
+        for x in [8, 9, 22, 23] {
+            a.set(x, y, i(if x % 2 == 0 { 'W' } else { 'w' }));
+        }
+    }
+    for x in 5..27 {
+        a.set(x, 43, i('W'));
+        a.set(x, 44, i('w'));
+    }
+    // The billet between the centres, turned: grooves ringing it.
+    for y in 16..35 {
+        for x in 12..20 {
+            let c = if y % 5 == 0 || x == 12 {
+                'W'
+            } else if x == 19 {
+                'w'
+            } else {
+                'c'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The headstock, with its stone bearing.
+    block(&mut a, 6, 6, 23, 15);
+    for (x, y) in [(14, 9), (15, 9), (16, 9), (17, 9), (14, 10), (15, 10), (16, 10), (17, 10), (15, 11), (16, 11)] {
+        a.set(
+            x,
+            y,
+            i(if y == 9 {
+                'L'
+            } else if x == 14 {
+                'M'
+            } else {
+                'm'
+            }),
+        );
+    }
+    // The tailstock.
+    block(&mut a, 9, 35, 22, 40);
+    for (x, y) in [(15, 37), (16, 37), (15, 38), (16, 38)] {
+        a.set(x, y, i(if y == 37 { 'L' } else { 'm' }));
+    }
+    // The pulley on the spindle (seen edge on), the rope drive round it
+    // running off up toward the wheel.
+    for y in 2..16 {
+        for x in 24..29 {
+            let c = if x == 26 {
+                'c'
+            } else if x == 24 {
+                'W'
+            } else {
+                'w'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    for (k, y) in (0..4).enumerate() {
+        a.set(27 + k / 2, y, i('c'));
+    }
+    a.outlined(i('o'))
+}
+
+/// The wood lathe lying on the ground, 32x16: on its side, the bed seen
+/// along its length, the headstock (left) and the pale billet.
+pub fn wood_lathe_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 16, 0);
+    for x in 2..30 {
+        a.set(x, 11, i('W'));
+        a.set(x, 12, i('w'));
+    }
+    for y in 4..11 {
+        for x in 2..9 {
+            a.set(
+                x,
+                y,
+                i(if y == 4 || x == 2 {
+                    'c'
+                } else if x == 8 {
+                    'w'
+                } else {
+                    'W'
+                }),
+            );
+        }
+        for x in 25..29 {
+            a.set(x, y + 2, i(if x == 25 { 'c' } else { 'W' }));
+        }
+    }
+    a.set(5, 6, i('L'));
+    a.set(5, 7, i('m'));
+    for y in 6..10 {
+        for x in 9..25 {
+            a.set(
+                x,
+                y,
+                i(if x % 5 == 0 {
+                    'W'
+                } else if y == 9 {
+                    'w'
+                } else {
+                    'c'
+                }),
+            );
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// A spoked wheel, 32x32: a lauan rim lit on the upper left, eight pale
+/// turned spokes and the hub.
+pub fn icon_spoked_wheel() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    spoked_wheel_disc(&mut a, 16.0, 16.0, 14.5, 14.5);
+    a.outlined(i('o'))
+}
+
+/// A spoked wheel lying flat on the ground, 16x8.
+pub fn spoked_wheel_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 8, 0);
+    spoked_wheel_disc(&mut a, 8.0, 4.0, 7.0, 3.2);
+    a.outlined(i('o'))
+}
+
+/// Paints a spoked wheel round `(cx, cy)`, `rx` across and `ry` up and
+/// down, in the effects palette.
+fn spoked_wheel_disc(a: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32) {
+    let i = |c| ix(FX_LEGEND, c);
+    for y in 0..a.h {
+        for x in 0..a.w {
+            let (dx, dy) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+            let r = (dx * dx + dy * dy).sqrt();
+            if r > 1.0 {
+                continue;
+            }
+            let rim = 3.0 / rx.max(ry);
+            let c = if r > 1.0 - rim {
+                // Lit on the upper left.
+                if dx + dy < -0.3 { 'W' } else { 'w' }
+            } else if r < 0.22 {
+                if r < 0.1 { 'w' } else { 'W' }
+            } else {
+                let a8 = dy.atan2(dx) / std::f32::consts::TAU * 8.0;
+                let off = (a8 - a8.round()).abs() * r * rx.max(ry) * std::f32::consts::TAU / 8.0;
+                if off < 0.9 {
+                    'c'
+                } else {
+                    continue;
+                }
+            };
+            a.set(x, y, i(c));
+        }
+    }
+}

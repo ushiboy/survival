@@ -221,6 +221,8 @@ pub struct BagSprites {
     pub log_bridge: [SpriteId; 2],
     /// Upright, turned.
     pub water_wheel: [SpriteId; 2],
+    pub wood_lathe: [SpriteId; 2],
+    pub spoked_wheel: SpriteId,
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
     pub pine_cone: SpriteId,
@@ -283,6 +285,8 @@ impl BagSprites {
             ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
             ItemKind::Bamboo => (self.bamboo, palettes::OBJ_FX),
             ItemKind::WaterWheel => (self.water_wheel[turned as usize], palettes::OBJ_FX),
+            ItemKind::WoodLathe => (self.wood_lathe[turned as usize], palettes::OBJ_FX),
+            ItemKind::SpokedWheel => (self.spoked_wheel, palettes::OBJ_FX),
             ItemKind::DiggingStick => (self.digging_stick[turned as usize], palettes::OBJ_CRAB),
             ItemKind::BambooSpade => (self.bamboo_spade[turned as usize], palettes::OBJ_FX),
             ItemKind::Clay => (self.clay, palettes::OBJ_FX),
@@ -314,6 +318,8 @@ pub struct SpriteIds {
     pub log_bridge_lying: SpriteId,
     /// A water wheel lying on the ground.
     pub water_wheel_lying: SpriteId,
+    pub wood_lathe_lying: SpriteId,
+    pub spoked_wheel_lying: SpriteId,
     pub spear_up: SpriteId,
     pub spear_down: SpriteId,
     /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
@@ -615,6 +621,11 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let b = item_art::icon_log_bridge();
             [bank.add(&b), bank.add(&b.rotated_cw())]
         },
+        wood_lathe: {
+            let l = item_art::icon_wood_lathe();
+            [bank.add(&l), bank.add(&l.rotated_cw())]
+        },
+        spoked_wheel: bank.add(&item_art::icon_spoked_wheel()),
         water_wheel: {
             let w = item_art::icon_water_wheel();
             [bank.add(&w), bank.add(&w.rotated_cw())]
@@ -662,6 +673,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         ladder_lying: bank.add(&item_art::ladder_lying()),
         log_bridge_lying: bank.add(&item_art::log_bridge_lying()),
         water_wheel_lying: bank.add(&item_art::water_wheel_lying()),
+        wood_lathe_lying: bank.add(&item_art::wood_lathe_lying()),
+        spoked_wheel_lying: bank.add(&item_art::spoked_wheel_lying()),
         spear_up: bank.add(&spear_side().transposed().flipped_v()),
         spear_down: bank.add(&spear_side().transposed()),
         swoosh: swooshes().map(|a| bank.add(&a)),

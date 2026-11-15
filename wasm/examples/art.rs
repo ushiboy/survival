@@ -182,7 +182,7 @@ fn on_sheet(f: Feature) -> bool {
         // Bare ground; the ladder, drawn with the cliff it stands against,
         // and the log bridge and water wheel, drawn with the river they're
         // in (see `pnpm map`, `pnpm map --bridge` and `pnpm map --wheel`).
-        Feature::None | Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) => false,
+        Feature::None | Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) => false,
     }
 }
 

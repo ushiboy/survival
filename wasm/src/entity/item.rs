@@ -151,6 +151,8 @@ impl Item {
             ItemKind::Ladder => (32, [sprites.ladder_lying; 2], sprites.shadow_lying),
             ItemKind::LogBridge => (32, [sprites.log_bridge_lying; 2], sprites.shadow_lying),
             ItemKind::WaterWheel => (32, [sprites.water_wheel_lying; 2], sprites.shadow_lying),
+            ItemKind::WoodLathe => (32, [sprites.wood_lathe_lying; 2], sprites.shadow_lying),
+            ItemKind::SpokedWheel => (16, [sprites.spoked_wheel_lying; 2], sprites.shadow_player),
             ItemKind::DiggingStick => (16, [sprites.digging_stick; 2], sprites.shadow_player),
             ItemKind::BambooSpade => (32, [sprites.bamboo_spade; 2], sprites.shadow_lying),
             ItemKind::Clay => (8, [sprites.clay; 2], sprites.shadow_coconut),
@@ -186,6 +188,8 @@ impl Item {
             | ItemKind::Ladder
             | ItemKind::Bamboo
             | ItemKind::WaterWheel
+            | ItemKind::WoodLathe
+            | ItemKind::SpokedWheel
             | ItemKind::BambooSpade
             | ItemKind::Clay => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,

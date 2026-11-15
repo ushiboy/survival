@@ -88,6 +88,14 @@ pub fn wheel_cells((sx, sy): (i32, i32)) -> [(i32, i32); 4] {
     [(sx + 1, sy - 1), (sx + 2, sy - 1), (sx + 1, sy), (sx + 2, sy)]
 }
 
+/// The cells a wood lathe takes beside the water wheel off the mill
+/// site's bank `site`: the bank cell itself and the one west of it, on the
+/// wheel's two rows, so the wheel's axle reaches it; in the order of
+/// `Feature::Lathe`'s parts.
+pub fn lathe_cells((sx, sy): (i32, i32)) -> [(i32, i32); 4] {
+    [(sx - 1, sy - 1), (sx, sy - 1), (sx - 1, sy), (sx, sy)]
+}
+
 /// How many rows up or down the river from the narrow's middle a log
 /// bridge can be held out and still go across it (at the middle).
 pub const BRIDGE_REACH: i32 = 3;
@@ -403,6 +411,34 @@ impl WorldMap {
     /// Whether a water wheel stands in the river at the mill site.
     pub fn has_wheel(&self) -> bool {
         self.spots.mill.is_some_and(|site| wheel_cells(site).iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::WaterWheel(_))))
+    }
+
+    /// Where a wood lathe held facing the cell `(x, y)` would be set: the
+    /// mill site's bank (its cell), if the cell is one the lathe would take
+    /// beside a water wheel turning in the river there, and the ground
+    /// there is clear for it.
+    pub fn lathe_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let site = self.spots.mill.filter(|_| self.has_wheel())?;
+        let cells = lathe_cells(site);
+        let clear = cells.iter().all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
+        (clear && cells.contains(&(x, y))).then_some(site)
+    }
+
+    /// Sets a wood lathe on the bank beside the water wheel off the mill
+    /// site's bank `site`. Returns the cells it takes.
+    pub fn set_lathe(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let cells = lathe_cells(site);
+        for (i, &(x, y)) in cells.iter().enumerate() {
+            self.set_feature(x, y, Feature::Lathe(i as u8));
+        }
+        cells.to_vec()
+    }
+
+    /// The middle of the wood lathe (world px), if one stands by the wheel.
+    pub fn lathe_middle(&self) -> Option<(i32, i32)> {
+        let site = self.spots.mill?;
+        let cells = lathe_cells(site);
+        cells.iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::Lathe(_))).then_some((site.0 * TILE_SIZE, site.1 * TILE_SIZE))
     }
 
     /// Lays a log bridge across `span`. Returns the cells it covers.

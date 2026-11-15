@@ -214,6 +214,8 @@ pub struct BagMenu {
     pub notice: Option<&'static str>,
     /// Standing by a campfire (recipes made at a fire are possible).
     pub near_fire: bool,
+    /// Standing by the wood lathe (recipes turned on it are possible).
+    pub near_lathe: bool,
     held_frames: u32,
 }
 
@@ -233,8 +235,14 @@ pub fn commands_for(kind: ItemKind, gear: &Gear) -> Vec<Command> {
 }
 
 impl BagMenu {
+    /// Whether this is the place to make `recipe`: by a fire, or by the
+    /// lathe, if it must be made there.
+    pub fn in_place_for(&self, recipe: &crate::crafting::Recipe) -> bool {
+        (!recipe.at_fire || self.near_fire) && (!recipe.at_lathe || self.near_lathe)
+    }
+
     pub fn browse() -> Self {
-        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, held_frames: 0 }
+        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, near_lathe: false, held_frames: 0 }
     }
 
     /// Opens holding something just picked up (`count` of a kind) that
@@ -527,6 +535,10 @@ impl BagMenu {
             self.notice = Some("NEEDS A FIRE");
             return Outcome::Stay;
         }
+        if recipe.at_lathe && !self.near_lathe {
+            self.notice = Some("NEEDS A LATHE");
+            return Outcome::Stay;
+        }
         inv.recipes.made(index);
         if recipe.at_fire {
             // Cooked over the fire, outside the bag.
@@ -538,7 +550,7 @@ impl BagMenu {
             inv.took(recipe.makes);
             self.notice = Some("MADE IT!");
         } else {
-            *self = Self { near_fire: self.near_fire, ..Self::holding(recipe.makes, 1) };
+            *self = Self { near_fire: self.near_fire, near_lathe: self.near_lathe, ..Self::holding(recipe.makes, 1) };
         }
         Outcome::Stay
     }
@@ -637,6 +649,46 @@ mod tests {
         inv.wear(at(&inv, ItemKind::ToolBelt)).unwrap();
         inv.hang(at(&inv, ItemKind::StoneAxe)).unwrap();
         inv
+    }
+
+    /// Presses A on `menu` for a frame.
+    fn press_a(menu: &mut BagMenu, inv: &mut Inventory) {
+        let mut input = InputState::default();
+        input.update(Buttons::A);
+        menu.update(&input, inv);
+    }
+
+    /// The menu open on a recipe made at the lathe, with its materials and
+    /// tools carried.
+    fn at_a_lathe_recipe() -> (BagMenu, Inventory) {
+        let index = RECIPES.iter().position(|r| r.at_lathe).expect("a recipe made at the lathe");
+        let mut inv = Inventory::default();
+        for &(kind, n) in RECIPES[index].needs {
+            inv.bag.stow(kind, n);
+        }
+        for &kind in RECIPES[index].tools {
+            inv.bag.stow_one(kind);
+        }
+        let menu = BagMenu { mode: Mode::Recipe { recipe: index, choice: 0 }, ..BagMenu::browse() };
+        (menu, inv)
+    }
+
+    #[test]
+    fn a_recipe_made_at_the_lathe_needs_the_lathe() {
+        let (mut menu, mut inv) = at_a_lathe_recipe();
+        let before = inv.bag.clone();
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.notice, Some("NEEDS A LATHE"));
+        assert_eq!(inv.bag, before, "nothing is made");
+    }
+
+    #[test]
+    fn a_recipe_made_at_the_lathe_is_made_beside_it() {
+        let (mut menu, mut inv) = at_a_lathe_recipe();
+        menu.near_lathe = true;
+        let index = RECIPES.iter().position(|r| r.at_lathe).unwrap();
+        press_a(&mut menu, &mut inv);
+        assert!(inv.bag.has(RECIPES[index].makes));
     }
 
     #[test]

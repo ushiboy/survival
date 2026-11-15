@@ -231,6 +231,10 @@ pub enum Feature {
     /// A water wheel set in the river at the mill site, two cells wide and
     /// two tall: `dx + 2 * dy` from its top-left cell.
     WaterWheel(u8),
+    /// A wood lathe set on the bank beside the water wheel, which drives
+    /// it, two cells wide and two tall: `dx + 2 * dy` from its top-left
+    /// cell.
+    Lathe(u8),
     Pine(PinePart),
     /// What's left of a felled pine.
     PineStump(StumpPart),
@@ -274,7 +278,8 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Bush
         | Feature::Driftwood(_)
         | Feature::Vine
-        | Feature::VineStake => true,
+        | Feature::VineStake
+        | Feature::Lathe(_) => true,
         _ => false,
     };
     TileProps {
