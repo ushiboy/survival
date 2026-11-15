@@ -15,7 +15,7 @@ use crate::assets::character::Outfit;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
 use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
-use crate::common::math::Rect;
+use crate::common::math::{Dir, Rect};
 use crate::common::rng::Rng;
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
@@ -38,6 +38,7 @@ use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
+use crate::world::driftwood::WestCoast;
 use crate::world::map::BridgeSpan;
 use menu::{BagMenu, Outcome};
 use regions::Regions;
@@ -64,6 +65,9 @@ const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
 /// How near the mill site (cells) the castaway comes upon it.
 const MILL_NOTICE_CELLS: i32 = 4;
+/// How close (cells) to the bank at the river's narrow coming near it
+/// first sets the castaway walking over there.
+const BRIDGE_NOTICE_CELLS: i32 = 4;
 /// Shells the tide leaves on the beach each morning, at most (for each
 /// stretch of island the size of the first area; see `island::for_area`).
 const SHELLS_PER_DAY: usize = 3;
@@ -157,6 +161,8 @@ pub struct Game {
     /// The castaway has come upon the mill site (looked round, walked to
     /// its bank and thought), which happens once.
     mill_noticed: bool,
+    /// Has come upon the river's narrow (which happens once).
+    bridge_noticed: bool,
     /// In-game minutes the castaway has been asleep.
     /// Which chunks of the island are awake (creatures move only there).
     regions: Regions,
@@ -273,6 +279,7 @@ impl Game {
             shell_cap: 0,
             driftwood_cap,
             mill_noticed: save.is_some_and(|s| s.castaway.mill_noticed),
+            bridge_noticed: save.is_some_and(|s| s.castaway.bridge_noticed),
             regions,
             seed,
             title: save.is_none().then(|| TitleState::opening(false)),
@@ -349,7 +356,7 @@ impl Game {
             seed: self.seed,
             clock: save::Clock::of(&self.clock),
             vitals: self.vitals.clone(),
-            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit), mill_noticed: self.mill_noticed },
+            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit), mill_noticed: self.mill_noticed, bridge_noticed: self.bridge_noticed },
             inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
             island: save::IslandState {
                 features,
@@ -578,6 +585,7 @@ impl Game {
             None => {}
         }
         self.come_upon_the_mill_site();
+        self.come_upon_the_narrow();
         if was_asleep && !self.player.is_asleep() {
             // Each waking is saved.
             self.save();
@@ -787,8 +795,27 @@ impl Game {
         if !self.player.is_idle() || (x - site.0).pow(2) + (y - site.1).pow(2) > MILL_NOTICE_CELLS * MILL_NOTICE_CELLS {
             return;
         }
+        // Only on its own side of the river (the west coast): seen from the
+        // first area's bank, across the water, it's nothing to go to yet.
+        if !WestCoast::of(&self.map).contains(x, y) {
+            return;
+        }
         self.mill_noticed = true;
-        self.player.survey(site, self.inventory.gear.hand != Some(ItemKind::WaterWheel));
+        self.player.survey(site, Dir::Right, self.inventory.gear.hand != Some(ItemKind::WaterWheel));
+    }
+
+    /// Coming near the river's narrow from the first area for the first
+    /// time (no bridge laid yet): an idea strikes, the castaway looks
+    /// round, walks to the bank a log bridge would rest on, and turns to
+    /// the river; without one in hand, stops to think there.
+    fn come_upon_the_narrow(&mut self) {
+        let Some(bank) = self.map.bridge_bank().filter(|_| !self.bridge_noticed) else { return };
+        let (x, y) = self.player_tile();
+        if !self.player.is_idle() || (x - bank.0).pow(2) + (y - bank.1).pow(2) > BRIDGE_NOTICE_CELLS * BRIDGE_NOTICE_CELLS || WestCoast::of(&self.map).contains(x, y) {
+            return;
+        }
+        self.bridge_noticed = true;
+        self.player.survey(bank, Dir::Left, self.inventory.gear.hand != Some(ItemKind::LogBridge));
     }
 
     /// Sends the coconut hanging in `slot` of the palm at `anchor` falling.
@@ -1730,6 +1757,11 @@ impl Game {
     /// How many of `kind` the bag holds.
     pub fn carried(&self, kind: ItemKind) -> u32 {
         self.inventory.bag.count(kind)
+    }
+
+    /// Whether a "!" is over the castaway's head (an idea has struck).
+    pub fn is_struck_by_an_idea(&self) -> bool {
+        self.player.is_struck_by_an_idea()
     }
 
     /// Whether the castaway has stopped to think.

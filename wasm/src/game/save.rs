@@ -31,12 +31,19 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
-/// `n + 1` save into version `n + 2`, editing the JSON in place. There are
-/// none yet: version 1 is the first.
-const MIGRATIONS: &[fn(&mut Value)] = &[];
+/// `n + 1` save into version `n + 2`, editing the JSON in place.
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+
+/// Version 2: the castaway remembers having come upon the river's narrow
+/// (struck by an idea, walking to the bank a log bridge would rest on and
+/// stopping to think, once). A version 1 save is taken as not yet having
+/// come there; if the bridge is laid already, it doesn't happen anyway.
+fn v1_to_v2(save: &mut Value) {
+    save["castaway"]["bridge_noticed"] = Value::Bool(false);
+}
 
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
@@ -89,6 +96,8 @@ pub struct Castaway {
     pub outfit: usize,
     /// Has come upon the mill site (which happens once).
     pub mill_noticed: bool,
+    /// Has come upon the river's narrow (which happens once).
+    pub bridge_noticed: bool,
 }
 
 impl Castaway {
@@ -173,7 +182,7 @@ mod tests {
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json")];
+    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json")];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -214,6 +223,16 @@ mod tests {
         for text in ["", "not json", "{}", r#"{"version":0}"#, r#"{"version":"1"}"#, incomplete.as_str()] {
             assert_eq!(SaveData::from_json(text).unwrap_err(), LoadError::Unreadable, "{text:?}");
         }
+    }
+
+    #[test]
+    fn version_2_has_not_come_upon_the_narrow_yet() {
+        assert!(!load(1).castaway.bridge_noticed);
+    }
+
+    #[test]
+    fn version_2_keeps_having_come_upon_the_narrow() {
+        assert!(load(2).castaway.bridge_noticed, "the sample has come there");
     }
 
     #[test]

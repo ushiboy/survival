@@ -146,14 +146,14 @@ const PITCH_TOTAL: u32 = 24;
 /// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
 /// back; then stopping to think.
 const SCRAMBLE_TRY: u32 = 24;
+/// Coming upon a place (the mill site, the river's narrow): standing struck
+/// by an idea (a "!" over the head) until `SURVEY_STRUCK`, then walking
+/// straight to the bank for at most `SURVEY_WALK`.
+const SURVEY_STRUCK: u32 = 30;
+const SURVEY_WALK: u32 = 240;
 /// Noticing something (frames): looking up until `NOTICE_LEFT`, left until
 /// `NOTICE_RIGHT`, right until `NOTICE_BACK`, up again until
 /// `NOTICE_LOOKED`; then at most `NOTICE_APPROACH` walking up to the rock.
-/// Coming upon the mill site: looking left until this frame, then right
-/// until the next, then walking to the bank for at most the last frames.
-const SURVEY_LEFT: u32 = 30;
-const SURVEY_LOOKED: u32 = 60;
-const SURVEY_WALK: u32 = 240;
 const NOTICE_LEFT: u32 = 30;
 const NOTICE_RIGHT: u32 = 60;
 const NOTICE_BACK: u32 = 90;
@@ -238,10 +238,11 @@ pub enum Action {
     ToWheel { t: u32, site: (i32, i32) },
     /// Setting the water wheel in the river off the mill site's bank.
     Mount { t: u32, site: (i32, i32) },
-    /// Come upon the mill site: looking round about, then walking over to
-    /// its bank (`to`, a cell) and turning to the river; then, if `think`,
-    /// stopping to think.
-    Survey { t: u32, to: (i32, i32), think: bool },
+    /// Come upon a place by the river (the mill site, the narrow): struck
+    /// by an idea, then walking straight over to its bank (`to`,
+    /// a cell) and turning `across` the river; then, if `think`, stopping
+    /// to think.
+    Survey { t: u32, to: (i32, i32), across: Dir, think: bool },
     /// Something found has caught the eye (the pine cone fallen at the
     /// foot of the cliff's recess): looking up, then round about as on
     /// first coming to; then, if `climb`, stepping up to the rock to try
@@ -457,6 +458,8 @@ impl Player {
             self.action = if t < PICK_TOTAL {
                 Action::PickUp { t }
             } else if let Some(climb) = self.noticing.take() {
+                // Something has caught the eye: a "!" over the head first.
+                self.eureka = EUREKA_FRAMES;
                 Action::Notice { t: 0, climb }
             } else {
                 Action::Idle
@@ -564,8 +567,8 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Mount { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetWheel(site));
         }
-        if let Action::Survey { t, to, think } = self.action {
-            self.survey_step(t + 1, to, think, map);
+        if let Action::Survey { t, to, across, think } = self.action {
+            self.survey_step(t + 1, to, across, think, map);
             return None;
         }
         // On a ladder there's nothing to do but climb it.
@@ -1024,32 +1027,33 @@ impl Player {
         Some(false)
     }
 
-    /// Comes upon the mill site: looks round, walks over to its bank `to`
-    /// (a cell) and turns to the river, then stops to think if `think`.
-    pub fn survey(&mut self, to: (i32, i32), think: bool) {
-        self.action = Action::Survey { t: 0, to, think };
+    /// Comes upon a place by the river: an idea strikes ("!"), then walks
+    /// straight over to its bank `to` (a cell) and turns `across` the
+    /// river, then stops to think if `think`.
+    pub fn survey(&mut self, to: (i32, i32), across: Dir, think: bool) {
+        self.action = Action::Survey { t: 0, to, across, think };
+        self.eureka();
         self.moving = false;
         self.running = false;
         self.walk_timer = 0;
     }
 
-    /// A frame of `Action::Survey`: looking left and right, then walking
-    /// (across, then along) to the middle of the bank cell, facing the
-    /// river there and, if `think`, stopping to think. Stopped by
-    /// something in the way (or taking too long), it ends where it is.
-    fn survey_step(&mut self, t: u32, to: (i32, i32), think: bool, map: &WorldMap) {
+    /// A frame of `Action::Survey`: standing struck by an idea, then
+    /// walking (across, then along) to the middle of the bank cell, facing `across` the river there and, if `think`,
+    /// stopping to think. Stopped by something in the way (or taking too
+    /// long), it ends where it is.
+    fn survey_step(&mut self, t: u32, to: (i32, i32), across: Dir, think: bool, map: &WorldMap) {
         self.running = false;
-        if t < SURVEY_LOOKED {
+        if t < SURVEY_STRUCK {
             self.moving = false;
             self.walk_timer = 0;
-            self.facing = if t < SURVEY_LEFT { Dir::Left } else { Dir::Right };
-            self.action = Action::Survey { t, to, think };
+            self.action = Action::Survey { t, to, across, think };
             return;
         }
         let (fx, fy) = self.body.feet();
         let (mx, my) = (to.0 * TILE_SIZE + TILE_SIZE / 2, to.1 * TILE_SIZE + TILE_SIZE / 2);
         if (fx, fy) == (mx, my) {
-            self.facing = Dir::Right;
+            self.facing = across;
             self.moving = false;
             self.walk_timer = 0;
             if think {
@@ -1063,8 +1067,8 @@ impl Player {
         let toward = |from: i32, to: i32, sub: i32| if (to - from).abs() * 256 < SPEED_WALK { (to - from) * 256 - sub } else { (to - from).signum() * SPEED_WALK };
         let (dx, dy) = if fx != mx { (toward(fx, mx, self.body.x.rem_euclid(256)), 0) } else { (0, toward(fy, my, self.body.y.rem_euclid(256))) };
         let moved = self.body.move_by(dx, dy, 0, &|r| map.is_solid_rect(r));
-        if !moved || t > SURVEY_LOOKED + SURVEY_WALK {
-            self.facing = Dir::Right;
+        if !moved || t > SURVEY_STRUCK + SURVEY_WALK {
+            self.facing = across;
             self.moving = false;
             self.walk_timer = 0;
             self.action = Action::Idle;
@@ -1078,7 +1082,7 @@ impl Player {
         };
         self.moving = true;
         self.walk_timer += 1;
-        self.action = Action::Survey { t, to, think };
+        self.action = Action::Survey { t, to, across, think };
     }
 
     /// Stops to think (something here needs what isn't carried).
@@ -1092,6 +1096,11 @@ impl Player {
     /// without stopping whatever's being done.
     pub fn eureka(&mut self) {
         self.eureka = EUREKA_FRAMES;
+    }
+
+    /// A "!" is over the head (an idea has struck).
+    pub fn is_struck_by_an_idea(&self) -> bool {
+        self.eureka > 0
     }
 
     /// Stopped to think.

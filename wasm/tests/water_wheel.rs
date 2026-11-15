@@ -8,7 +8,7 @@ use common::{hold, new_game, press};
 use survival_core::common::input::Buttons;
 use survival_core::game::Game;
 use survival_core::items::ItemKind;
-use survival_core::world::Feature;
+use survival_core::world::{Feature, Terrain};
 
 /// The bank the water wheel goes in from (a cell), on the island the tests
 /// play on.
@@ -170,4 +170,33 @@ fn a_water_wheel_in_the_river_is_kept_in_the_save() {
     hold(&mut game, 0, 120);
     let again = Game::debug_continue(&game.debug_save_json()).expect("the save loads");
     assert!(wheel_in_river(&again));
+}
+
+#[test]
+fn coming_near_the_mill_site_from_across_the_river_the_castaway_takes_no_notice() {
+    let mut game = new_game();
+    let (x, y) = mill_site(&game);
+    // The east bank, across the river from the site (the first area).
+    let east = (x + 1..x + 8).find(|&cx| game.map().terrain(cx, y) != Terrain::River).expect("the river has an east bank");
+    game.debug_place_player((east + 1, y));
+    hold(&mut game, Buttons::LEFT, 20);
+    hold(&mut game, 0, 400);
+    assert!(game.player_tile().0 > x, "still on the east bank");
+    let mut again = Game::debug_continue(&game.debug_save_json()).expect("the save loads");
+    again.debug_place_player((x - 8, y));
+    walk_up_to_the_mill_site(&mut again);
+    hold(&mut again, 0, 600);
+    assert_eq!(again.player_tile(), mill_site(&again), "the event still waits for the west bank");
+}
+
+#[test]
+fn coming_to_the_mill_site_an_idea_strikes_before_the_castaway_walks_over() {
+    let mut game = short_of_the_mill_site();
+    walk_up_to_the_mill_site(&mut game);
+    let mut struck = false;
+    for _ in 0..30 {
+        hold(&mut game, 0, 1);
+        struck |= game.is_struck_by_an_idea();
+    }
+    assert!(struck, "a \"!\" over the head first");
 }

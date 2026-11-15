@@ -373,6 +373,13 @@ impl WorldMap {
         (east - west - 1 <= BRIDGE_CELLS && open(west) && open(east)).then_some(BridgeSpan { row: by, west, east })
     }
 
+    /// The bank a log bridge would rest on at the narrow's middle row, on
+    /// the first area's side (east), while none is laid.
+    pub fn bridge_bank(&self) -> Option<(i32, i32)> {
+        let (bx, by) = self.spots.bridge?;
+        self.bridge_spot(bx, by).map(|span| (span.east, span.row))
+    }
+
     /// Where a water wheel held facing the river cell `(x, y)` would go
     /// in: the mill site's bank (its cell), if the cell is the river just
     /// off that bank within `WHEEL_REACH` rows of it, and no wheel is in yet.
