@@ -27,11 +27,11 @@ use crate::world::Feature;
 use crate::world::harvest::HarvestState;
 
 /// The layout of saves this game writes.
-pub const SAVE_VERSION: u32 = 13;
+pub const SAVE_VERSION: u32 = 14;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14];
 
 /// Version 2: the map grew 24 cells north (for the forest and the cliff
 /// above it), so everything moves down; the top 16 rows of the old map
@@ -464,6 +464,13 @@ fn v12_to_v13(save: &mut Value) {
     }
 }
 
+/// Version 14: the castaway remembers having come upon the mill site
+/// (looking round, walking to its bank and stopping to think, once). A
+/// version 13 save is taken as not yet having come there.
+fn v13_to_v14(save: &mut Value) {
+    save["castaway"]["mill_noticed"] = Value::Bool(false);
+}
+
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
 
 /// Why a save can't be loaded.
@@ -513,6 +520,8 @@ pub struct Castaway {
     pub facing: Dir,
     /// Which of the outfit presets is worn.
     pub outfit: usize,
+    /// Has come upon the mill site (which happens once).
+    pub mill_noticed: bool,
 }
 
 impl Castaway {
@@ -613,6 +622,7 @@ mod tests {
         include_str!("save_samples/v11.json"),
         include_str!("save_samples/v12.json"),
         include_str!("save_samples/v13.json"),
+        include_str!("save_samples/v14.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -947,5 +957,15 @@ mod tests {
         let s = version_12_with(&[], &[px(wet), px(dry)], &[px(wet), px(dry)]);
         assert_eq!(s.island.items.iter().map(|i| i.at).collect::<Vec<_>>(), vec![px(dry)], "only what lies on dry land stays");
         assert_eq!(s.island.fish, vec![px(wet)], "only the fish still in the water stays");
+    }
+
+    #[test]
+    fn version_14_has_not_come_upon_the_mill_site_yet() {
+        assert!(!load(13).castaway.mill_noticed);
+    }
+
+    #[test]
+    fn version_14_keeps_having_come_upon_the_mill_site() {
+        assert!(load(14).castaway.mill_noticed, "the sample has come there");
     }
 }

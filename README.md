@@ -52,6 +52,7 @@ pnpm map --quick                  # 設計の地図だけ
 pnpm map --area 55,8,72,22        # 全景をこの範囲のマス（x0,y0,x1,y1）だけ
 pnpm map --shrink 2               # 全景を縮めて（2×2 ピクセルを1つに）
 pnpm map --bridge                 # 川の狭い所に丸太橋をかけてから描く
+pnpm map --wheel                  # 水車小屋の予定地の川に水車を据えてから描く
 pnpm map --set-base               # 今の状態を比べる元にする（--clear-base で直前の実行と比べるのに戻す）
 pnpm map:watch                    # wasm/src が変わるたびに描き直す（オプションも渡せる）
 ```

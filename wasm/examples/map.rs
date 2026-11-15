@@ -9,6 +9,7 @@
 //! - `--shrink N`: the view is shrunk, N×N pixels averaged into one.
 //! - `--scale N`: the plan map's pixels per cell (default 6).
 //! - `--bridge`: a log bridge is laid across the river's narrow first.
+//! - `--wheel`: a water wheel is set in the river at the mill site first.
 //! - `--set-base`: keeps this run as the base later runs are compared
 //!   with; `--clear-base` goes back to comparing with the run before.
 //! - `--out DIR`: where to write (default `wasm/target/map`).
@@ -67,6 +68,7 @@ struct Options {
     set_base: bool,
     clear_base: bool,
     bridge: bool,
+    wheel: bool,
 }
 
 fn options() -> Options {
@@ -79,6 +81,7 @@ fn options() -> Options {
         set_base: false,
         clear_base: false,
         bridge: false,
+        wheel: false,
     };
     let mut args = std::env::args().skip(1);
     let number = |v: Option<String>, what: &str| -> i32 { v.and_then(|v| v.parse().ok()).unwrap_or_else(|| panic!("{what} needs a number")) };
@@ -86,6 +89,7 @@ fn options() -> Options {
         match a.as_str() {
             "--quick" => o.quick = true,
             "--bridge" => o.bridge = true,
+            "--wheel" => o.wheel = true,
             "--set-base" => o.set_base = true,
             "--clear-base" => o.clear_base = true,
             "--out" => o.out = PathBuf::from(args.next().expect("--out needs a directory")),
@@ -148,6 +152,9 @@ fn main() {
     let t = Instant::now();
     let mut game = Game::new(1);
     game.skip_title();
+    if o.wheel && !game.debug_set_wheel() {
+        println!("no water wheel goes in at the mill site");
+    }
     if o.bridge && !game.debug_lay_bridge() {
         println!("no bridge goes across the narrow");
     }
@@ -399,7 +406,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::Shell => [240, 160, 170],
         Feature::Flower => [230, 220, 90],
         Feature::PineCone => [170, 100, 40],
-        Feature::Ladder(_) | Feature::Bridge(_) => [200, 150, 90],
+        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) => [200, 150, 90],
         Feature::None => c,
     }
 }
@@ -549,6 +556,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::VineStake => 'V',
                 Feature::Ladder(_) => 'L',
                 Feature::Bridge(_) => '=',
+                Feature::WaterWheel(_) => 'w',
                 Feature::Pine(_) => 'n',
                 Feature::PineStump(_) => 'N',
                 Feature::PineCone => 'k',

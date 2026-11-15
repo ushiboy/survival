@@ -45,6 +45,7 @@
 | [釣り竿（FISHING ROD）](fishing-rod.md) | 道具（手） | 1×3 | クラフト |
 | [ハシゴ（LADDER）](ladder.md) | 道具（手） | 1×4 | クラフト |
 | [丸太橋（LOG BRIDGE）](log-bridge.md) | 道具（手） | 1×4 | クラフト |
+| [水車（WATER WHEEL）](water-wheel.md) | 道具（手） | 3×3 | クラフト |
 
 ## 食べ物・飲み物
 

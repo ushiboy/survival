@@ -906,3 +906,97 @@ pub fn icon_bamboo() -> PixelArt {
     a.set(8, 2, i('w'));
     a.outlined(i('o'))
 }
+
+/// The water wheel, 48x48, seen face on: a rim, arms and hub of lauan,
+/// with paddles of split bamboo standing out round it.
+pub fn icon_water_wheel() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(48, 48, 0);
+    water_wheel_disc(&mut a, 24.0, 24.0, 22.5, 22.5, 0.0);
+    a.outlined(i('o'))
+}
+
+/// The water wheel lying on the ground, 32x16: the wheel seen flat from
+/// above at a slant.
+pub fn water_wheel_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 16, 0);
+    water_wheel_disc(&mut a, 16.0, 8.0, 14.5, 6.5, 0.0);
+    a.outlined(i('o'))
+}
+
+/// Paints a water wheel's face round `(cx, cy)`, `rx` across and `ry` up
+/// and down, turned `turn` radians, in the effects palette: wood for the
+/// lauan, green for the bamboo.
+pub fn water_wheel_disc(a: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32, turn: f32) {
+    let i = |c| ix(FX_LEGEND, c);
+    for y in 0..a.h {
+        for x in 0..a.w {
+            if let Some(part) = water_wheel_pixel(x as f32 + 0.5 - cx, y as f32 + 0.5 - cy, rx, ry, turn) {
+                a.set(
+                    x,
+                    y,
+                    i(match part {
+                        // Lauan for the rim, arms and hub; split bamboo for
+                        // the paddles.
+                        WheelPart::RimLit | WheelPart::Spoke => 'W',
+                        WheelPart::Rim => 'w',
+                        WheelPart::Hub => 'c',
+                        WheelPart::Paddle => 'G',
+                        WheelPart::PaddleLit => 'h',
+                    }),
+                );
+            }
+        }
+    }
+}
+
+/// What part of a water wheel's face is at a point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelPart {
+    /// The rim of split bamboo, lit on the upper left, and in shade.
+    RimLit,
+    Rim,
+    /// A paddle set across the rim, in shade and lit.
+    Paddle,
+    PaddleLit,
+    Spoke,
+    /// The lashed hub on the axle.
+    Hub,
+}
+
+/// The part of a water wheel's face at `(dx, dy)` from its middle, if any
+/// of it is there: a broad rim with eight paddles set across it (inside
+/// it, as on a real wheel), eight spokes between them and a hub, `rx`
+/// across and `ry` up and down, turned `turn` radians.
+pub fn water_wheel_pixel(dx: f32, dy: f32, rx: f32, ry: f32, turn: f32) -> Option<WheelPart> {
+    use std::f32::consts::{FRAC_PI_4, PI};
+    let (nx, ny) = (dx / rx, dy / ry);
+    let r = (nx * nx + ny * ny).sqrt();
+    if r > 1.0 {
+        return None;
+    }
+    // How far round from the nearest of eight evenly spaced lines (px at
+    // that radius): the paddles on the eighths, the spokes between.
+    let angle = ny.atan2(nx) - turn;
+    let off = |phase: f32| {
+        let a = (angle - phase).rem_euclid(FRAC_PI_4);
+        a.min(FRAC_PI_4 - a) * r * rx.max(ry)
+    };
+    let lit = nx + ny < -0.2;
+    // The broad rim, the paddles set across it between its two sides (so
+    // none stand out past it), seen face on as boards dividing it.
+    if r > 0.7 {
+        if off(0.0) < 1.3 && r < 0.97 {
+            return Some(if lit { WheelPart::PaddleLit } else { WheelPart::Paddle });
+        }
+        return Some(if lit { WheelPart::RimLit } else { WheelPart::Rim });
+    }
+    if r < 0.2 {
+        return Some(WheelPart::Hub);
+    }
+    if off(PI / 8.0) < 0.7 {
+        return Some(WheelPart::Spoke);
+    }
+    None
+}

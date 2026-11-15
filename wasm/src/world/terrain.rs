@@ -207,6 +207,9 @@ pub enum Feature {
     /// end, `1` over the water, `2` on the east bank. It can be walked
     /// over, so these cells aren't solid.
     Bridge(u8),
+    /// A water wheel set in the river at the mill site, two cells wide and
+    /// two tall: `dx + 2 * dy` from its top-left cell.
+    WaterWheel(u8),
     Pine(PinePart),
     /// What's left of a felled pine.
     PineStump(StumpPart),

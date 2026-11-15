@@ -24,6 +24,7 @@
   - [蟹](crab.md)や[魚](fish.md)をさばいて焼く（レシピの道具: [焼き蟹](../recipes/grilled-crab.md)、[焼き魚](../recipes/grilled-fish.md)）
   - [貝殻](sea-shell.md)を削って釣り針にする（レシピの道具: [貝の釣り針](../recipes/shell-hook.md)）
   - [樹皮](bark.md)を裂いてロープにする（レシピの道具: [ロープ（樹皮から）](../recipes/rope-from-bark.md)）
+  - 竹を割って水車の羽根にする（レシピの道具: [水車](../recipes/water-wheel.md)）
 
 ## メモ
 

@@ -218,6 +218,8 @@ pub struct BagSprites {
     pub ladder: [SpriteId; 2],
     /// Upright, turned.
     pub log_bridge: [SpriteId; 2],
+    /// Upright, turned.
+    pub water_wheel: [SpriteId; 2],
     pub fish: SpriteId,
     pub grilled_fish: SpriteId,
     pub pine_cone: SpriteId,
@@ -272,6 +274,7 @@ impl BagSprites {
             ItemKind::PineCone => (self.pine_cone, palettes::OBJ_CRAB),
             ItemKind::PineTimber => (self.pine_timber, palettes::OBJ_CRAB),
             ItemKind::Bamboo => (self.bamboo, palettes::OBJ_FX),
+            ItemKind::WaterWheel => (self.water_wheel[turned as usize], palettes::OBJ_FX),
         }
     }
 }
@@ -297,6 +300,8 @@ pub struct SpriteIds {
     pub ladder_lying: SpriteId,
     /// A log bridge lying on the ground.
     pub log_bridge_lying: SpriteId,
+    /// A water wheel lying on the ground.
+    pub water_wheel_lying: SpriteId,
     pub spear_up: SpriteId,
     pub spear_down: SpriteId,
     /// Swoosh arcs indexed by `Dir as usize` order: up, down, left, right.
@@ -588,6 +593,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let b = item_art::icon_log_bridge();
             [bank.add(&b), bank.add(&b.rotated_cw())]
         },
+        water_wheel: {
+            let w = item_art::icon_water_wheel();
+            [bank.add(&w), bank.add(&w.rotated_cw())]
+        },
         fish: bank.add(&item_art::icon_fish()),
         grilled_fish: bank.add(&item_art::icon_grilled_fish()),
         torch: {
@@ -620,6 +629,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         spear_side: bank.add(&spear_side()),
         ladder_lying: bank.add(&item_art::ladder_lying()),
         log_bridge_lying: bank.add(&item_art::log_bridge_lying()),
+        water_wheel_lying: bank.add(&item_art::water_wheel_lying()),
         spear_up: bank.add(&spear_side().transposed().flipped_v()),
         spear_down: bank.add(&spear_side().transposed()),
         swoosh: swooshes().map(|a| bank.add(&a)),

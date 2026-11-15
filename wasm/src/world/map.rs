@@ -77,6 +77,16 @@ pub const LADDER_ROWS: i32 = 2;
 
 /// How many cells of river a log bridge spans.
 pub const BRIDGE_CELLS: i32 = 2;
+/// How many rows either side of the mill site a water wheel held facing
+/// the river goes in from (the castaway steps along the bank to the site).
+pub const WHEEL_REACH: i32 = 3;
+
+/// The cells a water wheel takes, off the mill site's bank `site`: the two
+/// river cells east of it, on its row and the row above, in the order of
+/// `Feature::WaterWheel`'s parts.
+pub fn wheel_cells((sx, sy): (i32, i32)) -> [(i32, i32); 4] {
+    [(sx + 1, sy - 1), (sx + 2, sy - 1), (sx + 1, sy), (sx + 2, sy)]
+}
 
 /// How many rows up or down the river from the narrow's middle a log
 /// bridge can be held out and still go across it (at the middle).
@@ -361,6 +371,31 @@ impl WorldMap {
         let east = (1..).map(|k| bx + k).find(|&x| !river(x))?;
         let open = |x: i32| self.feature(x, by) == Feature::None && !self.props(x, by).solid;
         (east - west - 1 <= BRIDGE_CELLS && open(west) && open(east)).then_some(BridgeSpan { row: by, west, east })
+    }
+
+    /// Where a water wheel held facing the river cell `(x, y)` would go
+    /// in: the mill site's bank (its cell), if the cell is the river just
+    /// off that bank within `WHEEL_REACH` rows of it, and no wheel is in yet.
+    pub fn wheel_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let (sx, sy) = self.spots.mill?;
+        let off_the_bank = (sx + 1..=sx + 3).contains(&x) && (y - sy).abs() <= WHEEL_REACH;
+        let free = wheel_cells((sx, sy)).iter().all(|&(cx, cy)| self.terrain(cx, cy) == Terrain::River && self.feature(cx, cy) == Feature::None);
+        (off_the_bank && self.terrain(x, y) == Terrain::River && free).then_some((sx, sy))
+    }
+
+    /// Sets a water wheel in the river off the mill site's bank `site`.
+    /// Returns the cells it takes.
+    pub fn set_wheel(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let cells = wheel_cells(site);
+        for (i, &(x, y)) in cells.iter().enumerate() {
+            self.set_feature(x, y, Feature::WaterWheel(i as u8));
+        }
+        cells.to_vec()
+    }
+
+    /// Whether a water wheel stands in the river at the mill site.
+    pub fn has_wheel(&self) -> bool {
+        self.spots.mill.is_some_and(|site| wheel_cells(site).iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::WaterWheel(_))))
     }
 
     /// Lays a log bridge across `span`. Returns the cells it covers.

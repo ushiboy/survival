@@ -41,6 +41,7 @@ pub const RECIPES: &[Recipe] = &[
     Recipe { name: "FireDrill", makes: ItemKind::FireDrill, needs: &[(ItemKind::Branch, 2), (ItemKind::Vine, 1)], tools: &[], at_fire: false },
     Recipe { name: "Ladder", makes: ItemKind::Ladder, needs: &[(ItemKind::LauanTimber, 2), (ItemKind::Branch, 3), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
     Recipe { name: "LogBridge", makes: ItemKind::LogBridge, needs: &[(ItemKind::PineTimber, 2), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe], at_fire: false },
+    Recipe { name: "WaterWheel", makes: ItemKind::WaterWheel, needs: &[(ItemKind::LauanTimber, 3), (ItemKind::Bamboo, 4), (ItemKind::Rope, 2)], tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife], at_fire: false },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the
@@ -243,6 +244,19 @@ mod tests {
     #[test]
     fn a_log_bridge_is_shaped_with_the_stone_axe() {
         assert!(RECIPES[index(ItemKind::LogBridge)].tools.contains(&ItemKind::StoneAxe));
+    }
+
+    #[test]
+    fn a_water_wheel_comes_to_mind_with_lauan_timber_bamboo_and_rope() {
+        let mut book = RecipeBook::default();
+        book.notice(carrying(&[ItemKind::Bamboo, ItemKind::LauanTimber, ItemKind::Rope]));
+        assert!(book.listed().contains(&index(ItemKind::WaterWheel)));
+    }
+
+    #[test]
+    fn a_water_wheel_is_cut_with_the_axe_and_split_with_the_knife() {
+        let tools = RECIPES[index(ItemKind::WaterWheel)].tools;
+        assert!(tools.contains(&ItemKind::StoneAxe) && tools.contains(&ItemKind::StoneKnife));
     }
 
     #[test]

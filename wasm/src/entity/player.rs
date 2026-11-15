@@ -144,6 +144,11 @@ const SCRAMBLE_TRY: u32 = 24;
 /// Noticing something (frames): looking up until `NOTICE_LEFT`, left until
 /// `NOTICE_RIGHT`, right until `NOTICE_BACK`, up again until
 /// `NOTICE_LOOKED`; then at most `NOTICE_APPROACH` walking up to the rock.
+/// Coming upon the mill site: looking left until this frame, then right
+/// until the next, then walking to the bank for at most the last frames.
+const SURVEY_LEFT: u32 = 30;
+const SURVEY_LOOKED: u32 = 60;
+const SURVEY_WALK: u32 = 240;
 const NOTICE_LEFT: u32 = 30;
 const NOTICE_RIGHT: u32 = 60;
 const NOTICE_BACK: u32 = 90;
@@ -220,6 +225,15 @@ pub enum Action {
     ToBridge { t: u32, span: BridgeSpan, across: Dir },
     /// Laying a log bridge across the river along `span`.
     Lay { t: u32, span: BridgeSpan, across: Dir },
+    /// Stepping along the bank to the mill site's row (`site`, a cell),
+    /// to set the water wheel in the river there (`Mount`).
+    ToWheel { t: u32, site: (i32, i32) },
+    /// Setting the water wheel in the river off the mill site's bank.
+    Mount { t: u32, site: (i32, i32) },
+    /// Come upon the mill site: looking round about, then walking over to
+    /// its bank (`to`, a cell) and turning to the river; then, if `think`,
+    /// stopping to think.
+    Survey { t: u32, to: (i32, i32), think: bool },
     /// Something found has caught the eye (the pine cone fallen at the
     /// foot of the cliff's recess): looking up, then round about as on
     /// first coming to; then, if `climb`, stepping up to the rock to try
@@ -285,6 +299,9 @@ pub enum Deed {
     StandLadder((i32, i32), i32),
     /// A log bridge was laid across the river there.
     LayBridge(BridgeSpan),
+    /// The water wheel was set in the river off the mill site's bank
+    /// (the cell).
+    SetWheel((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -504,13 +521,34 @@ impl Player {
             return (t == PITCH_SET).then_some(Deed::StandLadder(foot, rows));
         }
         if let Action::ToBridge { t, span, across } = self.action {
-            self.step_to_bridge(t + 1, span, across, map);
+            self.action = match self.step_to_row(t + 1, span.row, across, map) {
+                Some(true) => Action::Lay { t: 0, span, across },
+                Some(false) => Action::ToBridge { t: t + 1, span, across },
+                None => Action::Idle,
+            };
             return None;
         }
         if let Action::Lay { t, span, across } = self.action {
             let t = t + 1;
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Lay { t, span, across } };
             return (t == PITCH_SET).then_some(Deed::LayBridge(span));
+        }
+        if let Action::ToWheel { t, site } = self.action {
+            match self.step_to_row(t + 1, site.1, Dir::Right, map) {
+                Some(true) => self.action = Action::Mount { t: 0, site },
+                Some(false) => self.action = Action::ToWheel { t: t + 1, site },
+                None => self.action = Action::Idle,
+            }
+            return None;
+        }
+        if let Action::Mount { t, site } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Mount { t, site } };
+            return (t == PITCH_SET).then_some(Deed::SetWheel(site));
+        }
+        if let Action::Survey { t, to, think } = self.action {
+            self.survey_step(t + 1, to, think, map);
+            return None;
         }
         // On a ladder there's nothing to do but climb it.
         self.climbing = self.on_ladder(map);
@@ -552,6 +590,9 @@ impl Player {
                 // A log bridge goes across the river ahead where it runs
                 // narrow: the castaway steps along to its middle first.
                 ItemKind::LogBridge => Action::ToBridge { t: 0, span: self.bridge_ahead(map)?, across: self.facing },
+                // A water wheel goes into the river at the mill site, the
+                // castaway stepping along the bank to it first.
+                ItemKind::WaterWheel => Action::ToWheel { t: 0, site: self.wheel_ahead(map)? },
                 _ => Action::Chop { t: 0 },
             };
             self.moving = false;
@@ -625,6 +666,11 @@ impl Player {
             }
             // Looking across the narrow with no bridge in hand.
             if tool != Some(ItemKind::LogBridge) && self.bridge_ahead(map).is_some() {
+                self.ponder();
+                return None;
+            }
+            // Looking at the river off the mill site with no wheel in hand.
+            if tool != Some(ItemKind::WaterWheel) && self.wheel_ahead(map).is_some() {
                 self.ponder();
                 return None;
             }
@@ -893,19 +939,28 @@ impl Player {
         map.bridge_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
     }
 
-    /// A frame of `Action::ToBridge`: walking along the bank until the
-    /// feet are in the middle of the row the bridge goes across, then
-    /// turning to the river to lay it. Stopped by something in the way
-    /// (or taking too long), the bridge isn't laid.
-    fn step_to_bridge(&mut self, t: u32, span: BridgeSpan, across: Dir, map: &WorldMap) {
+    /// The mill site, if a water wheel would go into the river just ahead
+    /// from it (facing the river east from its west bank).
+    fn wheel_ahead(&self, map: &WorldMap) -> Option<(i32, i32)> {
+        if self.facing != Dir::Right {
+            return None;
+        }
+        let (rx, ry) = self.reach_point();
+        map.wheel_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
+    }
+
+    /// Walks along the bank (up or down) until the feet are in the middle
+    /// of `row`, then turns `across` the river: `Some(true)` once there,
+    /// `Some(false)` on the way, and `None` if something is in the way (or
+    /// it takes too long).
+    fn step_to_row(&mut self, t: u32, row: i32, across: Dir, map: &WorldMap) -> Option<bool> {
         let (_, fy) = self.body.feet();
-        let middle = span.row * TILE_SIZE + TILE_SIZE / 2;
+        let middle = row * TILE_SIZE + TILE_SIZE / 2;
         if fy == middle {
             self.facing = across;
             self.moving = false;
             self.walk_timer = 0;
-            self.action = Action::Lay { t: 0, span, across };
-            return;
+            return Some(true);
         }
         let step = (middle - fy).clamp(-1, 1);
         // The last pixel exactly, so the feet land on the middle.
@@ -915,13 +970,69 @@ impl Player {
             self.facing = across;
             self.moving = false;
             self.walk_timer = 0;
-            self.action = Action::Idle;
-            return;
+            return None;
         }
         self.facing = if step < 0 { Dir::Up } else { Dir::Down };
         self.moving = true;
         self.walk_timer += 1;
-        self.action = Action::ToBridge { t, span, across };
+        Some(false)
+    }
+
+    /// Comes upon the mill site: looks round, walks over to its bank `to`
+    /// (a cell) and turns to the river, then stops to think if `think`.
+    pub fn survey(&mut self, to: (i32, i32), think: bool) {
+        self.action = Action::Survey { t: 0, to, think };
+        self.moving = false;
+        self.running = false;
+        self.walk_timer = 0;
+    }
+
+    /// A frame of `Action::Survey`: looking left and right, then walking
+    /// (across, then along) to the middle of the bank cell, facing the
+    /// river there and, if `think`, stopping to think. Stopped by
+    /// something in the way (or taking too long), it ends where it is.
+    fn survey_step(&mut self, t: u32, to: (i32, i32), think: bool, map: &WorldMap) {
+        self.running = false;
+        if t < SURVEY_LOOKED {
+            self.moving = false;
+            self.walk_timer = 0;
+            self.facing = if t < SURVEY_LEFT { Dir::Left } else { Dir::Right };
+            self.action = Action::Survey { t, to, think };
+            return;
+        }
+        let (fx, fy) = self.body.feet();
+        let (mx, my) = (to.0 * TILE_SIZE + TILE_SIZE / 2, to.1 * TILE_SIZE + TILE_SIZE / 2);
+        if (fx, fy) == (mx, my) {
+            self.facing = Dir::Right;
+            self.moving = false;
+            self.walk_timer = 0;
+            if think {
+                self.ponder();
+            } else {
+                self.action = Action::Idle;
+            }
+            return;
+        }
+        // One axis at a time, the last pixel exactly, as along a bank.
+        let toward = |from: i32, to: i32, sub: i32| if (to - from).abs() * 256 < SPEED_WALK { (to - from) * 256 - sub } else { (to - from).signum() * SPEED_WALK };
+        let (dx, dy) = if fx != mx { (toward(fx, mx, self.body.x.rem_euclid(256)), 0) } else { (0, toward(fy, my, self.body.y.rem_euclid(256))) };
+        let moved = self.body.move_by(dx, dy, 0, &|r| map.is_solid_rect(r));
+        if !moved || t > SURVEY_LOOKED + SURVEY_WALK {
+            self.facing = Dir::Right;
+            self.moving = false;
+            self.walk_timer = 0;
+            self.action = Action::Idle;
+            return;
+        }
+        self.facing = match (dx.signum(), dy.signum()) {
+            (1, _) => Dir::Right,
+            (-1, _) => Dir::Left,
+            (_, -1) => Dir::Up,
+            _ => Dir::Down,
+        };
+        self.moving = true;
+        self.walk_timer += 1;
+        self.action = Action::Survey { t, to, think };
     }
 
     /// Stops to think (something here needs what isn't carried).
@@ -935,6 +1046,11 @@ impl Player {
     /// without stopping whatever's being done.
     pub fn eureka(&mut self) {
         self.eureka = EUREKA_FRAMES;
+    }
+
+    /// Stopped to think.
+    pub fn is_pondering(&self) -> bool {
+        matches!(self.action, Action::Ponder { .. })
     }
 
     /// Standing ready: not mid-action (so the bag can be opened).
@@ -1222,7 +1338,7 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } | Action::Lay { t, .. } = self.action {
+        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } = self.action {
             // Lifting the ladder (or bridge), then leaning in to set it
             // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;

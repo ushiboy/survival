@@ -62,6 +62,8 @@ const COLLAPSE_HOLD: u32 = 60;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
+/// How near the mill site (cells) the castaway comes upon it.
+const MILL_NOTICE_CELLS: i32 = 4;
 /// Shells the tide leaves on the beach each morning, at most (for each
 /// stretch of island the size of the first area; see `island::for_area`).
 const SHELLS_PER_DAY: usize = 3;
@@ -152,6 +154,9 @@ pub struct Game {
     /// The most driftwood the west coast holds: as many logs as it had
     /// when the island was made.
     driftwood_cap: usize,
+    /// The castaway has come upon the mill site (looked round, walked to
+    /// its bank and thought), which happens once.
+    mill_noticed: bool,
     /// In-game minutes the castaway has been asleep.
     /// Which chunks of the island are awake (creatures move only there).
     regions: Regions,
@@ -267,6 +272,7 @@ impl Game {
             shell_day: 0,
             shell_cap: 0,
             driftwood_cap,
+            mill_noticed: save.is_some_and(|s| s.castaway.mill_noticed),
             regions,
             seed,
             title: save.is_none().then(|| TitleState::opening(false)),
@@ -343,7 +349,7 @@ impl Game {
             seed: self.seed,
             clock: save::Clock::of(&self.clock),
             vitals: self.vitals.clone(),
-            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit) },
+            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit), mill_noticed: self.mill_noticed },
             inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
             island: save::IslandState {
                 features,
@@ -565,8 +571,10 @@ impl Game {
             Some(Deed::ReelIn) => self.reel_in(),
             Some(Deed::StandLadder(foot, rows)) => self.stand_ladder(foot, rows),
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
+            Some(Deed::SetWheel(site)) => self.set_wheel(site),
             None => {}
         }
+        self.come_upon_the_mill_site();
         if was_asleep && !self.player.is_asleep() {
             // Each waking is saved.
             self.save();
@@ -754,6 +762,30 @@ impl Game {
         self.inventory.settle_hand();
         let changed = self.map.lay_bridge(span);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The water wheel in hand is set in the river off the mill site's
+    /// bank `site`: it leaves the bag and stays there, turning.
+    fn set_wheel(&mut self, site: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::WaterWheel) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.set_wheel(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The first time the castaway comes near the mill site (with no wheel
+    /// in the river yet), they look round, walk over to its bank and stop
+    /// to think, unless a wheel is already in hand.
+    fn come_upon_the_mill_site(&mut self) {
+        let Some(site) = self.map.spots.mill.filter(|_| !self.mill_noticed && !self.map.has_wheel()) else { return };
+        let (x, y) = self.player_tile();
+        if !self.player.is_idle() || (x - site.0).pow(2) + (y - site.1).pow(2) > MILL_NOTICE_CELLS * MILL_NOTICE_CELLS {
+            return;
+        }
+        self.mill_noticed = true;
+        self.player.survey(site, self.inventory.gear.hand != Some(ItemKind::WaterWheel));
     }
 
     /// Sends the coconut hanging in `slot` of the palm at `anchor` falling.
@@ -1405,6 +1437,17 @@ impl Game {
         true
     }
 
+    /// Dev tools: sets a water wheel in the river at the mill site (none
+    /// needed in the bag). Returns whether one went in.
+    pub fn debug_set_wheel(&mut self) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|&(x, y)| self.map.wheel_spot(x + 1, y).is_some()) else {
+            return false;
+        };
+        let changed = self.map.set_wheel(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
+    }
+
     /// Dev tools: the most shells the tide leaves each morning (it grows
     /// with the island).
     pub fn debug_shells_per_morning(&self) -> usize {
@@ -1660,6 +1703,16 @@ impl Game {
     }
 
     /// Health, hunger and thirst.
+    /// Whether the bag holds any of `kind`.
+    pub fn carries(&self, kind: ItemKind) -> bool {
+        self.inventory.bag.has(kind)
+    }
+
+    /// Whether the castaway has stopped to think.
+    pub fn is_pondering(&self) -> bool {
+        self.player.is_pondering()
+    }
+
     pub fn vitals(&self) -> &Vitals {
         &self.vitals
     }

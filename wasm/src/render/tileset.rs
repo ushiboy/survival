@@ -463,6 +463,40 @@ impl Builder<'_> {
         self.unique_art(PAL_GRASS, &art)
     }
 
+    /// A quarter of the water wheel standing in the river (grass palette,
+    /// over the river's banks as a bridge is). Its axle runs east to west,
+    /// so the wheel turns with the current: seen from above, two rims of
+    /// split bamboo run along the river with the paddles across between
+    /// them, the paddles on top going round upstream frame by frame (the
+    /// ones in the water below are pushed downstream), and the axle reaches
+    /// back to the west bank.
+    fn water_wheel(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, part: u8) -> MetatileId {
+        let base = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
+        let frames = (0..WHEEL_FRAMES)
+            .map(|f| {
+                let mut art = base.clone();
+                for py in 0..16 {
+                    for px in 0..16 {
+                        let (bx, by) = (ox + px as i32, oy + py as i32);
+                        let c = water_wheel_top(bx, by, f).or_else(|| {
+                            // Outlined against the water.
+                            [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| water_wheel_top(bx + dx, by + dy, f).is_some()).then_some(grass::RAMP[0])
+                        });
+                        if let Some(c) = c {
+                            art.set(px, py, c);
+                        }
+                    }
+                }
+                art.to_tile16()
+            })
+            .collect();
+        self.unique(PAL_GRASS, frames, WHEEL_PERIOD)
+    }
+
     /// Beach along the river, inland of the surf (sand palette): a cut lip
     /// at the water, sand darkened by the wet in a ragged band, and
     /// pebbles the river has washed down.
@@ -1626,6 +1660,74 @@ fn bridge_pixel(px: i32, py: i32, part: u8) -> Option<u8> {
     })
 }
 
+/// Frames of the water wheel turning (from one paddle to the next), and
+/// video frames per frame.
+const WHEEL_FRAMES: u32 = 4;
+const WHEEL_PERIOD: u32 = 8;
+/// The water wheel seen from above, in its two-by-two block of cells (px):
+/// the rims' columns (west and east), how far it runs up and down the
+/// river, and how many paddles go round it.
+const WHEEL_RIMS: (i32, i32) = (3, 14);
+const WHEEL_ENDS: (i32, i32) = (2, 29);
+const WHEEL_PADDLES: u32 = 12;
+/// The axle's rows, reaching from the west edge across the wheel.
+const WHEEL_AXLE: (i32, i32) = (15, 16);
+
+/// The colour of the water wheel seen from above at `(x, y)` in its block
+/// (px) on frame `f`, if any of it is there. It is a drum lying across the
+/// stream: its top rolls toward the viewer's eye from the far end, so the
+/// paddles crowd together toward both ends and darken there, the gaps
+/// between them in shadow; the axle runs out of both rims; and white water
+/// churns where the paddles come down into the river at the lower end.
+fn water_wheel_top(x: i32, y: i32, f: u32) -> Option<u8> {
+    use std::f32::consts::TAU;
+    let (west, east) = WHEEL_RIMS;
+    let (top, bottom) = WHEEL_ENDS;
+    if !(0..32).contains(&x) {
+        return None;
+    }
+    // The axle, from the bank across to a stub out of the far rim.
+    if (WHEEL_AXLE.0..=WHEEL_AXLE.1).contains(&y) && (x < west || x == east + 2) {
+        return Some(if y == WHEEL_AXLE.0 { grass::SAND[0] } else { grass::SOIL });
+    }
+    // Foam churned up below the lower end, flickering.
+    if (bottom + 1..=bottom + 2).contains(&y) && (west..=east + 1).contains(&x) {
+        return ((x * 3 + y + f as i32) % 4 == 0).then_some(grass::WHITE);
+    }
+    if !(top..=bottom).contains(&y) || !(west..=east + 1).contains(&x) {
+        return None;
+    }
+    // Where on the drum (up the screen is away over the top): -1 at the
+    // upper end, 1 at the lower.
+    let half = (bottom - top) as f32 / 2.0;
+    let s = ((y as f32 + 0.5 - top as f32 - half) / half).clamp(-1.0, 1.0);
+    let phi = s.asin();
+    let facing = phi.cos();
+    // The hubs on the rims, by the axle.
+    if (WHEEL_AXLE.0 - 1..=WHEEL_AXLE.1 + 1).contains(&y) && (x == west || x == east + 1) {
+        return Some(grass::SOIL);
+    }
+    if x == west || x == east + 1 {
+        return Some(if facing > 0.6 { grass::SAND[1] } else { grass::SAND[2] });
+    }
+    // A paddle where the turning drum brings one round (they come over the
+    // top toward the eye: down the screen).
+    // Along the drum's surface (px), the paddles evenly spaced round it;
+    // seen from above, the gaps narrow as it curves away.
+    let spacing = TAU * half / WHEEL_PADDLES as f32;
+    let along = (phi * half - f as f32 / WHEEL_FRAMES as f32 * spacing).rem_euclid(spacing);
+    if along.min(spacing - along) * facing < 1.0 {
+        return Some(if facing > 0.8 {
+            grass::SAND[0]
+        } else if facing > 0.5 {
+            grass::SAND[1]
+        } else {
+            grass::SAND[2]
+        });
+    }
+    Some(if facing > 0.85 { grass::SOIL } else { grass::RAMP[0] })
+}
+
 /// Row of the cliff's edge cell from which a stood ladder's tops stick up.
 const LADDER_TOP: usize = 9;
 
@@ -2134,6 +2236,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::VineStake => b.prop(18, &props.vine_stake, x % 2 == 0, x, y),
         Feature::Ladder(part) => b.ladder(map, x, y, part),
         Feature::Bridge(part) => b.bridge(map, river.as_ref(), x, y, part),
+        Feature::WaterWheel(part) => b.water_wheel(map, river.as_ref(), x, y, part),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::None => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),
