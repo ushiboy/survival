@@ -23,7 +23,7 @@ function PadButton({ bit, label, className, bits }: { bit: number; label: string
  * children of the layout grid, which places them per orientation (see styles.css).
  */
 export function VirtualPad({ root, onHelp }: Props) {
-  const t = useTranslations('touchHelp');
+  const t = useTranslations('help');
   const [bits, setBits] = useState(0);
 
   useEffect(() => {

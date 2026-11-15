@@ -20,11 +20,11 @@ body {
   font-size: 14px;
 }
 
+/* One column as wide as the game screen: the title bar above it spans the same width. */
 .app {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  display: grid;
+  justify-content: center;
+  gap: 12px;
   padding: 24px 16px;
 }
 
@@ -72,11 +72,57 @@ body {
   font-family: ui-monospace, monospace;
 }
 
-.panels {
+/* The title and the buttons that open the dialogs, above the game (PC). */
+.topbar {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
-  justify-content: center;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar button {
+  padding: 4px 12px;
+}
+
+/* The display settings and debug tools, floating at the right, over the page, not dimming it (PC).
+ * Below the title bar, so its buttons stay in reach on a narrow window. */
+.side-panels {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+}
+
+.side-panel {
+  width: 340px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.side-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.side-panel .side-panel-head h2 {
+  margin: 0;
+}
+
+.side-panel-close {
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .panel {
@@ -481,7 +527,7 @@ input.count {
   color: #1a1a24;
 }
 
-/* ---- The controls help over the game (touch devices) ---- */
+/* ---- The controls help over the game (a modal dialog) ---- */
 
 .modal-backdrop {
   position: fixed;
@@ -506,6 +552,10 @@ input.count {
   border-radius: 8px;
   padding: 16px 20px;
   font-size: 15px;
+}
+
+.modal.modal-keyboard {
+  width: min(100%, 460px);
 }
 
 .modal h2 {

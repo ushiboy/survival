@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
+import { useTranslations } from 'use-intl';
 import { GameScreen, type DisplayOptions } from './components/GameScreen';
 import { ControlsHelp } from './components/ControlsHelp';
-import { DebugPanel } from './components/DebugPanel';
 import { DebugTools } from './components/DebugTools';
-import { TouchHelp } from './components/TouchHelp';
+import { DisplayPanel } from './components/DisplayPanel';
+import { SidePanel } from './components/SidePanel';
 import { VirtualPad } from './components/VirtualPad';
-import { showTouchHelpFromNowOn, skipsTouchHelp, skipTouchHelpFromNowOn } from './game/touchHelpCookie';
+import { showHelpOnStart, skipsHelpOnStart, skipHelpOnStart } from './game/helpCookie';
 import { useTouchMode } from './game/touchMode';
 import type { CoreStatus, GameCore } from './game/wasmCore';
 
@@ -13,48 +14,90 @@ const SEED = 1;
 /** `?debug=true` turns on the debug tools. */
 const DEBUG = new URLSearchParams(window.location.search).get('debug') === 'true';
 
-export function App() {
+interface Props {
+  /** Debug mode; from `?debug=true` unless given. */
+  debug?: boolean;
+}
+
+/** A button on the PC toolbar that opens and closes a dialog. */
+function ToolbarButton({ label, open, onToggle }: { label: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={open ? 'active' : ''}
+      aria-pressed={open}
+      onClick={(e) => {
+        onToggle();
+        // Let go of the button so Enter goes back to the game (START).
+        e.currentTarget.blur();
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+export function App({ debug = DEBUG }: Props) {
+  const t = useTranslations();
   const [display, setDisplay] = useState<DisplayOptions>({ scale: 3, crtAspect: false, scanlines: false });
   const [spriteLimit, setSpriteLimit] = useState(true);
   const [status, setStatus] = useState<CoreStatus | null>(null);
   const [core, setCore] = useState<GameCore | null>(null);
   const touch = useTouchMode();
   const rootRef = useRef<HTMLElement>(null);
-  const [touchHelp, setTouchHelp] = useState(() => !skipsTouchHelp());
-  const closeTouchHelp = (skipFromNowOn: boolean) => {
-    if (skipFromNowOn) skipTouchHelpFromNowOn();
-    else showTouchHelpFromNowOn();
-    setTouchHelp(false);
+  const [help, setHelp] = useState(() => !skipsHelpOnStart());
+  const [displayOpen, setDisplayOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const closeHelp = (skipOnStart: boolean) => {
+    if (skipOnStart) skipHelpOnStart();
+    else showHelpOnStart();
+    setHelp(false);
   };
 
-  // The children keep their positions in both modes, so switching doesn't remount (restart) the game.
+  // The game screen keeps its position in both modes, so switching doesn't remount (restart) the game.
   return (
     <main ref={rootRef} className={touch ? 'touch-layout' : 'app'}>
-      {!touch && <h1 className="title">CASTAWAY ISLAND</h1>}
+      {!touch && (
+        <header className="topbar">
+          <h1 className="title">CASTAWAY ISLAND</h1>
+          <nav className="toolbar">
+            <ToolbarButton label={t('controls.title')} open={help} onToggle={() => setHelp(!help)} />
+            <ToolbarButton label={t('display.title')} open={displayOpen} onToggle={() => setDisplayOpen(!displayOpen)} />
+            {debug && <ToolbarButton label={t('debug.title')} open={debugOpen} onToggle={() => setDebugOpen(!debugOpen)} />}
+          </nav>
+        </header>
+      )}
       <GameScreen
         seed={SEED}
         display={display}
         spriteLimit={spriteLimit}
         fit={touch}
-        debug={DEBUG}
+        debug={debug}
         onStatus={setStatus}
         onCore={setCore}
       />
-      {touch && <VirtualPad root={rootRef} onHelp={() => setTouchHelp(true)} />}
-      {!touch && (
-        <div className="panels">
-          <ControlsHelp />
-          <DebugPanel
-            display={display}
-            onDisplayChange={setDisplay}
-            spriteLimit={spriteLimit}
-            onSpriteLimitChange={setSpriteLimit}
-            status={status}
-          />
-          {DEBUG && core && <DebugTools core={core} />}
+      {touch && <VirtualPad root={rootRef} onHelp={() => setHelp(true)} />}
+      {!touch && (displayOpen || (debugOpen && debug)) && (
+        <div className="side-panels">
+          {displayOpen && (
+            <SidePanel title={t('display.title')} onClose={() => setDisplayOpen(false)}>
+              <DisplayPanel
+                display={display}
+                onDisplayChange={setDisplay}
+                spriteLimit={spriteLimit}
+                onSpriteLimitChange={setSpriteLimit}
+                status={status}
+              />
+            </SidePanel>
+          )}
+          {debug && debugOpen && core && (
+            <SidePanel title={t('debug.title')} onClose={() => setDebugOpen(false)}>
+              <DebugTools core={core} />
+            </SidePanel>
+          )}
         </div>
       )}
-      {touch && touchHelp && <TouchHelp skipping={skipsTouchHelp()} onClose={closeTouchHelp} />}
+      {help && <ControlsHelp keyboard={!touch} skipping={skipsHelpOnStart()} onClose={closeHelp} />}
     </main>
   );
 }

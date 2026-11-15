@@ -18,10 +18,10 @@ const en: typeof ja = {
     },
     note: 'Gamepads work too. On a smartphone, use the on-screen buttons.',
   },
-  touchHelp: {
+  help: {
     open: 'Controls help',
     runNote: 'Hold R while using the D-pad to run.',
-    skip: "Don't show this again",
+    skip: "Don't show on start",
     close: 'Close',
   },
   display: {

@@ -53,8 +53,7 @@ export function DebugTools({ core }: Props) {
   const release = (e: React.MouseEvent<HTMLButtonElement>) => e.currentTarget.blur();
 
   return (
-    <section className="panel">
-      <h2>{t('title')}</h2>
+    <>
       <div className="row">
         <span>{t('item')}</span>
         <select
@@ -191,6 +190,6 @@ export function DebugTools({ core }: Props) {
       </div>
       {message && <p className="note">{message}</p>}
       <p className="note">{t('keys')}</p>
-    </section>
+    </>
   );
 }

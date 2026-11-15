@@ -1,8 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ControlsHelp } from '../components/ControlsHelp';
-import { DebugPanel } from '../components/DebugPanel';
-import { TouchHelp } from '../components/TouchHelp';
+import { DisplayPanel } from '../components/DisplayPanel';
 import { renderIn } from '../test/intl';
 import { I18nProvider } from './I18nProvider';
 import en from './messages/en';
@@ -43,10 +42,10 @@ describe('ページの言語', () => {
     vi.stubGlobal('navigator', { ...navigator, language: 'ja-JP' });
     render(
       <I18nProvider>
-        <ControlsHelp />
+        <ControlsHelp keyboard onClose={() => {}} />
       </I18nProvider>,
     );
-    expect(screen.getByRole('heading', { name: '操作' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '操作' })).toBeInTheDocument();
     expect(screen.getByText('L').nextElementSibling).toHaveTextContent('Q — 眠る');
   });
 
@@ -54,24 +53,24 @@ describe('ページの言語', () => {
     vi.stubGlobal('navigator', { ...navigator, language: 'en-US' });
     render(
       <I18nProvider>
-        <ControlsHelp />
+        <ControlsHelp keyboard onClose={() => {}} />
       </I18nProvider>,
     );
-    expect(screen.getByRole('heading', { name: 'Controls' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Controls' })).toBeInTheDocument();
     expect(screen.getByText('L').nextElementSibling).toHaveTextContent('Q — Sleep');
     expect(screen.getByText('D-pad').nextElementSibling).toHaveTextContent('Arrow keys / WASD — Move');
   });
 
   it('タッチ端末の操作説明も英語にする', () => {
-    renderIn(<TouchHelp onClose={() => {}} />, 'en');
+    renderIn(<ControlsHelp onClose={() => {}} />, 'en');
     expect(screen.getByRole('dialog', { name: 'Controls' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: "Don't show this again" })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: "Don't show on start" })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
-  it('表示のパネルも英語にする（値の差し込みも）', () => {
+  it('表示の設定も英語にする（値の差し込みも）', () => {
     renderIn(
-      <DebugPanel
+      <DisplayPanel
         display={{ scale: 3, crtAspect: false, scanlines: false }}
         onDisplayChange={() => {}}
         spriteLimit
@@ -80,14 +79,14 @@ describe('ページの言語', () => {
       />,
       'en',
     );
-    expect(screen.getByRole('heading', { name: 'Display' })).toBeInTheDocument();
+    expect(screen.getByText('Scale')).toBeInTheDocument();
     expect(screen.getByText(/VRAM 2\.0 \/ 64 KiB \(on screen\)/)).toBeInTheDocument();
   });
 
   it('文書の言語（<html lang>）をページの言語にする', () => {
-    renderIn(<ControlsHelp />, 'en');
+    renderIn(<ControlsHelp keyboard onClose={() => {}} />, 'en');
     expect(document.documentElement.lang).toBe('en');
-    renderIn(<ControlsHelp />, 'ja');
+    renderIn(<ControlsHelp keyboard onClose={() => {}} />, 'ja');
     expect(document.documentElement.lang).toBe('ja');
   });
 });
