@@ -347,6 +347,9 @@ pub struct Inventory {
     /// What the castaway is wearing.
     pub outfit: Outfit,
     pub gear: Gear,
+    /// What the handcart is loaded with, once one has been made (its grid
+    /// is its own size, `cart::CART_W` by `cart::CART_ROWS`).
+    pub cart: Option<Bag>,
 }
 
 /// What's held and worn. The tool in hand is one carried in the bag or
@@ -564,7 +567,7 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default() }
+        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default(), cart: None }
     }
 }
 

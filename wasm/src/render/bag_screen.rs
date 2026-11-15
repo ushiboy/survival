@@ -6,10 +6,10 @@
 use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
 use crate::crafting::RECIPES;
-use crate::game::bag::{BAG_W, Placed, footprint};
+use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::game::menu::{BagMenu, GearRow, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows};
 use crate::game::state::Inventory;
-use crate::items::Slot;
+use crate::items::{ItemKind, Slot};
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
 use crate::render::hud::{HUD_COLS, HUD_ROWS};
@@ -25,6 +25,9 @@ const INFO_COL: usize = 17;
 /// The page tabs, and the columns between them.
 const TAB_ROW: usize = 5;
 const TAB_STRIDE: usize = 8;
+const TAB_STRIDE_FIVE: usize = 6;
+/// The cart page: the cart's grid starts this column, right of the bag's.
+const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
 /// list; in a recipe, its picture's right edge (tiles), the description's
 /// width, the material count columns, and the MAKE / BACK rows.
@@ -79,8 +82,11 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     clear(bg3);
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
-    for (i, page) in Page::ALL.into_iter().enumerate() {
-        let col = GRID_COL + i * TAB_STRIDE;
+    let pages = menu.pages();
+    // Closer together when the cart's page makes five.
+    let stride = if pages.len() > 4 { TAB_STRIDE_FIVE } else { TAB_STRIDE };
+    for (i, page) in pages.into_iter().enumerate() {
+        let col = GRID_COL + i * stride;
         if menu.mode == Mode::Tabs(page) {
             text(bg3, tiles, col, TAB_ROW, ">");
         }
@@ -92,6 +98,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     }
     if menu.page() == Page::Save {
         draw_save_page(bg3, tiles, menu);
+        return;
+    }
+    if menu.page() == Page::Cart {
+        draw_cart_page(bg3, tiles, list, sprites, inventory, menu);
         return;
     }
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
@@ -215,6 +225,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
         Mode::Saving => "A SAVE   B CLOSE",
+        Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
 }
@@ -233,6 +244,75 @@ fn draw_count(list: &mut DrawList, sprites: &SpriteIds, p: &Placed, at: (i32, i3
     for d in digits.chars().filter_map(|c| c.to_digit(10)) {
         list.sky(ObjEntry::new(x, y, sprites.bag.digits[d as usize], OBJ_FX, 3));
         x += 6;
+    }
+}
+
+/// The cart page: the bag's grid on the left, the cart's on the right,
+/// each with the room it has used; the cursor on a cell of one of them,
+/// and what's there named below.
+fn draw_cart_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
+    let Some(cart) = inventory.cart.as_ref() else { return };
+    let bag = &inventory.bag;
+    let hand = inventory.gear.hand;
+    draw_grid(bg3, tiles, list, sprites, bag, GRID_COL, hand);
+    draw_grid(bg3, tiles, list, sprites, cart, CART_COL, None);
+    let in_cart = matches!(menu.mode, Mode::Cart { in_cart: true });
+    let (on, col) = if in_cart { (cart, CART_COL) } else { (bag, GRID_COL) };
+    let rows = bag.rows().max(cart.rows()) as usize;
+    if let Mode::Cart { .. } = menu.mode {
+        let (cx, cy) = menu.cursor;
+        let item = on.at(cx, cy).map(|i| on.items()[i]);
+        let (bx, by, bw, bh) = item.map_or((cx, cy, 1, 1), |p| (p.x, p.y, p.size().0, p.size().1));
+        let x0 = col as i32 * 8 + bx * CELL;
+        let y0 = GRID_ROW as i32 * 8 + by * CELL;
+        let (x1, y1) = (x0 + bw * CELL - 8, y0 + bh * CELL - 8);
+        for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {
+            let mut e = ObjEntry::new(x, y, sprites.bag.corner, OBJ_FX, 3).flipped(fh);
+            e.flip_v = fv;
+            list.sky(e);
+        }
+        if let Some(p) = item {
+            let row = GRID_ROW + rows * 2 + 2;
+            text(bg3, tiles, GRID_COL, row, p.kind.name());
+            if p.kind.max_stack() > 1 {
+                text(bg3, tiles, GRID_COL + p.kind.name().len() + 1, row, &format!("{} OF {}", p.count, p.kind.max_stack()));
+            }
+        }
+    }
+    text_in(bg3, tiles, CART_COL, GRID_ROW - 1, "CART", HUD_DIM);
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// A grid (the bag's, or the cart's) from column `col`: its cells, the
+/// icons in it with their counts, a mark on the tool in hand, and the
+/// room used under it.
+fn draw_grid(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, grid: &Bag, col: usize, hand: Option<ItemKind>) {
+    let (w, rows) = (grid.width() as usize, grid.rows() as usize);
+    for y in 0..rows {
+        for x in 0..w {
+            for q in 0..4 {
+                bg3.put(col + x * 2 + q % 2, GRID_ROW + y * 2 + q / 2, tiles.bag_cell[q], HUD_MENU);
+            }
+        }
+    }
+    let used: i32 = grid.items().iter().map(|p| p.size().0 * p.size().1).sum();
+    let room = format!("{used:02}/{}", w * rows);
+    text(bg3, tiles, col + w * 2 - room.len(), GRID_ROW + rows * 2, &room);
+    let at = |p: &Placed| (col as i32 * 8 + p.x * CELL, GRID_ROW as i32 * 8 + p.y * CELL);
+    for p in grid.items() {
+        draw_count(list, sprites, p, at(p));
+        if hand == Some(p.kind) {
+            let (px, py) = at(p);
+            list.sky(ObjEntry::new(px, py, sprites.bag.equipped, OBJ_FX, 3));
+        }
+    }
+    for p in grid.items() {
+        let (px, py) = at(p);
+        let (gfx, pal) = sprites.bag.icon(p.kind, p.turned);
+        list.sky(ObjEntry::new(px, py, gfx, pal, 3));
     }
 }
 

@@ -160,7 +160,7 @@ impl Item {
             ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),
             ItemKind::GrilledFish => (16, [sprites.grilled_fish; 2], sprites.shadow_crab),
             // Water and a burning torch never lie on the ground.
-            ItemKind::RawWater | ItemKind::Torch => return,
+            ItemKind::RawWater | ItemKind::Torch | ItemKind::Handcart => return,
         };
         let (wx, wy) = (self.x as i32 - w / 2, (self.y - self.z) as i32 - 7);
         if !camera.sees(wx, wy, w, 8 + self.z as i32) {

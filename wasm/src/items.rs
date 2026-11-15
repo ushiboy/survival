@@ -118,6 +118,11 @@ pub enum ItemKind {
     /// A cartwheel of lauan (hub and rim) with spokes of branch, all
     /// turned round on the lathe.
     SpokedWheel,
+    /// A cart of a lauan bed on two spoked wheels, pulled by two bamboo
+    /// poles lashed on with rope. Like a torch it never goes in the bag:
+    /// once made it follows the castaway, pulled behind, carrying a load of
+    /// its own.
+    Handcart,
 }
 
 /// Where a piece of gear goes.
@@ -163,7 +168,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 43] = [
+    pub const ALL: [ItemKind; 44] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -207,6 +212,7 @@ impl ItemKind {
         ItemKind::ToolBelt,
         ItemKind::WoodLathe,
         ItemKind::SpokedWheel,
+        ItemKind::Handcart,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -245,7 +251,7 @@ impl ItemKind {
             ItemKind::WaterWheel => (3, 3),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade => (1, 3),
             ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
-            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter | ItemKind::SpokedWheel => (2, 2),
+            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter | ItemKind::SpokedWheel | ItemKind::Handcart => (2, 2),
             ItemKind::WoodLathe => (2, 3),
         }
     }
@@ -295,6 +301,7 @@ impl ItemKind {
             ItemKind::ToolBelt => "TOOL BELT",
             ItemKind::WoodLathe => "WOOD LATHE",
             ItemKind::SpokedWheel => "SPOKED WHEEL",
+            ItemKind::Handcart => "HANDCART",
         }
     }
 
@@ -345,6 +352,7 @@ impl ItemKind {
             ItemKind::ToolBelt => "WORN AT THE WAIST, IT HOLDS TWO TOOLS OUT OF THE BAG.",
             ItemKind::WoodLathe => "A LAUAN BED AND SPINDLE WITH A ROPE DRIVE. SOMETHING TURNING COULD SPIN IT.",
             ItemKind::SpokedWheel => "A HUB, SPOKES AND RIM, ALL TURNED ROUND. IT ROLLS UNDER A LOAD.",
+            ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
         }
     }
 
@@ -464,7 +472,7 @@ impl ItemKind {
     /// Whether it goes in the bag once made or picked up (a lit torch is
     /// carried instead).
     pub fn goes_in_bag(self) -> bool {
-        self != ItemKind::Torch
+        !matches!(self, ItemKind::Torch | ItemKind::Handcart)
     }
 
     /// How getting rid of it from the bag reads: the command, and what's

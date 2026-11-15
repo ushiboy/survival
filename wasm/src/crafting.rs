@@ -169,6 +169,14 @@ pub const RECIPES: &[Recipe] = &[
         at_fire: false,
         at_lathe: true,
     },
+    Recipe {
+        name: "Handcart",
+        makes: ItemKind::Handcart,
+        needs: &[(ItemKind::SpokedWheel, 2), (ItemKind::LauanTimber, 2), (ItemKind::Bamboo, 2), (ItemKind::Rope, 2)],
+        tools: &[ItemKind::StoneAxe],
+        at_fire: false,
+        at_lathe: false,
+    },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the
@@ -417,6 +425,15 @@ mod tests {
         let mut book = RecipeBook::default();
         book.notice(carrying(&[ItemKind::LauanTimber, ItemKind::Branch]));
         assert!(book.listed().contains(&index(ItemKind::SpokedWheel)));
+    }
+
+    #[test]
+    fn a_handcart_rolls_on_two_spoked_wheels_and_is_shaped_with_the_axe() {
+        let recipe = &RECIPES[index(ItemKind::Handcart)];
+        assert!(recipe.needs.contains(&(ItemKind::SpokedWheel, 2)));
+        assert!(recipe.needs.iter().any(|&(k, _)| k == ItemKind::Bamboo), "bamboo poles to pull it by");
+        assert!(recipe.tools.contains(&ItemKind::StoneAxe));
+        assert!(!ItemKind::Handcart.goes_in_bag());
     }
 
     #[test]

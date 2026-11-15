@@ -47,6 +47,7 @@ pub const SAND_BELOW: f32 = 7.0;
 /// Props keep this far (in elevation) from contours so they never sit on a
 /// transition.
 const PROP_MARGIN: f32 = 1.2;
+/// Grass above this elevation is jungle (a thicket of bushes).
 const JUNGLE_ABOVE: f32 = 17.0;
 /// Vines grow within this much elevation below the jungle.
 const VINE_BELT: f32 = 5.0;

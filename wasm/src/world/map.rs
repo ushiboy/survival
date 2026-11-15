@@ -96,6 +96,17 @@ pub fn lathe_cells((sx, sy): (i32, i32)) -> [(i32, i32); 4] {
     [(sx - 1, sy - 1), (sx, sy - 1), (sx - 1, sy), (sx, sy)]
 }
 
+/// How many cells round the wood lathe's spot (beside the turning wheel)
+/// a lathe held in hand is still set there (the castaway walks over to
+/// it first).
+pub const LATHE_REACH: i32 = 4;
+
+/// Where the castaway stands to set a wood lathe beside the water wheel
+/// off the mill site's bank `site`: just west of it, facing east.
+pub fn lathe_stand((sx, sy): (i32, i32)) -> (i32, i32) {
+    (sx - 2, sy)
+}
+
 /// How many rows up or down the river from the narrow's middle a log
 /// bridge can be held out and still go across it (at the middle).
 pub const BRIDGE_REACH: i32 = 3;
@@ -413,15 +424,24 @@ impl WorldMap {
         self.spots.mill.is_some_and(|site| wheel_cells(site).iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::WaterWheel(_))))
     }
 
-    /// Where a wood lathe held facing the cell `(x, y)` would be set: the
-    /// mill site's bank (its cell), if the cell is one the lathe would take
-    /// beside a water wheel turning in the river there, and the ground
-    /// there is clear for it.
+    /// Whether a cart can't be pulled over any cell `r` (world px) touches:
+    /// the shallows or a ladder.
+    pub fn stops_a_cart(&self, r: crate::common::math::Rect) -> bool {
+        let (x0, y0) = (r.x.div_euclid(TILE_SIZE), r.y.div_euclid(TILE_SIZE));
+        let (x1, y1) = ((r.right() - 1).div_euclid(TILE_SIZE), (r.bottom() - 1).div_euclid(TILE_SIZE));
+        (y0..=y1).any(|y| (x0..=x1).any(|x| self.terrain(x, y) == Terrain::ShallowWater || matches!(self.feature(x, y), Feature::Ladder(_))))
+    }
+
+    /// Where a wood lathe held by someone at the cell `(x, y)` would be
+    /// set: the mill site's bank (its cell), if the cell is within
+    /// `LATHE_REACH` of the cells the lathe would take beside a water wheel
+    /// turning in the river there, and the ground there is clear for it.
     pub fn lathe_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let site = self.spots.mill.filter(|_| self.has_wheel())?;
         let cells = lathe_cells(site);
         let clear = cells.iter().all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
-        (clear && cells.contains(&(x, y))).then_some(site)
+        let near = cells.iter().any(|&(cx, cy)| (cx - x).abs() <= LATHE_REACH && (cy - y).abs() <= LATHE_REACH);
+        (clear && near).then_some(site)
     }
 
     /// Sets a wood lathe on the bank beside the water wheel off the mill

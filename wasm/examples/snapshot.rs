@@ -80,6 +80,7 @@ fn main() {
                 "tool belt" | "belt" => ItemKind::ToolBelt,
                 "wood lathe" | "lathe" => ItemKind::WoodLathe,
                 "spoked wheel" | "spoked" => ItemKind::SpokedWheel,
+                "handcart" | "cart" => ItemKind::Handcart,
                 "husk" => ItemKind::Husk,
                 "rope" => ItemKind::Rope,
                 "frond" => ItemKind::PalmFrond,

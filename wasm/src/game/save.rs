@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::bag::Bag;
+use super::cart::Cart;
 use super::state::{GameClock, Gear, Vitals};
 use crate::assets::character::Outfit;
 use crate::common::math::Dir;
@@ -31,11 +32,22 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
+
+/// Version 3 added the handcart (on the island) and its load (carried):
+/// a version 2 save has none made.
+fn v2_to_v3(save: &mut Value) {
+    if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
+        inventory.insert("cart".into(), Value::Null);
+    }
+    if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
+        island.insert("cart".into(), Value::Null);
+    }
+}
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks: a version 1 save wears nothing there.
@@ -118,6 +130,8 @@ pub struct Carried {
     pub torch: Option<u32>,
     pub recipes: RecipeBook,
     pub gear: Gear,
+    /// The handcart's load, once one has been made.
+    pub cart: Option<Bag>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -143,6 +157,9 @@ pub struct IslandState {
     pub shell_cap: usize,
     /// Since when each chunk has slept (`None`: awake), row by row.
     pub asleep_since: Vec<Option<u32>>,
+    /// The handcart, once made: where it stands, whether it's being
+    /// pulled, and which way its poles point.
+    pub cart: Option<Cart>,
 }
 
 /// Something lying on the ground.
@@ -183,7 +200,7 @@ mod tests {
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json")];
+    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json"), include_str!("save_samples/v3.json")];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -230,6 +247,20 @@ mod tests {
     fn a_version_1_save_wears_nothing_at_the_waist() {
         let s = load(1);
         assert_eq!(s.gear_waist(), (None, [None, None]));
+    }
+
+    #[test]
+    fn a_version_2_save_has_no_handcart() {
+        let s = load(2);
+        assert!(s.inventory.cart.is_none() && s.island.cart.is_none());
+    }
+
+    #[test]
+    fn the_sample_keeps_the_handcart_where_it_stands_and_its_load() {
+        let s = load(SAVE_VERSION);
+        let cart = s.island.cart.expect("the sample has a cart");
+        assert!(!cart.pulled, "set down");
+        assert_eq!(s.inventory.cart.expect("its load").count(ItemKind::LauanTimber), 3);
     }
 
     #[test]

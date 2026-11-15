@@ -107,3 +107,63 @@ fn a_lathe_set_on_the_bank_is_still_there_on_carrying_on() {
     let carried_on = Game::debug_continue(&game.debug_save_json()).expect("the save loads");
     assert!(lathe_set(&carried_on));
 }
+
+/// A game with the wheel in, the castaway standing at `(dx, dy)` cells from
+/// the mill site's bank, facing `facing` (held a moment), a lathe in hand.
+fn near_the_bank_with_a_lathe((dx, dy): (i32, i32), facing: u16) -> Game {
+    let mut game = new_game();
+    assert!(game.debug_set_wheel());
+    let (x, y) = mill_site(&game);
+    game.debug_place_player((x + dx, y + dy));
+    hold(&mut game, 0, 2);
+    hold(&mut game, facing, 2);
+    hold(&mut game, 0, 2);
+    game.debug_give(ItemKind::WoodLathe);
+    game
+}
+
+#[test]
+fn a_lathe_held_a_few_steps_off_is_carried_over_and_set_beside_the_wheel() {
+    for (at, facing) in [((-5, 2), Buttons::DOWN), ((-4, -3), Buttons::LEFT), ((-1, 3), Buttons::UP)] {
+        let mut game = near_the_bank_with_a_lathe(at, facing);
+        press(&mut game, Buttons::B);
+        hold(&mut game, 0, 240);
+        assert!(lathe_set(&game), "from {at:?}");
+        assert!(!game.carries(ItemKind::WoodLathe), "from {at:?}");
+        let (x, y) = mill_site(&game);
+        assert_eq!(game.player_tile(), (x - 2, y), "the castaway stepped over to set it, from {at:?}");
+    }
+}
+
+#[test]
+fn a_lathe_held_far_from_the_wheel_isnt_set() {
+    let mut game = near_the_bank_with_a_lathe((-9, 0), Buttons::RIGHT);
+    press(&mut game, Buttons::B);
+    hold(&mut game, 0, 240);
+    assert!(!lathe_set(&game));
+}
+
+#[test]
+fn without_a_lathe_the_castaway_stops_to_think_a_few_steps_from_the_wheel() {
+    let mut game = new_game();
+    assert!(game.debug_set_wheel());
+    let (x, y) = mill_site(&game);
+    game.debug_place_player((x - 4, y + 2));
+    hold(&mut game, 0, 2);
+    press(&mut game, Buttons::A);
+    assert!(game.is_pondering());
+}
+
+#[test]
+fn pulling_the_cart_beside_the_wheel_a_sets_it_down_rather_than_giving_pause() {
+    let mut game = new_game();
+    assert!(game.debug_set_wheel());
+    let (x, y) = mill_site(&game);
+    game.debug_place_player((x - 4, y + 2));
+    hold(&mut game, 0, 2);
+    game.debug_give(ItemKind::Handcart);
+    hold(&mut game, 0, 2);
+    press(&mut game, Buttons::A);
+    assert!(!game.is_pondering());
+    assert!(!game.is_pulling_cart(), "set down");
+}

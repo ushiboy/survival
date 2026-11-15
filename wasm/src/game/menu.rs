@@ -74,17 +74,21 @@ pub enum Page {
     Items,
     Craft,
     Gear,
+    /// Moving things between the bag and the handcart's load (only with
+    /// the cart at hand).
+    Cart,
     Save,
 }
 
 impl Page {
-    pub const ALL: [Page; 4] = [Page::Items, Page::Craft, Page::Gear, Page::Save];
+    pub const ALL: [Page; 5] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Save];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::Items => "ITEMS",
             Page::Craft => "CRAFT",
             Page::Gear => "GEAR",
+            Page::Cart => "CART",
             Page::Save => "SAVE",
         }
     }
@@ -186,6 +190,11 @@ pub enum Mode {
     },
     /// On the save page, about to save.
     Saving,
+    /// On the cart page, the cursor (`BagMenu::cursor`) on a cell of the
+    /// bag or (`in_cart`) of the cart's load.
+    Cart {
+        in_cart: bool,
+    },
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -203,6 +212,9 @@ pub enum Outcome {
     Cook(usize),
     /// The game is to be saved (the bag stays open).
     Save,
+    /// Something made that doesn't go in the bag (a handcart) is handed
+    /// over to the game; its materials are used up.
+    Made(ItemKind),
 }
 
 #[derive(Clone, Debug)]
@@ -216,6 +228,9 @@ pub struct BagMenu {
     pub near_fire: bool,
     /// Standing by the wood lathe (recipes turned on it are possible).
     pub near_lathe: bool,
+    /// The handcart is at hand (being pulled, or set down close by): its
+    /// load can be got at.
+    pub cart_at_hand: bool,
     held_frames: u32,
 }
 
@@ -241,8 +256,13 @@ impl BagMenu {
         (!recipe.at_fire || self.near_fire) && (!recipe.at_lathe || self.near_lathe)
     }
 
+    /// The pages to choose from: the cart's only with it at hand.
+    pub fn pages(&self) -> Vec<Page> {
+        Page::ALL.into_iter().filter(|&p| p != Page::Cart || self.cart_at_hand).collect()
+    }
+
     pub fn browse() -> Self {
-        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, near_lathe: false, held_frames: 0 }
+        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, near_lathe: false, cart_at_hand: false, held_frames: 0 }
     }
 
     /// Opens holding something just picked up (`count` of a kind) that
@@ -275,6 +295,7 @@ impl BagMenu {
             Mode::Crafting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             Mode::Saving => Page::Save,
+            Mode::Cart { .. } => Page::Cart,
             _ => Page::Items,
         }
     }
@@ -286,6 +307,10 @@ impl BagMenu {
             Page::Craft => Mode::Crafting { choice: 0 },
             Page::Gear => Mode::Gear { slot: 0 },
             Page::Save => Mode::Saving,
+            Page::Cart => {
+                self.cursor = (0, 0);
+                Mode::Cart { in_cart: false }
+            }
         };
     }
 
@@ -306,10 +331,11 @@ impl BagMenu {
                 Outcome::Stay
             }
             Mode::Tabs(page) => {
-                let i = Page::ALL.iter().position(|&p| p == page).unwrap_or(0) as i32;
+                let pages = self.pages();
+                let i = pages.iter().position(|&p| p == page).unwrap_or(0) as i32;
                 match step {
                     Some((dx, 0)) => {
-                        let next = Page::ALL[(i + dx).clamp(0, Page::ALL.len() as i32 - 1) as usize];
+                        let next = pages[(i + dx).clamp(0, pages.len() as i32 - 1) as usize];
                         if next != page {
                             self.mode = Mode::Tabs(next);
                             self.notice = None;
@@ -400,6 +426,7 @@ impl BagMenu {
                 }
             }
             Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
+            Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Recipe { recipe, choice } => self.update_recipe(input, inv, recipe, choice, step),
             Mode::Gear { slot } => {
@@ -539,6 +566,17 @@ impl BagMenu {
             self.notice = Some("NEEDS A LATHE");
             return Outcome::Stay;
         }
+        if !recipe.makes.goes_in_bag() && !recipe.at_fire {
+            // A handcart: there's only ever the one.
+            if recipe.makes == ItemKind::Handcart && inv.cart.is_some() {
+                self.notice = Some("YOU HAVE ONE ALREADY");
+                return Outcome::Stay;
+            }
+            inv.recipes.made(index);
+            inv.bag.use_up(recipe);
+            self.notice = Some("MADE IT!");
+            return Outcome::Made(recipe.makes);
+        }
         inv.recipes.made(index);
         if recipe.at_fire {
             // Cooked over the fire, outside the bag.
@@ -550,8 +588,64 @@ impl BagMenu {
             inv.took(recipe.makes);
             self.notice = Some("MADE IT!");
         } else {
-            *self = Self { near_fire: self.near_fire, near_lathe: self.near_lathe, ..Self::holding(recipe.makes, 1) };
+            *self = Self { near_fire: self.near_fire, near_lathe: self.near_lathe, cart_at_hand: self.cart_at_hand, ..Self::holding(recipe.makes, 1) };
         }
+        Outcome::Stay
+    }
+
+    /// The cart page: the cursor goes over the bag's cells and on across
+    /// into the cart's (and back); A moves the stack under it to the other
+    /// side, as much of it as fits there; up off the top row or B goes
+    /// back to the tabs.
+    fn update_cart(&mut self, input: &InputState, inv: &mut Inventory, mut in_cart: bool, step: Option<(i32, i32)>) -> Outcome {
+        let Some(cart) = inv.cart.as_mut() else {
+            self.mode = Mode::Tabs(Page::Cart);
+            return Outcome::Stay;
+        };
+        let size = |in_cart: bool, cart: &Bag| if in_cart { (cart.width(), cart.rows()) } else { (BAG_W, inv.bag.rows()) };
+        if let Some((dx, dy)) = step {
+            let (x, y) = (self.cursor.0 + dx, self.cursor.1 + dy);
+            if y < 0 {
+                self.mode = Mode::Tabs(Page::Cart);
+                return Outcome::Stay;
+            }
+            let (w, _) = size(in_cart, cart);
+            if !in_cart && x >= w {
+                in_cart = true;
+                self.cursor.0 = 0;
+            } else if in_cart && x < 0 {
+                in_cart = false;
+                self.cursor.0 = BAG_W - 1;
+            } else {
+                self.cursor.0 = x.clamp(0, w - 1);
+            }
+            let (_, rows) = size(in_cart, cart);
+            self.cursor.1 = y.clamp(0, rows - 1);
+            self.notice = None;
+        }
+        self.mode = Mode::Cart { in_cart };
+        if input.pressed(Buttons::B) {
+            self.mode = Mode::Tabs(Page::Cart);
+            self.notice = None;
+            return Outcome::Stay;
+        }
+        if !input.pressed(Buttons::A) {
+            return Outcome::Stay;
+        }
+        let (from, to) = if in_cart { (cart, &mut inv.bag) } else { (&mut inv.bag, cart) };
+        let Some(i) = from.at(self.cursor.0, self.cursor.1) else { return Outcome::Stay };
+        let p = from.remove(i);
+        let left = to.stow(p.kind, p.count);
+        if left > 0 {
+            // What doesn't fit stays where it was.
+            from.put(Placed { count: left, ..p });
+        }
+        self.notice = Some(match (left, in_cart) {
+            (n, _) if n == p.count => "NO ROOM",
+            (0, false) => "INTO THE CART",
+            (0, true) => "INTO THE BAG",
+            _ => "SOME OF IT WOULDN'T FIT",
+        });
         Outcome::Stay
     }
 
@@ -689,6 +783,86 @@ mod tests {
         let index = RECIPES.iter().position(|r| r.at_lathe).unwrap();
         press_a(&mut menu, &mut inv);
         assert!(inv.bag.has(RECIPES[index].makes));
+    }
+
+    /// The menu open on the handcart's recipe, its materials and tools
+    /// carried.
+    fn at_the_handcart() -> (BagMenu, Inventory) {
+        let index = RECIPES.iter().position(|r| r.makes == ItemKind::Handcart).unwrap();
+        let mut inv = Inventory::default();
+        inv.bag.set_rows(super::super::bag::BASE_ROWS + 2);
+        for &(kind, n) in RECIPES[index].needs {
+            assert_eq!(inv.bag.stow(kind, n), 0);
+        }
+        for &kind in RECIPES[index].tools {
+            inv.bag.stow_one(kind);
+        }
+        (BagMenu { mode: Mode::Recipe { recipe: index, choice: 0 }, ..BagMenu::browse() }, inv)
+    }
+
+    #[test]
+    fn a_handcart_made_is_handed_over_not_put_in_the_bag() {
+        let (mut menu, mut inv) = at_the_handcart();
+        let mut input = InputState::default();
+        input.update(Buttons::A);
+        assert_eq!(menu.update(&input, &mut inv), Outcome::Made(ItemKind::Handcart));
+        assert!(!inv.bag.has(ItemKind::Handcart));
+        assert!(!inv.bag.has(ItemKind::SpokedWheel), "the materials are used up");
+    }
+
+    #[test]
+    fn a_second_handcart_isnt_made() {
+        let (mut menu, mut inv) = at_the_handcart();
+        inv.cart = Some(Bag::with_size(8, 6));
+        let before = inv.bag.clone();
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.bag, before, "nothing is used up");
+        assert!(menu.notice.is_some());
+    }
+
+    /// The cart page, with a stack of rope in the bag and the cart at hand.
+    fn at_the_cart() -> (BagMenu, Inventory) {
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Rope, 3);
+        inv.cart = Some(Bag::with_size(8, 6));
+        let mut menu = BagMenu::browse();
+        menu.cart_at_hand = true;
+        menu.mode = Mode::Cart { in_cart: false };
+        menu.cursor = (0, 0);
+        (menu, inv)
+    }
+
+    #[test]
+    fn the_cart_page_is_there_only_with_the_cart_at_hand() {
+        let mut menu = BagMenu::browse();
+        assert!(!menu.pages().contains(&Page::Cart));
+        menu.cart_at_hand = true;
+        assert!(menu.pages().contains(&Page::Cart));
+    }
+
+    #[test]
+    fn on_the_cart_page_a_moves_a_stack_into_the_cart_and_back() {
+        let (mut menu, mut inv) = at_the_cart();
+        press_a(&mut menu, &mut inv);
+        assert!(!inv.bag.has(ItemKind::Rope));
+        assert_eq!(inv.cart.as_ref().unwrap().count(ItemKind::Rope), 3);
+        menu.mode = Mode::Cart { in_cart: true };
+        menu.cursor = (0, 0);
+        let mut input = InputState::default();
+        input.update(0);
+        menu.update(&input, &mut inv);
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.bag.count(ItemKind::Rope), 3);
+    }
+
+    #[test]
+    fn what_doesnt_fit_the_other_side_stays_where_it_was() {
+        let (mut menu, mut inv) = at_the_cart();
+        let cart = inv.cart.as_mut().unwrap();
+        while cart.stow_one(ItemKind::Stone) {}
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.bag.count(ItemKind::Rope), 3);
+        assert_eq!(menu.notice, Some("NO ROOM"));
     }
 
     #[test]

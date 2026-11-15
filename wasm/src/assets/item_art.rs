@@ -1408,3 +1408,210 @@ fn spoked_wheel_disc(a: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32) {
         }
     }
 }
+
+/// The handcart for its picture in the bag screen, 32x32: seen from the
+/// side at a slant, a lauan bed on a spoked wheel, the bamboo poles
+/// running off to the right.
+pub fn icon_handcart() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    // The poles, rising off the bed toward the right.
+    for x in 16..31 {
+        let y = 12 - (x - 16) / 3;
+        a.set(x, y, i('G'));
+        a.set(x, y + 1, i('g'));
+    }
+    // The bed: a lauan box, its top lit.
+    for y in 8..19 {
+        for x in 2..22 {
+            let c = if y == 8 {
+                'c'
+            } else if x == 2 || y == 18 || x == 21 || (x + 2) % 5 == 0 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheel under it.
+    spoked_wheel_disc(&mut a, 11.0, 22.0, 8.5, 8.5);
+    a.outlined(i('o'))
+}
+
+/// How many pictures of the side-on cart there are with its wheel turned
+/// round a step further each (the six spokes come round to where they
+/// started after this many steps).
+pub const CART_WHEEL_STEPS: usize = 3;
+
+/// The handcart seen side on, 32x24, facing right (its front, where the
+/// handle comes out, on the right): as the castaway pulls it along (or it
+/// stands) facing across the screen. A tall lauan bed, and under its back
+/// half a small spoked wheel showing face on, its foot (with its outline)
+/// on the bottom row, level with the soles of the castaway's shoes. The
+/// handle is drawn on its own (`handcart_handle`), running on from the
+/// bed's front at its rail (rows 10 and 11). Its wheel is turned `step`
+/// steps (of `CART_WHEEL_STEPS`) clockwise, for it to roll.
+pub fn handcart_side_turned(step: usize) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let turn = step as f32 / CART_WHEEL_STEPS as f32;
+    let mut a = PixelArt::filled(32, 24, 0);
+    // The bed: a lauan box seen from the side, its top rail lit.
+    for y in 8..17 {
+        for x in 1..24 {
+            let c = if y == 8 {
+                'c'
+            } else if y == 16 || x == 1 || x == 23 || y == 11 || (x - 1) % 6 == 0 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The rail the handle runs on from, along the top of the bed.
+    for x in 1..24 {
+        a.set(x, 10, i('c'));
+    }
+    // The wheel, face on, under the bed's back half (its foot on row 22,
+    // the outline below it on the bottom row): small, so a thin rim, lit
+    // on the upper left, round six spokes and the hub.
+    let (cx, cy, r) = (12.0f32, 17.0f32, 5.6f32);
+    for y in 10..24 {
+        for x in 5..20 {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let d = dx.hypot(dy);
+            if d > r {
+                continue;
+            }
+            let spoke = {
+                let a6 = dy.atan2(dx) / std::f32::consts::TAU * 6.0 - turn;
+                (a6 - a6.round()).abs() * d * std::f32::consts::TAU / 6.0 < 0.55
+            };
+            let c = if d > r - 1.5 {
+                if dx + dy < -1.0 { 'c' } else { 'w' }
+            } else if d < 1.2 {
+                'w'
+            } else if spoke {
+                'c'
+            } else {
+                continue;
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart's handle seen side on, 16x8, running right from the bed's
+/// front (the left edge) past the castaway pulling it to the crossbar in
+/// front of them, where their hands hold it (rows 1 and 2).
+pub fn handcart_handle() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 8, 0);
+    for x in 0..15 {
+        a.set(x, 1, i('G'));
+        a.set(x, 2, i('g'));
+    }
+    a.set(15, 1, i('h'));
+    a.set(15, 2, i('G'));
+    a.outlined(i('o'))
+}
+
+/// The handcart seen from its front, 24x24, as the castaway pulls it
+/// down the screen (it's behind them): the bed's front panel, its top
+/// showing over their head, and a wheel edge on at each side, poking out
+/// beside them. The handle is drawn on its own (`handcart_front_handle`),
+/// in front of them.
+pub fn handcart_front() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 24, 0);
+    // The bed's top edge, then its front panel, planked.
+    for y in 1..16 {
+        for x in 3..21 {
+            let c = if y == 1 {
+                'c'
+            } else if y == 2 || y % 5 == 1 || x == 3 || x == 20 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheels, edge on, at its sides.
+    for y in 7..21 {
+        for x in [0, 1, 2, 21, 22, 23] {
+            let rim = x == 0 || x == 23 || y == 7 || y == 20;
+            a.set(
+                x,
+                y,
+                i(if rim {
+                    'w'
+                } else if (y + x) % 3 == 0 {
+                    'c'
+                } else {
+                    'W'
+                }),
+            );
+        }
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart's handle seen from the front, 24x16: two rails running
+/// down from under the bed beside the castaway pulling it, to the
+/// crossbar across in front of them (rows 10 and 11), where they hold it.
+pub fn handcart_front_handle() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 16, 0);
+    for y in 1..12 {
+        for (x, c) in [(3, 'G'), (4, 'g'), (19, 'g'), (20, 'G')] {
+            a.set(x, y, i(c));
+        }
+    }
+    for x in 3..21 {
+        a.set(x, 10, i(if x % 2 == 0 { 'G' } else { 'h' }));
+        a.set(x, 11, i('g'));
+    }
+    a.outlined(i('o'))
+}
+
+/// The handcart seen from its back, 24x24, as the castaway pulls it up the
+/// screen (it's in front of them, nearer the eye): the bed's back panel,
+/// hiding them from the waist down to the ankles, its top edge with the
+/// rails of the handle rising from it beside them (the crossbar is in
+/// front of them, out of sight); under the bed a gap their feet show
+/// through, and a wheel edge on at each side, down on the ground (row 19,
+/// level with the soles of their shoes).
+pub fn handcart_back() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(24, 24, 0);
+    // The rails, rising beside the castaway.
+    for y in 0..6 {
+        for (x, c) in [(3, 'G'), (4, 'g'), (19, 'g'), (20, 'G')] {
+            a.set(x, y, i(c));
+        }
+    }
+    // The bed's top, then its back panel, planked; open underneath.
+    for y in 4..14 {
+        for x in 2..22 {
+            let c = if y <= 5 {
+                'c'
+            } else if y == 6 || y == 13 || y % 4 == 1 || x == 2 || x == 21 {
+                'w'
+            } else {
+                'W'
+            };
+            a.set(x, y, i(c));
+        }
+    }
+    // The wheels, edge on, at its sides, down on the ground.
+    for y in 8..20 {
+        for x in [0, 1, 22, 23] {
+            let rim = x == 0 || x == 23 || y == 8 || y == 19;
+            a.set(x, y, i(if rim { 'w' } else { 'W' }));
+        }
+    }
+    a.outlined(i('o'))
+}
