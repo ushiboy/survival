@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Keeps the actions in .github/workflows/ (and their entries in
+  # .github/workflows/actions.lock) up to date.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a week after a release before proposing it, so a bad or
+    # compromised release has time to be noticed and pulled.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']

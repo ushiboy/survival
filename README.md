@@ -108,6 +108,27 @@ cd wasm && cargo run --release --example palms -- 1        # cells of the water 
 - `stream_check`: moves the screen from edge to edge over a large map of 5×5 islands and checks that the tiles on screen match, pixel for pixel, tiles made afresh each time (see [docs/rendering.md](docs/rendering.md#vram-とストリーミング)).
 - `palms`: prints the cells of every water spot, and of the palms near the landing spot (trunk base cells) with the coconuts left on them, bushes, vines, boulders, driftwood, shells and broadleaf trees.
 
+## Deploying
+
+Every push to `main` builds the game and publishes it to GitHub Pages (`.github/workflows/deploy.yml`); it can also be run by hand from the Actions tab. The workflow installs Node, pnpm and wasm-pack from `mise.toml` and Rust from `rust-toolchain.toml`, checks the formatting, runs both test suites, and deploys `dist/`.
+
+- In the repository's **Settings → Pages**, set **Source** to **GitHub Actions** (once).
+- A project site is served under `/<repository>/`, so the workflow builds with `BASE_PATH` set to that path (taken from `actions/configure-pages`). To try such a build locally: `BASE_PATH=/survival/ pnpm build`. Without `BASE_PATH` the build is for `/`.
+
+### Actions the workflows use
+
+Every action in `.github/workflows/` is locked to a commit in `.github/workflows/actions.lock` ([workflow dependency lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles)), including the actions those actions use. Dependabot (`.github/dependabot.yml`) proposes updates once a week, only for releases at least 7 days old, and updates the lockfile in the same PR.
+
+- Don't edit `actions.lock` by hand. After adding, removing or changing a `uses:`, regenerate it and review the diff (a changed `commit` is the code that will run; a changed `owner_id`/`repo_id` means the name now points at another repository):
+
+  ```bash
+  gh extension install github/gh-actions-lock   # once
+  gh actions-lock
+  ```
+
+- `gh actions-lock` warns when a version is newer than the 7-day cooldown; pick an older release unless the new one is needed.
+- The repository's Actions policy has **Require lockfile** on, so a workflow that isn't in `actions.lock` (a new workflow included) is blocked. `.github/workflows/verify-lockfile.yml` runs `gh actions-lock --verify` on pull requests that touch `.github/`, so this shows up before merging; run `gh actions-lock --verify` locally to check the same thing.
+
 ## Layout
 
 ```
