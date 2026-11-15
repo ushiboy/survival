@@ -201,12 +201,7 @@ impl Default for Ppu {
 
 impl Ppu {
     pub fn new() -> Self {
-        Self {
-            rgba: vec![0; SCREEN_W * SCREEN_H * 4],
-            line_sprites: Vec::with_capacity(MAX_SPRITES_PER_LINE),
-            sprite_limit: true,
-            overflowed: false,
-        }
+        Self { rgba: vec![0; SCREEN_W * SCREEN_H * 4], line_sprites: Vec::with_capacity(MAX_SPRITES_PER_LINE), sprite_limit: true, overflowed: false }
     }
 
     pub fn rgba(&self) -> &[u8] {
@@ -283,9 +278,7 @@ impl Ppu {
                     color = match sub {
                         Some(s) => math.apply(color, cg[s as usize], math.half),
                         // Empty sub-screen: fixed colour, never halved.
-                        None if math.source == MathSource::SubScreen => {
-                            math.apply(color, frame.lines.fixed_color[y], false)
-                        }
+                        None if math.source == MathSource::SubScreen => math.apply(color, frame.lines.fixed_color[y], false),
                         None => math.apply(color, frame.lines.fixed_color[y], math.half),
                     };
                 }

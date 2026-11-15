@@ -32,9 +32,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use image::{Image, Rgb, text_width};
+use survival_core::assets::Assets;
 use survival_core::assets::palettes::{HUD_MENU, base_cgram};
 use survival_core::assets::props::Ground;
-use survival_core::assets::Assets;
 use survival_core::common::math::Rect;
 use survival_core::entity::item::Item;
 use survival_core::items::ItemKind;
@@ -68,13 +68,7 @@ struct Options {
 }
 
 fn options() -> Options {
-    let mut o = Options {
-        out: Path::new(env!("CARGO_MANIFEST_DIR")).join("target/art"),
-        scale: 3,
-        filter: Vec::new(),
-        set_base: false,
-        clear_base: false,
-    };
+    let mut o = Options { out: Path::new(env!("CARGO_MANIFEST_DIR")).join("target/art"), scale: 3, filter: Vec::new(), set_base: false, clear_base: false };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -280,7 +274,14 @@ impl Stage {
         f.cgram = base_cgram();
         f.lines.clear();
         // As the game draws daylight: shadows at half strength.
-        f.math = ColorMath { layers: layer::OBJ, op: MathOp::Add, half: true, source: MathSource::SubScreen, region: WindowRegion::Everywhere, sub_layers: layer::BG1 | layer::BG2 };
+        f.math = ColorMath {
+            layers: layer::OBJ,
+            op: MathOp::Add,
+            half: true,
+            source: MathSource::SubScreen,
+            region: WindowRegion::Everywhere,
+            sub_layers: layer::BG1 | layer::BG2,
+        };
         f.main_layers = layer::BG1 | layer::BG2 | layer::OBJ;
         f.bg3_priority = false;
         self.list.clear();

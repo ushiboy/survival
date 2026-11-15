@@ -29,12 +29,12 @@
 //! details (trees, stones, shells...) are scattered from a fixed seed.
 
 use super::harvest::{BARK_STRIPS, PALM_COCONUTS, PINE_CONES};
-use crate::items::ItemKind;
 use super::map::{Spots, TILE_SIZE, WorldMap};
 use super::noise::fbm;
 use super::river::River;
 use super::terrain::{BambooPart, BroadleafPart, ClayPart, DriftwoodPart, Feature, PalmPart, PinePart, Soil, Terrain, patch_cells};
 use crate::common::rng::{Rng, hash_unit};
+use crate::items::ItemKind;
 
 /// The island's plan, and the cells each of its characters stands for.
 const PLAN: &str = include_str!("island_plan.txt");
@@ -538,7 +538,9 @@ fn fill_lake(map: &mut WorldMap, field: &HeightField, high: &[bool], heights: &m
                 (-1..=1).any(|dy| {
                     (-1..=1).any(|dx| {
                         let (nx, ny) = (x + dx, y + dy);
-                        snapshot.in_bounds(nx, ny) && matches!(snapshot.terrain(nx, ny), Terrain::Highland | Terrain::Sand | Terrain::CliffTop) && !field.is_rocks(nx, ny)
+                        snapshot.in_bounds(nx, ny)
+                            && matches!(snapshot.terrain(nx, ny), Terrain::Highland | Terrain::Sand | Terrain::CliffTop)
+                            && !field.is_rocks(nx, ny)
                     })
                 })
             };
@@ -687,7 +689,9 @@ fn raise_crags(map: &mut WorldMap, field: &HeightField) {
         // top sitting flat on the cliff's edge).
         let (top, bottom) = if map.terrain(x, y + 1) == Terrain::CliffTop { (y - CRAG_FACE + 1, y) } else { (y + 1, y + CRAG_FACE) };
         for fy in top..=bottom {
-            if map.is_high(x, fy) && matches!(map.terrain(x, fy), Terrain::Crag | Terrain::Highland | Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater) {
+            if map.is_high(x, fy)
+                && matches!(map.terrain(x, fy), Terrain::Crag | Terrain::Highland | Terrain::Sand | Terrain::ShallowWater | Terrain::DeepWater)
+            {
                 map.set_terrain(x, fy, Terrain::Cliff);
             }
         }
@@ -708,7 +712,8 @@ fn upper_water_spot(map: &WorldMap, river: &River) -> Option<(i32, i32)> {
         for side in [1.0f32, -1.0] {
             let (bx, by) = (sx + side * 1.6, y);
             let (gx, gy) = (bx.round() as i32, by.round() as i32);
-            let clear = (-1..=1).all(|dy| (-1..=1).all(|dx| map.terrain(gx + dx, gy + dy) != Terrain::CliffTop && map.feature(gx + dx, gy + dy) == Feature::None));
+            let clear =
+                (-1..=1).all(|dy| (-1..=1).all(|dx| map.terrain(gx + dx, gy + dy) != Terrain::CliffTop && map.feature(gx + dx, gy + dy) == Feature::None));
             if map.terrain(gx, gy) == Terrain::Highland && clear && river.nearest(bx, by).depth() < -0.3 {
                 return Some((((bx + 0.5) * ts) as i32, ((by + 0.5) * ts) as i32));
             }
@@ -801,9 +806,7 @@ pub fn generate(seed: u32) -> WorldMap {
     let in_clearing = |x: i32, y: i32| clearing.is_some_and(|(cx, cy)| (x as f32 - cx).hypot(y as f32 - cy) < LOW_CLIFF_CLEARING);
     // The banks at the narrow are open too, so the river's narrowing shows.
     let narrow = map.spots.bridge;
-    let at_narrow = |x: i32, y: i32| {
-        narrow.is_some_and(|(nx, ny)| ((x - nx) as f32).hypot((y - ny) as f32 * BRIDGE_CLEARING_SQUASH) < BRIDGE_CLEARING)
-    };
+    let at_narrow = |x: i32, y: i32| narrow.is_some_and(|(nx, ny)| ((x - nx) as f32).hypot((y - ny) as f32 * BRIDGE_CLEARING_SQUASH) < BRIDGE_CLEARING);
     // So is the ground kept for the mill, west of the bank it stands on.
     let mill = map.spots.mill;
     let at_mill = |x: i32, y: i32| {
@@ -814,7 +817,11 @@ pub fn generate(seed: u32) -> WorldMap {
     // The way up the slope is kept clear.
     let slope_clear: Vec<bool> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| by_slope(&map, x, y)).collect();
     let near_spawn = |x: i32, y: i32| {
-        (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3 || in_clearing(x, y) || at_narrow(x, y) || at_mill(x, y) || ((0..w).contains(&x) && (0..h).contains(&y) && slope_clear[(y * w + x) as usize])
+        (x - spawn_cell.0).abs() <= 3 && (y - spawn_cell.1).abs() <= 3
+            || in_clearing(x, y)
+            || at_narrow(x, y)
+            || at_mill(x, y)
+            || ((0..w).contains(&x) && (0..h).contains(&y) && slope_clear[(y * w + x) as usize])
     };
     let forest: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| field.forest(x, y)).collect();
 
@@ -882,7 +889,9 @@ fn patch_and_ring(x: i32, y: i32) -> impl Iterator<Item = (i32, i32)> {
 /// the beach north of the ladder (left open), each with mud all round it.
 fn place_clay_beds(map: &mut WorldMap, seed: u32) {
     let Some((lx, ly)) = map.spots.ladder else { return };
-    let mud = |x: i32, y: i32| map.in_bounds(x, y) && map.is_high(x, y) && map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud && map.feature(x, y) == Feature::None;
+    let mud = |x: i32, y: i32| {
+        map.in_bounds(x, y) && map.is_high(x, y) && map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud && map.feature(x, y) == Feature::None
+    };
     let beds = pick_patches(map, seed ^ 0xC1A7, CLAY_BEDS, CLAY_SPACING, &[], |x, y| {
         let off = [x - lx, x + 1 - lx];
         y < ly && off.iter().all(|d| d.abs() > LAUNCH_HALF_WIDTH && d.abs() <= CLAY_REACH) && patch_and_ring(x, y).all(|(cx, cy)| mud(cx, cy))
@@ -913,8 +922,11 @@ fn place_bare_earth(map: &mut WorldMap, heights: &[f32], seed: u32, kept: &dyn F
             && !(high && by_lake(map, x, y))
             && !loot.contains(&(x, y))
     };
-    let low = pick_patches(map, seed ^ 0xEA27, for_area(map, EARTH_PATCHES), EARTH_SPACING, &[], |x, y| patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, false)));
-    let high = pick_patches(map, seed ^ 0xEA28, for_high_area(map, HIGH_EARTH_PATCHES), EARTH_SPACING, &low, |x, y| patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, true)));
+    let low =
+        pick_patches(map, seed ^ 0xEA27, for_area(map, EARTH_PATCHES), EARTH_SPACING, &[], |x, y| patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, false)));
+    let high = pick_patches(map, seed ^ 0xEA28, for_high_area(map, HIGH_EARTH_PATCHES), EARTH_SPACING, &low, |x, y| {
+        patch_and_ring(x, y).all(|(cx, cy)| open(cx, cy, true))
+    });
     for anchor in low.into_iter().chain(high) {
         for (part, (x, y)) in patch_cells(anchor).into_iter().enumerate() {
             map.set_feature(x, y, Feature::BareEarth(part as u8));
@@ -1062,7 +1074,10 @@ pub fn for_high_area(map: &WorldMap, per_area: usize) -> usize {
 }
 
 pub fn for_area(map: &WorldMap, per_area: usize) -> usize {
-    let land = (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| !map.is_high(x, y) && matches!(map.terrain(x, y), Terrain::Sand | Terrain::Grass)).count();
+    let land = (0..map.height())
+        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| !map.is_high(x, y) && matches!(map.terrain(x, y), Terrain::Sand | Terrain::Grass))
+        .count();
     per_area * land / AREA_LAND as usize
 }
 
@@ -1076,9 +1091,7 @@ fn enforce_transitions(map: &mut WorldMap) {
     for y in 0..map.height() {
         for x in 0..map.width() {
             match snapshot.terrain(x, y) {
-                Terrain::DeepWater if neighbours(x, y, &|t| t.is_land()) => {
-                    map.set_terrain(x, y, Terrain::ShallowWater)
-                }
+                Terrain::DeepWater if neighbours(x, y, &|t| t.is_land()) => map.set_terrain(x, y, Terrain::ShallowWater),
                 Terrain::Grass if neighbours(x, y, &|t| t.is_water()) => map.set_terrain(x, y, Terrain::Sand),
                 _ => {}
             }
@@ -1151,7 +1164,15 @@ fn place_palms(map: &mut WorldMap, heights: &[f32], seed: u32, near_spawn: &dyn 
                 let flip = roll(x, y, seed ^ 0xF11B) < 0.5;
                 // Most palms carry a full bunch; a few have little or none.
                 let r = roll(x, y, seed ^ 0xC0C0);
-                let coconuts = if r < 0.08 { 0 } else if r < 0.2 { 1 } else if r < 0.5 { 2 } else { PALM_COCONUTS };
+                let coconuts = if r < 0.08 {
+                    0
+                } else if r < 0.2 {
+                    1
+                } else if r < 0.5 {
+                    2
+                } else {
+                    PALM_COCONUTS
+                };
                 map.set_fruit((x, y), coconuts);
                 for dy in 0..ph {
                     for dx in 0..pw {
@@ -1226,11 +1247,12 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
                     let (cx, cy) = (x + dx, y + dy);
                     let h = heights[(cy * map.width() + cx) as usize];
                     let on = map.terrain(cx, cy);
-                    let ground_ok = if ground == Terrain::Highland { on == Terrain::Highland && !by_lake(map, cx, cy) } else { on == Terrain::Grass && h > SAND_BELOW + PROP_MARGIN };
-                    ground_ok
-                        && map.feature(cx, cy) == Feature::None
-                        && !near_spawn(cx, cy)
-                        && !map.is_riverside(cx, cy)
+                    let ground_ok = if ground == Terrain::Highland {
+                        on == Terrain::Highland && !by_lake(map, cx, cy)
+                    } else {
+                        on == Terrain::Grass && h > SAND_BELOW + PROP_MARGIN
+                    };
+                    ground_ok && map.feature(cx, cy) == Feature::None && !near_spawn(cx, cy) && !map.is_riverside(cx, cy)
                 })
             });
             let crowded = (-1..=th).any(|dy| {
@@ -1248,7 +1270,11 @@ fn place_broadleafs(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u
                 for dy in 0..th {
                     for dx in 0..tw {
                         let (dx8, dy8) = (dx as u8, dy as u8);
-                        let f = if pine { Feature::Pine(PinePart { dx: dx8, dy: dy8, flip }) } else { Feature::Broadleaf(BroadleafPart { dx: dx8, dy: dy8, flip }) };
+                        let f = if pine {
+                            Feature::Pine(PinePart { dx: dx8, dy: dy8, flip })
+                        } else {
+                            Feature::Broadleaf(BroadleafPart { dx: dx8, dy: dy8, flip })
+                        };
                         map.set_feature(x + dx, y + dy, f);
                     }
                 }
@@ -1268,7 +1294,8 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
     };
     let river_from = river_from(map);
     let west_coast = |map: &WorldMap, x: i32, y: i32| !map.is_high(x, y) && river_from[y as usize].is_some_and(|rx| x < rx);
-    let by_tree = |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+    let by_tree =
+        |map: &WorldMap, x: i32, y: i32| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
     let by_bamboo = |map: &WorldMap, x: i32, y: i32| (-1..=1).any(|dy| (-1..=1).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Bamboo(_))));
     for y in 0..map.height() {
         for x in 0..map.width() {
@@ -1300,7 +1327,13 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
                 // walk among their bushes.
                 Terrain::Grass if h > JUNGLE_ABOVE => {
                     let bushes = if west_coast(map, x, y) { WEST_JUNGLE_BUSHES } else { JUNGLE_BUSHES };
-                    if r < bushes { Feature::Bush } else if r < bushes + 0.06 { Feature::Flower } else { Feature::None }
+                    if r < bushes {
+                        Feature::Bush
+                    } else if r < bushes + 0.06 {
+                        Feature::Flower
+                    } else {
+                        Feature::None
+                    }
                 }
                 // Climbers thrive at the jungle's edge.
                 Terrain::Grass if r > 0.93 && h > JUNGLE_ABOVE - VINE_BELT => Feature::Vine,
@@ -1308,10 +1341,22 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
                 Terrain::Grass if r > 1.0 - WEST_VINES && west_coast(map, x, y) && (by_tree(map, x, y) || by_bamboo(map, x, y)) => Feature::Vine,
                 // Undergrowth in the forest, light enough to walk through.
                 Terrain::Grass if forest[(y * map.width() + x) as usize] > 0.5 => {
-                    if r < 0.06 { Feature::Bush } else if r < 0.09 { Feature::Flower } else { Feature::None }
+                    if r < 0.06 {
+                        Feature::Bush
+                    } else if r < 0.09 {
+                        Feature::Flower
+                    } else {
+                        Feature::None
+                    }
                 }
                 Terrain::Grass => {
-                    if r < 0.05 { Feature::Bush } else if r < 0.12 { Feature::Flower } else { Feature::None }
+                    if r < 0.05 {
+                        Feature::Bush
+                    } else if r < 0.12 {
+                        Feature::Flower
+                    } else {
+                        Feature::None
+                    }
                 }
                 // The lake's shore: nothing washed up from the sea.
                 Terrain::Sand if map.is_high(x, y) => Feature::None,
@@ -1345,7 +1390,8 @@ fn place_scatter(map: &mut WorldMap, heights: &[f32], forest: &[f32], seed: u32,
 fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
     let mut rng = Rng::new(seed ^ 0x100F);
     let mut out: Vec<(ItemKind, (i32, i32))> = Vec::new();
-    for (kind, count, prefer) in [(ItemKind::Branch, for_area(map, BRANCH_COUNT), Terrain::Grass), (ItemKind::Stone, for_area(map, STONE_COUNT), Terrain::Sand)] {
+    for (kind, count, prefer) in [(ItemKind::Branch, for_area(map, BRANCH_COUNT), Terrain::Grass), (ItemKind::Stone, for_area(map, STONE_COUNT), Terrain::Sand)]
+    {
         let mut placed = 0;
         for _ in 0..4000 {
             if placed >= count {
@@ -1376,9 +1422,7 @@ fn scatter_loot(map: &WorldMap, seed: u32) -> Vec<(ItemKind, (i32, i32))> {
                 break;
             }
             let (x, y) = (rng.between(0, map.width() - 1), rng.between(0, map.height() - 1));
-            let open = map.terrain(x, y) == Terrain::Highland
-                && !map.props(x, y).solid
-                && matches!(map.feature(x, y), Feature::None | Feature::Flower);
+            let open = map.terrain(x, y) == Terrain::Highland && !map.props(x, y).solid && matches!(map.feature(x, y), Feature::None | Feature::Flower);
             let taken = out.iter().any(|&(_, (px, py))| px.div_euclid(TILE_SIZE) == x && py.div_euclid(TILE_SIZE) == y);
             if !open || taken {
                 continue;
@@ -1551,7 +1595,8 @@ mod tests {
     /// High ground beside the top of the slope (the cell east of its top).
     fn above_the_slope(map: &WorldMap) -> (i32, i32) {
         let w = map.width();
-        let top = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).find(|&(x, y)| map.terrain(x, y) == Terrain::Slope).expect("the island has a slope");
+        let top =
+            (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).find(|&(x, y)| map.terrain(x, y) == Terrain::Slope).expect("the island has a slope");
         let x = (top.0..w).find(|&x| map.terrain(x, top.1) == Terrain::Highland && !map.props(x, top.1).solid).expect("high ground beside the slope's top");
         (x, top.1)
     }
@@ -1590,9 +1635,11 @@ mod tests {
     fn vines_grow_on_the_high_ground_by_its_trees() {
         let map = island();
         let w = map.width();
-        let vines: Vec<(i32, i32)> = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| map.is_high(x, y) && map.feature(x, y) == Feature::Vine).collect();
+        let vines: Vec<(i32, i32)> =
+            (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| map.is_high(x, y) && map.feature(x, y) == Feature::Vine).collect();
         assert!(!vines.is_empty());
-        let by_tree = |(x, y): (i32, i32)| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
+        let by_tree =
+            |(x, y): (i32, i32)| (-2..=2).any(|dy| (-2..=2).any(|dx| matches!(map.feature(x + dx, y + dy), Feature::Pine(_) | Feature::Broadleaf(_))));
         assert!(vines.iter().all(|&v| by_tree(v)));
     }
 
@@ -1662,7 +1709,8 @@ mod tests {
     fn the_lake_shore_can_be_reached_from_the_high_ground() {
         let walk = walk_with_ladder();
         let w = walk.map.width();
-        let shore = (0..walk.map.height()).any(|y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::ShallowWater && walk.can((x, y))));
+        let shore =
+            (0..walk.map.height()).any(|y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::ShallowWater && walk.can((x, y))));
         assert!(shore, "the castaway can wade into the lake's shallows");
     }
 
@@ -1671,7 +1719,8 @@ mod tests {
         let walk = walk_with_ladder();
         let w = walk.map.width();
         // The far side: high ground north of the lake's deep water.
-        let deep_rows: Vec<i32> = (0..walk.map.height()).filter(|&y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::DeepWater)).collect();
+        let deep_rows: Vec<i32> =
+            (0..walk.map.height()).filter(|&y| (0..w).any(|x| walk.map.is_high(x, y) && walk.map.terrain(x, y) == Terrain::DeepWater)).collect();
         let top = *deep_rows.first().expect("the lake has deep water");
         let beyond: Vec<(i32, i32)> = (0..top).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&c| walk.can(c)).collect();
         assert!(beyond.is_empty(), "nothing north of the lake can be walked to: {} cells, e.g. {:?}", beyond.len(), &beyond[..beyond.len().min(8)]);

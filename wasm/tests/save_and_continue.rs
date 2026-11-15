@@ -53,7 +53,6 @@ fn a_game_carried_on_plays_on_like_the_one_saved() {
     assert_eq!(carried_on.player_tile(), game.player_tile());
 }
 
-
 /// Chunks awake when the game was saved are awake when it is carried on,
 /// even those beyond where chunks wake but not yet far enough behind to
 /// fall asleep: their creatures keep moving.

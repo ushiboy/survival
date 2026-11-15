@@ -1,7 +1,7 @@
 //! Tiny procedural painting toolkit used to author 4bpp art in code:
 //! ordered dithering onto colour ramps, tileable noise and simple shapes.
 
-use crate::common::rng::{hash2, hash_unit};
+use crate::common::rng::{hash_unit, hash2};
 use crate::ppu::pattern::PixelArt;
 
 /// 4x4 Bayer threshold in (0, 1).
@@ -81,14 +81,7 @@ pub fn rand_int(x: i32, y: i32, seed: u32, n: u32) -> i32 {
 
 /// Fills an ellipse; `shade(nx, ny)` gets the normalised position inside
 /// (-1..1) and returns the colour, or None to skip the pixel.
-pub fn fill_ellipse(
-    art: &mut PixelArt,
-    cx: f32,
-    cy: f32,
-    rx: f32,
-    ry: f32,
-    mut shade: impl FnMut(i32, i32, f32, f32) -> Option<u8>,
-) {
+pub fn fill_ellipse(art: &mut PixelArt, cx: f32, cy: f32, rx: f32, ry: f32, mut shade: impl FnMut(i32, i32, f32, f32) -> Option<u8>) {
     let (x0, x1) = ((cx - rx).floor() as i32, (cx + rx).ceil() as i32);
     let (y0, y1) = ((cy - ry).floor() as i32, (cy + ry).ceil() as i32);
     for y in y0..=y1 {
@@ -96,9 +89,10 @@ pub fn fill_ellipse(
             let nx = (x as f32 + 0.5 - cx) / rx;
             let ny = (y as f32 + 0.5 - cy) / ry;
             if nx * nx + ny * ny <= 1.0
-                && let Some(v) = shade(x, y, nx, ny) {
-                    art.put(x, y, v);
-                }
+                && let Some(v) = shade(x, y, nx, ny)
+            {
+                art.put(x, y, v);
+            }
         }
     }
 }

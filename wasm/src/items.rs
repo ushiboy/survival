@@ -195,7 +195,28 @@ impl ItemKind {
     /// Footprint in bag cells (width, height), unturned.
     pub fn size(self) -> (i32, i32) {
         match self {
-            ItemKind::Coconut | ItemKind::OpenedCoconut | ItemKind::RawWater | ItemKind::Stone | ItemKind::StoneKnife | ItemKind::Vine | ItemKind::FireDrill | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Leaf | ItemKind::Bark | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::Husk | ItemKind::Rope | ItemKind::SeaShell | ItemKind::ShellHook | ItemKind::Fish | ItemKind::GrilledFish | ItemKind::PineCone | ItemKind::Clay | ItemKind::Soil => (1, 1),
+            ItemKind::Coconut
+            | ItemKind::OpenedCoconut
+            | ItemKind::RawWater
+            | ItemKind::Stone
+            | ItemKind::StoneKnife
+            | ItemKind::Vine
+            | ItemKind::FireDrill
+            | ItemKind::Crab
+            | ItemKind::GrilledCrab
+            | ItemKind::Leaf
+            | ItemKind::Bark
+            | ItemKind::BarkContainer
+            | ItemKind::BoiledWater
+            | ItemKind::Husk
+            | ItemKind::Rope
+            | ItemKind::SeaShell
+            | ItemKind::ShellHook
+            | ItemKind::Fish
+            | ItemKind::GrilledFish
+            | ItemKind::PineCone
+            | ItemKind::Clay
+            | ItemKind::Soil => (1, 1),
             ItemKind::Branch | ItemKind::DiggingStick | ItemKind::StoneAxe | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Torch => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WaterWheel => (3, 3),
@@ -368,7 +389,14 @@ impl ItemKind {
     /// Where it's held or worn, if it's gear.
     pub fn slot(self) -> Option<Slot> {
         match self {
-            ItemKind::StoneAxe | ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Ladder | ItemKind::LogBridge | ItemKind::WaterWheel | ItemKind::DiggingStick | ItemKind::BambooSpade => Some(Slot::Hand),
+            ItemKind::StoneAxe
+            | ItemKind::WoodSpear
+            | ItemKind::FishingRod
+            | ItemKind::Ladder
+            | ItemKind::LogBridge
+            | ItemKind::WaterWheel
+            | ItemKind::DiggingStick
+            | ItemKind::BambooSpade => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             _ => None,
         }

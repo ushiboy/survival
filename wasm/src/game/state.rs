@@ -1,9 +1,9 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
 use super::bag::{BASE_ROWS, Bag};
+use crate::assets::character::Outfit;
 use crate::crafting::RecipeBook;
 use crate::items::{ItemKind, Slot};
-use crate::assets::character::Outfit;
 
 /// Video frames per in-game minute (one day ≈ 8 real minutes).
 pub const FRAMES_PER_MINUTE: u32 = 20;
@@ -60,7 +60,9 @@ impl GameClock {
 pub enum Rest {
     /// Up and about: `ran` is how many of the minute's frames were spent
     /// running (out of `FRAMES_PER_MINUTE`).
-    Awake { ran: u32 },
+    Awake {
+        ran: u32,
+    },
     Asleep,
     /// Asleep under a shelter.
     Sheltered,
@@ -178,7 +180,20 @@ impl Vitals {
     const RUN_TIRE: u32 = 2;
 
     pub fn new() -> Self {
-        Self { hp: Self::MAX, max_hp: Self::MAX, food: Self::MAX, water: Self::MAX, food_spent: 0, water_spent: 0, tired: 0, wear: 0.0, mend: 0.0, run_tired: 0, ailments: Vec::new(), drunk_raw_water: false }
+        Self {
+            hp: Self::MAX,
+            max_hp: Self::MAX,
+            food: Self::MAX,
+            water: Self::MAX,
+            food_spent: 0,
+            water_spent: 0,
+            tired: 0,
+            wear: 0.0,
+            mend: 0.0,
+            run_tired: 0,
+            ailments: Vec::new(),
+            drunk_raw_water: false,
+        }
     }
 
     /// Nothing left to eat: too weak to run.

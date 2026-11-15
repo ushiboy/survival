@@ -2,7 +2,7 @@
 //! so repetition is far less visible than with single 16x16 tiles; a map cell
 //! uses the slice matching its position modulo 4.
 
-use super::paint::{TileNoise, bayer, noise_px, rand_int, ramp};
+use super::paint::{TileNoise, bayer, noise_px, ramp, rand_int};
 use super::palettes::{deep, grass, rock, sand, shore};
 use crate::ppu::pattern::PixelArt;
 use std::f32::consts::TAU;

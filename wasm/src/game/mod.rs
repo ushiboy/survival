@@ -9,37 +9,37 @@ pub mod regions;
 pub mod save;
 pub mod state;
 
-use crate::assets::{Assets, SpriteIds};
-use crate::ppu::oam::ObjEntry;
 use crate::assets::character::Outfit;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
-use crate::common::input::{Buttons, InputState};
 use crate::assets::props::{PALM_W, coconut_spots};
+use crate::assets::{Assets, SpriteIds};
+use crate::common::input::{Buttons, InputState};
 use crate::common::math::{Dir, Rect};
 use crate::common::rng::Rng;
+use crate::crafting::{RECIPES, Recipe};
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
 use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, Situation};
-use bag::Bag;
-use fishing::{Float, Line};
+use crate::items::{ItemKind, Use};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
+use crate::ppu::oam::ObjEntry;
 use crate::ppu::palette::Cgram;
 use crate::ppu::{BgLayer, FrameState, Ppu, SCREEN_H, SCREEN_W};
-use crate::render::camera::Camera;
-use crate::crafting::{RECIPES, Recipe};
-use crate::items::{ItemKind, Use};
 use crate::render::bag_screen;
+use crate::render::camera::Camera;
 use crate::render::end_screen;
-use crate::render::title_screen::{self, TitleItem};
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::light_canvas;
 use crate::render::lighting::{self, Lighting};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
-use crate::world::harvest::{self, Harvest, Shaken, Strike};
-use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
+use crate::render::title_screen::{self, TitleItem};
 use crate::world::driftwood::WestCoast;
+use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::map::BridgeSpan;
+use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
+use bag::Bag;
+use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
@@ -250,10 +250,7 @@ impl Game {
         };
         let crabs = crab_at.iter().enumerate().map(|(i, &(x, y))| Crab::new(x, y, seed.wrapping_add(i as u32 * 31))).collect();
         let (sx, sy) = (map.spawn.0 as f32, map.spawn.1 as f32);
-        let gulls = vec![
-            Gull::new((sx + 40.0, sy - 30.0), (120.0, 60.0), 0.006, 0.0),
-            Gull::new((sx - 80.0, sy + 10.0), (90.0, 70.0), -0.008, 2.0),
-        ];
+        let gulls = vec![Gull::new((sx + 40.0, sy - 30.0), (120.0, 60.0), 0.006, 0.0), Gull::new((sx - 80.0, sy + 10.0), (90.0, 70.0), -0.008, 2.0)];
         if let Some(s) = save {
             regions.restore(&s.island.asleep_since);
         }
@@ -356,7 +353,13 @@ impl Game {
             seed: self.seed,
             clock: save::Clock::of(&self.clock),
             vitals: self.vitals.clone(),
-            castaway: save::Castaway { at: self.player.body.px(), facing: self.player.facing, outfit: save::Castaway::outfit_index(&inv.outfit), mill_noticed: self.mill_noticed, bridge_noticed: self.bridge_noticed },
+            castaway: save::Castaway {
+                at: self.player.body.px(),
+                facing: self.player.facing,
+                outfit: save::Castaway::outfit_index(&inv.outfit),
+                mill_noticed: self.mill_noticed,
+                bridge_noticed: self.bridge_noticed,
+            },
             inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear },
             island: save::IslandState {
                 features,
@@ -811,7 +814,10 @@ impl Game {
     fn come_upon_the_narrow(&mut self) {
         let Some(bank) = self.map.bridge_bank().filter(|_| !self.bridge_noticed) else { return };
         let (x, y) = self.player_tile();
-        if !self.player.is_idle() || (x - bank.0).pow(2) + (y - bank.1).pow(2) > BRIDGE_NOTICE_CELLS * BRIDGE_NOTICE_CELLS || WestCoast::of(&self.map).contains(x, y) {
+        if !self.player.is_idle()
+            || (x - bank.0).pow(2) + (y - bank.1).pow(2) > BRIDGE_NOTICE_CELLS * BRIDGE_NOTICE_CELLS
+            || WestCoast::of(&self.map).contains(x, y)
+        {
             return;
         }
         self.bridge_noticed = true;
@@ -921,10 +927,11 @@ impl Game {
 
     /// Whether a fish swims near the point (and there's water there).
     fn fish_near(&self, (x, y): (i32, i32)) -> bool {
-        fish::swimmable(&self.map, (x, y)) && self.fish.iter().any(|f| {
-            let (fx, fy) = f.pos();
-            (fx - x).pow(2) + (fy - y).pow(2) < FISH_NEAR * FISH_NEAR
-        })
+        fish::swimmable(&self.map, (x, y))
+            && self.fish.iter().any(|f| {
+                let (fx, fy) = f.pos();
+                (fx - x).pow(2) + (fy - y).pow(2) < FISH_NEAR * FISH_NEAR
+            })
     }
 
     /// The line in the water this frame; it's gone if the castaway stopped
@@ -972,10 +979,7 @@ impl Game {
 
     /// The cells with a shell lying on the sand.
     fn shells_on_beach(&self) -> Vec<(i32, i32)> {
-        (0..self.map.height())
-            .flat_map(|y| (0..self.map.width()).map(move |x| (x, y)))
-            .filter(|&(x, y)| self.map.feature(x, y) == Feature::Shell)
-            .collect()
+        (0..self.map.height()).flat_map(|y| (0..self.map.width()).map(move |x| (x, y))).filter(|&(x, y)| self.map.feature(x, y) == Feature::Shell).collect()
     }
 
     /// A new day: the tide leaves a few shells on open sand near the water,
@@ -990,7 +994,8 @@ impl Game {
                 break;
             }
             let (x, y) = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
-            let open = self.map.terrain(x, y) == Terrain::Sand && !self.map.is_high(x, y) && self.map.feature(x, y) == Feature::None && !self.map.is_riverside(x, y);
+            let open =
+                self.map.terrain(x, y) == Terrain::Sand && !self.map.is_high(x, y) && self.map.feature(x, y) == Feature::None && !self.map.is_riverside(x, y);
             if open && near_water(&self.map, x, y) {
                 self.map.set_feature(x, y, Feature::Shell);
                 changed.push((x, y));
@@ -1202,10 +1207,7 @@ impl Game {
     /// The campfire the castaway stands by, if any.
     fn nearest_fire(&self) -> Option<&Campfire> {
         let (fx, fy) = self.player.body.feet();
-        self.fires
-            .iter()
-            .filter(|f| f.within((fx, fy), NEAR_FIRE))
-            .min_by_key(|f| (f.x - fx).pow(2) + (f.y - fy).pow(2))
+        self.fires.iter().filter(|f| f.within((fx, fy), NEAR_FIRE)).min_by_key(|f| (f.x - fx).pow(2) + (f.y - fy).pow(2))
     }
 
     /// Takes a recipe's materials and kneels to cook it over the nearest

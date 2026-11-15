@@ -8,22 +8,22 @@
 
 use std::collections::HashMap;
 
-use crate::assets::palettes::{PAL_DEEP, PAL_FOLIAGE, PAL_GRASS, PAL_ROCK, PAL_SAND, PAL_SHORE, deep, foliage, grass, rock, sand, shore};
-use crate::common::rng::hash_unit;
 use crate::assets::paint::{bayer, noise_px};
+use crate::assets::palettes::{PAL_DEEP, PAL_FOLIAGE, PAL_GRASS, PAL_ROCK, PAL_SAND, PAL_SHORE, deep, foliage, grass, rock, sand, shore};
 use crate::assets::props::{Ground, PropTile, composite};
 use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
 use crate::assets::{Assets, PALM_SWAY_MAX, PropSet, SURF_FRAMES, SURF_PERIOD};
 use crate::common::math::Rect;
+use crate::common::rng::hash_unit;
 use crate::ppu::banks::{MetatileBank, MetatileId};
-use crate::ppu::pattern::Tile16;
-use crate::world::chunk::chunks_touching;
 use crate::ppu::pattern::PixelArt;
+use crate::ppu::pattern::Tile16;
 use crate::ppu::{BgCell, BgLayer};
+use crate::world::chunk::chunks_touching;
+use crate::world::harvest::BARK_STRIPS;
 use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::map::LADDER_ROWS;
 use crate::world::noise::value_noise;
-use crate::world::harvest::BARK_STRIPS;
 use crate::world::terrain::{BroadleafPart, ClayPart, PalmPart, PinePart, Soil, patch_anchor};
 use crate::world::{CHUNK_CELLS, CHUNK_PX, ChunkId, Feature, TILE_SIZE, Terrain, WorldMap};
 
@@ -52,11 +52,7 @@ impl TileGrid {
 impl BgLayer for TileGrid {
     #[inline]
     fn cell(&self, mx: i32, my: i32) -> BgCell {
-        if mx < 0 || my < 0 || mx >= self.w || my >= self.h {
-            self.border
-        } else {
-            self.cells[(my * self.w + mx) as usize]
-        }
+        if mx < 0 || my < 0 || mx >= self.w || my >= self.h { self.border } else { self.cells[(my * self.w + mx) as usize] }
     }
 }
 
@@ -197,21 +193,55 @@ enum Key {
     Interior(Terrain, i32, i32),
     /// A cliff face: row from the top, rows in all, open to the left and
     /// right, water at its foot, and the column.
-    Cliff { row: i32, rows: i32, left: bool, right: bool, wet: bool, grassy: bool, vx: i32 },
+    Cliff {
+        row: i32,
+        rows: i32,
+        left: bool,
+        right: bool,
+        wet: bool,
+        grassy: bool,
+        vx: i32,
+    },
     /// The edge of the high ground: which sides drop away (N, E, S, W).
-    CliffTop { open: [bool; 4], vx: i32, vy: i32 },
+    CliffTop {
+        open: [bool; 4],
+        vx: i32,
+        vy: i32,
+    },
     /// The side of the high ground seen from above, dropping away to the
     /// left or right.
-    CliffSide { left: bool, right: bool, vx: i32, vy: i32 },
+    CliffSide {
+        left: bool,
+        right: bool,
+        vx: i32,
+        vy: i32,
+    },
     /// The same side as a narrow band of rock along the drop, clear
     /// elsewhere for the grass on BG2 to show through.
-    CliffSideBand { left: bool, right: bool, vx: i32, vy: i32 },
-    Prop { kind: u8, flip: bool, vx: i32, vy: i32 },
+    CliffSideBand {
+        left: bool,
+        right: bool,
+        vx: i32,
+        vy: i32,
+    },
+    Prop {
+        kind: u8,
+        flip: bool,
+        vx: i32,
+        vy: i32,
+    },
     /// The lake shore's wet soil, away from the water and the grass.
     Mud(i32, i32),
     /// The top of a crag: which sides drop away (N, E, S, W), its tier, and
     /// which of its sides (N, W) a higher tier shades.
-    Crag { open: [bool; 4], tier: u8, shade: [bool; 2], slope: [bool; 2], vx: i32, vy: i32 },
+    Crag {
+        open: [bool; 4],
+        tier: u8,
+        shade: [bool; 2],
+        slope: [bool; 2],
+        vx: i32,
+        vy: i32,
+    },
 }
 
 struct Builder<'a> {
@@ -412,7 +442,13 @@ impl Builder<'_> {
                     if sd < 2.9 && hash_unit(gx, gy, 0x5703) < 0.8 {
                         // Lit from the top-left, dark rim.
                         let lit = (wx as f32 + 0.5 - cxs) + (wy as f32 + 0.5 - cys) < -0.5;
-                        return if sd > 2.1 { grass::SAND[0] } else if lit { grass::WHITE } else { grass::SAND[2] };
+                        return if sd > 2.1 {
+                            grass::SAND[0]
+                        } else if lit {
+                            grass::WHITE
+                        } else {
+                            grass::SAND[2]
+                        };
                     }
                 }
                 // Bare, trampled earth, fraying into the grass.
@@ -455,7 +491,12 @@ impl Builder<'_> {
                 match bridge_pixel(px as i32, py as i32, part) {
                     Some(v) => art.set(px, py, v),
                     // Its shadow below it, dithered over the water.
-                    None if py as i32 == BRIDGE_ROWS.1 + 1 && bridge_pixel(px as i32, BRIDGE_ROWS.1, part).is_some() && (art.get(px, py) != 0 || (px + py) % 2 == 0) => art.set(px, py, grass::RAMP[0]),
+                    None if py as i32 == BRIDGE_ROWS.1 + 1
+                        && bridge_pixel(px as i32, BRIDGE_ROWS.1, part).is_some()
+                        && (art.get(px, py) != 0 || (px + py) % 2 == 0) =>
+                    {
+                        art.set(px, py, grass::RAMP[0])
+                    }
                     None => {}
                 }
             }
@@ -593,11 +634,7 @@ impl Builder<'_> {
                 return rock::STONE[2 + shade];
             }
             let wet = river_wet(d, wx, wy);
-            if d > -1.5 || wet > -3.0 || (wet > -6.0 && b < 0.5) {
-                rock::WOOD[0]
-            } else {
-                tex.get(px, py)
-            }
+            if d > -1.5 || wet > -3.0 || (wet > -6.0 && b < 0.5) { rock::WOOD[0] } else { tex.get(px, py) }
         });
         self.unique_art(PAL_ROCK, &art)
     }
@@ -706,9 +743,7 @@ impl Builder<'_> {
             return self.falls(r, x, y);
         }
         // How far below the foot of the falls each row is (px), if close.
-        let below_falls = |py: usize| {
-            (1..=2).find(|&k| map.terrain(x, y - k) == Terrain::Cliff).map(|k| (k - 1) * 16 + py as i32)
-        };
+        let below_falls = |py: usize| (1..=2).find(|&k| map.terrain(x, y - k) == Terrain::Cliff).map(|k| (k - 1) * 16 + py as i32);
         // Out past the beach the current is sea water: as dark as the deep
         // sea, so it reads as too deep to wade.
         let f = CellField::sample(map, x, y);
@@ -759,7 +794,6 @@ impl Builder<'_> {
         });
         self.unique_art(PAL_DEEP, &art)
     }
-
 
     /// The waterfall (BG2, behind the cliff face's open middle): streaks
     /// of falling water whose colours cycle down the face, bright crests
@@ -937,8 +971,8 @@ impl Builder<'_> {
             }
             ladder_pixel(at, LADDER_PALETTE_ROCK).find(|&(lx, _)| lx == px).map_or_else(
                 || {
-                    let shade = ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px)
-                        || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px);
+                    let shade =
+                        ladder_pixel(at, LADDER_PALETTE_ROCK).any(|(lx, _)| lx + 1 == px) || ladder_pixel(at - 1, LADDER_PALETTE_ROCK).any(|(lx, _)| lx == px);
                     if shade && rock != 0 { SANDSTONE[0] } else { rock }
                 },
                 |(_, v)| v,
@@ -1427,9 +1461,7 @@ const CRUMBLE_SLANT: f32 = 16.0;
 /// below it is short enough for a ladder (the recess in the north cliff),
 /// and its edge sits a row below the full-height rock's beside it.
 fn lowered(map: &WorldMap, x: i32, y: i32) -> bool {
-    map.terrain(x, y) == Terrain::CliffTop
-        && map.terrain(x, y + 1) == Terrain::Cliff
-        && face_rows(map, x, y + 1).1 <= LADDER_ROWS
+    map.terrain(x, y) == Terrain::CliffTop && map.terrain(x, y + 1) == Terrain::Cliff && face_rows(map, x, y + 1).1 <= LADDER_ROWS
 }
 
 /// The cut a cell in the row of a lowered edge lies in, if any: across the
@@ -1531,7 +1563,13 @@ fn crumbled_pixel(cut: Cut, wx: i32, py: i32, oy: i32, rock: u8) -> u8 {
             return SANDSTONE[0];
         }
         if let Some(k) = (1..=CRUMBLE_WALL).find(|&k| outside(k)) {
-            return if k == 1 { SANDSTONE[4] } else if k == 2 || b < 0.5 { SANDSTONE[3] } else { SANDSTONE[2] };
+            return if k == 1 {
+                SANDSTONE[4]
+            } else if k == 2 || b < 0.5 {
+                SANDSTONE[3]
+            } else {
+                SANDSTONE[2]
+            };
         }
         return 0;
     }
@@ -1627,7 +1665,13 @@ fn crumbled_grass(tex: &TerrainTextures, cut: Cut, oy: i32, x: i32, y: i32) -> P
         } else if up < 1.2 {
             if slant { r[1] } else { r[0] }
         } else if up < 2.5 {
-            if slant { if b < 0.5 { r[1] } else { r[2] } } else if b < 0.5 { r[0] } else { r[1] }
+            if slant {
+                if b < 0.5 { r[1] } else { r[2] }
+            } else if b < 0.5 {
+                r[0]
+            } else {
+                r[1]
+            }
         } else if up < 4.5 {
             if b < 0.5 { r[1] } else { r[2] }
         } else if up < 6.5 && b < 0.3 {
@@ -1669,7 +1713,13 @@ fn bridge_pixel(px: i32, py: i32, part: u8) -> Option<u8> {
     Some(if end || last {
         grass::RAMP[0]
     } else if grain {
-        if row == 0 || row == rows - 2 { grass::SAND[0] } else if row == rows / 2 - 1 { grass::SAND[1] } else { grass::SAND[2] }
+        if row == 0 || row == rows - 2 {
+            grass::SAND[0]
+        } else if row == rows / 2 - 1 {
+            grass::SAND[1]
+        } else {
+            grass::SAND[2]
+        }
     } else if lashed {
         if (px + py) % 2 == 0 { grass::SAND[2] } else { grass::SOIL }
     } else if row == 0 {
@@ -1721,7 +1771,13 @@ fn water_wheel_top(x: i32, y: i32, f: u32) -> Option<u8> {
     for post in WHEEL_POSTS {
         let (dx, dy) = (x - post, y - WHEEL_AXLE.0);
         if (0..4).contains(&dx) && (-3..3).contains(&dy) {
-            return Some(if dx == 0 || dy == -3 { grass::SAND[0] } else if dy == 2 { grass::SAND[2] } else { grass::SAND[1] });
+            return Some(if dx == 0 || dy == -3 {
+                grass::SAND[0]
+            } else if dy == 2 {
+                grass::SAND[2]
+            } else {
+                grass::SAND[1]
+            });
         }
         if (1..3).contains(&dx) && (3..9).contains(&dy) {
             return Some(if dx == 1 { grass::SAND[2] } else { grass::SOIL });
@@ -1822,7 +1878,13 @@ fn pebble(d: f32, wx: i32, wy: i32) -> Option<usize> {
     if sd > radius {
         return None;
     }
-    Some(if sd > radius - 0.7 || dx + dy > 0.8 { 0 } else if dx + dy < -0.6 { 2 } else { 1 })
+    Some(if sd > radius - 0.7 || dx + dy > 0.8 {
+        0
+    } else if dx + dy < -0.6 {
+        2
+    } else {
+        1
+    })
 }
 
 /// One pixel of deep water rising toward the shallows (deep palette).
@@ -2035,10 +2097,7 @@ impl Tileset {
         tileset.note_made(made);
         // The sea beyond the map's edge is always shown.
         tileset.retain(border.tile);
-        let visual = VisualMap {
-            ground: TileGrid::new(map.width(), map.height(), border),
-            overhead: TileGrid::new(map.width(), map.height(), BgCell::EMPTY),
-        };
+        let visual = VisualMap { ground: TileGrid::new(map.width(), map.height(), border), overhead: TileGrid::new(map.width(), map.height(), BgCell::EMPTY) };
         (tileset, visual)
     }
 
@@ -2080,8 +2139,7 @@ impl Tileset {
         for id in chunks_touching(grow(NEEDED_MARGIN), self.chunks).collect::<Vec<_>>() {
             self.build_rows(map, assets, visual, id, CHUNK_CELLS);
         }
-        let ahead = chunks_touching(grow(PREFETCH_MARGIN), self.chunks)
-            .find(|&id| self.slot(id).is_some_and(|i| self.built[i] != Built::Yes));
+        let ahead = chunks_touching(grow(PREFETCH_MARGIN), self.chunks).find(|&id| self.slot(id).is_some_and(|i| self.built[i] != Built::Yes));
         if let Some(id) = ahead {
             let rows = self.rows_in_budget(map, id);
             self.build_rows(map, assets, visual, id, rows);
@@ -2368,7 +2426,13 @@ fn clay_bed_pixel(anchor: (i32, i32), u: i32, v: i32, dug: bool, mud: u8) -> u8 
         if hole < 1.0 {
             // Water seeping in shines at the bottom of the hole.
             let pool = v >= 19 && hole < 0.55;
-            return if pool && speck < 0.45 { rock::STONE[3] } else if pool { rock::STONE[2] } else { rock::STONE[0] };
+            return if pool && speck < 0.45 {
+                rock::STONE[3]
+            } else if pool {
+                rock::STONE[2]
+            } else {
+                rock::STONE[0]
+            };
         }
         if hole < 1.45 {
             // The cut sides: the far one in shadow, the near one lit.
@@ -2438,11 +2502,7 @@ fn palm_overhead(props: &PropSet, map: &WorldMap, x: i32, y: i32, p: PalmPart, s
     let dx = if dy == 2 { sway / 2 } else { sway };
     let dx = (if p.flip { -dx } else { dx }).clamp(-PALM_SWAY_MAX, PALM_SWAY_MAX);
     let tiles = &props.palm_tiles[(dx + PALM_SWAY_MAX) as usize];
-    let tile = if p.is_crown() {
-        tiles.crowns[(map.fruit(p.anchor(x, y)) as usize).min(tiles.crowns.len() - 1)]
-    } else {
-        tiles.upper[dy * 3 + col]
-    };
+    let tile = if p.is_crown() { tiles.crowns[(map.fruit(p.anchor(x, y)) as usize).min(tiles.crowns.len() - 1)] } else { tiles.upper[dy * 3 + col] };
     BgCell { tile, hflip: p.flip, high: true }
 }
 

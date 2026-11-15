@@ -167,7 +167,25 @@ impl Item {
         let airborne = self.z > 0.0 || self.vx != 0.0 || self.vy != 0.0;
         let frame = if airborne { (self.anim / 4 % 2) as usize } else { 0 };
         let palette = match self.kind {
-            ItemKind::StoneAxe | ItemKind::FireDrill | ItemKind::WoodSpear | ItemKind::Vine | ItemKind::Leaf | ItemKind::BarkContainer | ItemKind::BoiledWater | ItemKind::PackFrame | ItemKind::PalmFrond | ItemKind::Thatch | ItemKind::Shelter | ItemKind::StoneKnife | ItemKind::FishingRod | ItemKind::Fish | ItemKind::Ladder | ItemKind::Bamboo | ItemKind::WaterWheel | ItemKind::BambooSpade | ItemKind::Clay => OBJ_FX,
+            ItemKind::StoneAxe
+            | ItemKind::FireDrill
+            | ItemKind::WoodSpear
+            | ItemKind::Vine
+            | ItemKind::Leaf
+            | ItemKind::BarkContainer
+            | ItemKind::BoiledWater
+            | ItemKind::PackFrame
+            | ItemKind::PalmFrond
+            | ItemKind::Thatch
+            | ItemKind::Shelter
+            | ItemKind::StoneKnife
+            | ItemKind::FishingRod
+            | ItemKind::Fish
+            | ItemKind::Ladder
+            | ItemKind::Bamboo
+            | ItemKind::WaterWheel
+            | ItemKind::BambooSpade
+            | ItemKind::Clay => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,

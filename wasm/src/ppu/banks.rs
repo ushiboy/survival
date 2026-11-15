@@ -1,6 +1,6 @@
 //! Pattern banks: the contents of VRAM.
 
-use super::pattern::{PixelArt, Tile16, Tile8};
+use super::pattern::{PixelArt, Tile8, Tile16};
 
 pub type MetatileId = u16;
 pub type HudTileId = u16;

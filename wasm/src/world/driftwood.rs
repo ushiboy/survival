@@ -117,10 +117,7 @@ mod tests {
     }
 
     fn logs(map: &WorldMap) -> Vec<(i32, i32)> {
-        (0..H)
-            .flat_map(|y| (0..W).map(move |x| (x, y)))
-            .filter(|&(x, y)| matches!(map.feature(x, y), Feature::Driftwood(p) if p.dx == 0))
-            .collect()
+        (0..H).flat_map(|y| (0..W).map(move |x| (x, y))).filter(|&(x, y)| matches!(map.feature(x, y), Feature::Driftwood(p) if p.dx == 0)).collect()
     }
 
     #[test]

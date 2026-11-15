@@ -128,10 +128,7 @@ const SAND_LIGHT: Rgb555 = c(246, 228, 184);
 const SAND_SHADOW: Rgb555 = c(170, 136, 100);
 /// Grass and foliage share their greens, so tree trunks (foliage palette)
 /// can stand on grass tiles without a seam.
-const GREENS: [Rgb555; 7] = [
-    c(20, 52, 36), c(32, 78, 40), c(48, 110, 44), c(72, 142, 52),
-    c(104, 172, 64), c(146, 202, 84), c(194, 228, 120),
-];
+const GREENS: [Rgb555; 7] = [c(20, 52, 36), c(32, 78, 40), c(48, 110, 44), c(72, 142, 52), c(104, 172, 64), c(146, 202, 84), c(194, 228, 120)];
 const WATER_EDGE: [Rgb555; 2] = [c(36, 116, 178), c(52, 150, 198)];
 
 pub fn base_cgram() -> Cgram {
@@ -150,74 +147,143 @@ pub fn base_cgram() -> Cgram {
     cg.set_bg_palette(
         PAL_SHORE,
         &[
-            WATER_EDGE[0], WATER_EDGE[1], c(70, 182, 210), c(104, 202, 218),
-            c(120, 210, 222), c(156, 226, 230), c(200, 242, 240),
-            c(250, 254, 252), c(196, 230, 238),
-            c(188, 156, 110), c(204, 176, 128),
-            SAND_DARK, SAND_MID, SAND_LIGHT,
+            WATER_EDGE[0],
+            WATER_EDGE[1],
+            c(70, 182, 210),
+            c(104, 202, 218),
+            c(120, 210, 222),
+            c(156, 226, 230),
+            c(200, 242, 240),
+            c(250, 254, 252),
+            c(196, 230, 238),
+            c(188, 156, 110),
+            c(204, 176, 128),
+            SAND_DARK,
+            SAND_MID,
+            SAND_LIGHT,
             c(124, 196, 196),
         ],
     );
     cg.set_bg_palette(
         PAL_DEEP,
         &[
-            c(10, 34, 82), c(16, 54, 112), c(22, 74, 140), c(30, 96, 164),
-            WATER_EDGE[0], WATER_EDGE[1],
-            c(40, 92, 156), c(76, 140, 196), c(150, 204, 236),
+            c(10, 34, 82),
+            c(16, 54, 112),
+            c(22, 74, 140),
+            c(30, 96, 164),
+            WATER_EDGE[0],
+            WATER_EDGE[1],
+            c(40, 92, 156),
+            c(76, 140, 196),
+            c(150, 204, 236),
             c(214, 240, 250),
-            c(22, 60, 82), c(40, 98, 128),
-            c(46, 110, 140), c(98, 166, 190), c(186, 228, 236),
+            c(22, 60, 82),
+            c(40, 98, 128),
+            c(46, 110, 140),
+            c(98, 166, 190),
+            c(186, 228, 236),
         ],
     );
     cg.set_bg_palette(
         PAL_SAND,
         &[
-            c(112, 80, 56), c(160, 120, 80),
-            SAND_DARK, SAND_MID, SAND_LIGHT, c(255, 248, 224),
-            c(190, 156, 112), SAND_SHADOW,
-            c(240, 168, 150), c(255, 222, 204), c(184, 104, 100),
+            c(112, 80, 56),
+            c(160, 120, 80),
+            SAND_DARK,
+            SAND_MID,
+            SAND_LIGHT,
+            c(255, 248, 224),
+            c(190, 156, 112),
+            SAND_SHADOW,
+            c(240, 168, 150),
+            c(255, 222, 204),
+            c(184, 104, 100),
             c(192, 164, 116),
-            c(112, 104, 100), c(160, 154, 144), c(206, 200, 188),
+            c(112, 104, 100),
+            c(160, 154, 144),
+            c(206, 200, 188),
         ],
     );
     cg.set_bg_palette(
         PAL_GRASS,
         &[
-            GREENS[0], GREENS[1], GREENS[2], GREENS[3], GREENS[4], GREENS[5], GREENS[6],
-            SAND_DARK, SAND_MID, SAND_LIGHT,
-            c(252, 216, 72), c(250, 250, 240), c(244, 132, 168), c(204, 52, 72),
+            GREENS[0],
+            GREENS[1],
+            GREENS[2],
+            GREENS[3],
+            GREENS[4],
+            GREENS[5],
+            GREENS[6],
+            SAND_DARK,
+            SAND_MID,
+            SAND_LIGHT,
+            c(252, 216, 72),
+            c(250, 250, 240),
+            c(244, 132, 168),
+            c(204, 52, 72),
             c(116, 84, 56),
         ],
     );
     cg.set_bg_palette(
         PAL_FOLIAGE,
         &[
-            GREENS[0], GREENS[1], GREENS[2], GREENS[3], GREENS[4], GREENS[5], GREENS[6],
-            c(64, 42, 30), c(104, 74, 46), c(148, 108, 62), c(194, 156, 98),
+            GREENS[0],
+            GREENS[1],
+            GREENS[2],
+            GREENS[3],
+            GREENS[4],
+            GREENS[5],
+            GREENS[6],
+            c(64, 42, 30),
+            c(104, 74, 46),
+            c(148, 108, 62),
+            c(194, 156, 98),
             c(110, 74, 36),
-            SAND_SHADOW, SAND_MID, SAND_LIGHT,
+            SAND_SHADOW,
+            SAND_MID,
+            SAND_LIGHT,
         ],
     );
     cg.set_bg_palette(
         PAL_ROCK,
         &[
-            c(44, 42, 54), c(76, 74, 84), c(110, 106, 112), c(146, 142, 140),
-            c(182, 178, 170), c(220, 216, 204),
+            c(44, 42, 54),
+            c(76, 74, 84),
+            c(110, 106, 112),
+            c(146, 142, 140),
+            c(182, 178, 170),
+            c(220, 216, 204),
             c(98, 128, 60),
-            c(84, 60, 44), c(128, 94, 62), c(170, 132, 90), c(208, 178, 132),
-            SAND_SHADOW, SAND_DARK, SAND_MID, SAND_LIGHT,
+            c(84, 60, 44),
+            c(128, 94, 62),
+            c(170, 132, 90),
+            c(208, 178, 132),
+            SAND_SHADOW,
+            SAND_DARK,
+            SAND_MID,
+            SAND_LIGHT,
         ],
     );
 
     // Sprites
     set_player_palettes(&mut cg, &Outfit::CASTAWAY, false);
     let crab = [
-        c(56, 16, 20), c(136, 32, 28), c(200, 64, 40), c(240, 120, 72),
-        c(252, 186, 130), c(248, 248, 248), c(24, 8, 8),
+        c(56, 16, 20),
+        c(136, 32, 28),
+        c(200, 64, 40),
+        c(240, 120, 72),
+        c(252, 186, 130),
+        c(248, 248, 248),
+        c(24, 8, 8),
         // Items share the crab palettes (ITEM_LEGEND).
-        c(40, 26, 18), c(92, 60, 34), c(140, 96, 52), c(186, 140, 84), c(228, 196, 140),
+        c(40, 26, 18),
+        c(92, 60, 34),
+        c(140, 96, 52),
+        c(186, 140, 84),
+        c(228, 196, 140),
         // Coconut flesh, shaded and lit (also the light faces of stones).
-        c(214, 206, 184), c(250, 248, 236),
+        c(214, 206, 184),
+        c(250, 248, 236),
         // Stone shade.
         c(122, 118, 112),
     ];
@@ -226,22 +292,39 @@ pub fn base_cgram() -> Cgram {
     cg.set_obj_palette(
         OBJ_GULL,
         &[
-            c(44, 44, 60), c(112, 120, 142), c(170, 178, 196), c(232, 238, 246),
-            c(255, 255, 255), c(244, 176, 48), c(176, 96, 24), c(32, 32, 44),
+            c(44, 44, 60),
+            c(112, 120, 142),
+            c(170, 178, 196),
+            c(232, 238, 246),
+            c(255, 255, 255),
+            c(244, 176, 48),
+            c(176, 96, 24),
+            c(32, 32, 44),
             // Lauan, the reddish hardwood (LAUAN_LEGEND, with the gull's outline).
-            c(84, 40, 30), c(138, 70, 50), c(178, 100, 70), c(214, 146, 110),
+            c(84, 40, 30),
+            c(138, 70, 50),
+            c(178, 100, 70),
+            c(214, 146, 110),
         ],
     );
     cg.set_obj_palette(
         OBJ_FX,
         &[
-            c(40, 24, 28),                                   // o outline
-            c(108, 68, 40), c(162, 112, 62),                 // w/W wood
-            c(88, 94, 110), c(160, 168, 182), c(232, 238, 246), // m/M/L metal
-            c(226, 186, 128),                                // c fresh-cut wood
-            c(36, 96, 44), c(88, 158, 58), c(164, 212, 92),  // g/G/h leaf
-            c(255, 226, 112), c(255, 255, 240),              // y/Y spark
-            c(40, 112, 188), c(92, 172, 228), c(206, 240, 252), // b/l/i water
+            c(40, 24, 28), // o outline
+            c(108, 68, 40),
+            c(162, 112, 62), // w/W wood
+            c(88, 94, 110),
+            c(160, 168, 182),
+            c(232, 238, 246), // m/M/L metal
+            c(226, 186, 128), // c fresh-cut wood
+            c(36, 96, 44),
+            c(88, 158, 58),
+            c(164, 212, 92), // g/G/h leaf
+            c(255, 226, 112),
+            c(255, 255, 240), // y/Y spark
+            c(40, 112, 188),
+            c(92, 172, 228),
+            c(206, 240, 252), // b/l/i water
         ],
     );
     cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
@@ -258,11 +341,7 @@ const PALE_SKIN: [Rgb555; 3] = [c(120, 120, 120), c(184, 190, 180), c(224, 230, 
 /// The heart and the health gauge: red, or a poisonous purple while
 /// something ails the castaway.
 pub fn set_health_palette(cg: &mut Cgram, ailing: bool) {
-    let colors = if ailing {
-        [c(40, 8, 56), c(156, 52, 208), c(224, 164, 255)]
-    } else {
-        [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)]
-    };
+    let colors = if ailing { [c(40, 8, 56), c(156, 52, 208), c(224, 164, 255)] } else { [c(48, 8, 24), c(220, 40, 64), c(255, 160, 168)] };
     cg.set_hud_palette(HUD_HEART, colors);
 }
 
@@ -277,18 +356,28 @@ pub fn set_player_palettes(cg: &mut Cgram, outfit: &Outfit, pale: bool) {
 }
 
 pub const CRAB_LEGEND: &[(char, u8)] = &[('o', 1), ('r', 2), ('R', 3), ('q', 4), ('l', 5), ('w', 6), ('e', 7)];
-pub const ITEM_LEGEND: &[(char, u8)] =
-    &[('o', 8), ('d', 9), ('w', 10), ('W', 11), ('h', 12), ('F', 13), ('f', 14), ('s', 15)];
+pub const ITEM_LEGEND: &[(char, u8)] = &[('o', 8), ('d', 9), ('w', 10), ('W', 11), ('h', 12), ('F', 13), ('f', 14), ('s', 15)];
 pub const FX_LEGEND: &[(char, u8)] = &[
-    ('o', 1), ('w', 2), ('W', 3), ('m', 4), ('M', 5), ('L', 6), ('c', 7),
-    ('g', 8), ('G', 9), ('h', 10), ('y', 11), ('Y', 12),
-    ('b', 13), ('l', 14), ('i', 15),
+    ('o', 1),
+    ('w', 2),
+    ('W', 3),
+    ('m', 4),
+    ('M', 5),
+    ('L', 6),
+    ('c', 7),
+    ('g', 8),
+    ('G', 9),
+    ('h', 10),
+    ('y', 11),
+    ('Y', 12),
+    ('b', 13),
+    ('l', 14),
+    ('i', 15),
 ];
 /// Lauan timber shares the gull palette: the same letters as `ITEM_LEGEND`'s
 /// wood, so wood art can be recoloured by swapping legends.
 pub const LAUAN_LEGEND: &[(char, u8)] = &[('o', 1), ('d', 9), ('w', 10), ('W', 11), ('h', 12)];
-pub const GULL_LEGEND: &[(char, u8)] =
-    &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
+pub const GULL_LEGEND: &[(char, u8)] = &[('o', 1), ('d', 2), ('g', 3), ('w', 4), ('W', 5), ('y', 6), ('Y', 7), ('k', 8)];
 
 /// Index ranges rotated for water animation: (CGRAM start, length).
 pub fn water_cycles() -> [(usize, usize); 3] {

@@ -2,7 +2,7 @@
 //! (see `palettes::*_LEGEND`); `.` is transparent.
 
 use super::paint::{bayer, fill_ellipse};
-use super::palettes::{ITEM_LEGEND, CRAB_LEGEND, FX_LEGEND, GULL_LEGEND, LAUAN_LEGEND};
+use super::palettes::{CRAB_LEGEND, FX_LEGEND, GULL_LEGEND, ITEM_LEGEND, LAUAN_LEGEND};
 use crate::ppu::pattern::PixelArt;
 
 // Crab, 16x16. o outline · r/R/q/l shell dark→light · w eye · e pupil.
@@ -29,10 +29,7 @@ pub fn crab_frames() -> [PixelArt; 2] {
         rows.extend_from_slice(&legs);
         PixelArt::parse(&rows, CRAB_LEGEND)
     };
-    [
-        make([".o.oorrrrrroo.o.", "o.o.o.oooo.o.o.o", "................"]),
-        make(["o..oorrrrrroo..o", ".o.o..oooo..o.o.", "................"]),
-    ]
+    [make([".o.oorrrrrroo.o.", "o.o.o.oooo.o.o.o", "................"]), make(["o..oorrrrrroo..o", ".o.o..oooo..o.o.", "................"])]
 }
 
 // Seagull seen from above, 16x16. o outline · d/g/w/W greys→white ·
@@ -225,14 +222,26 @@ pub fn torch_frames(low: bool) -> [PixelArt; 3] {
         for x in 0..16 {
             let dx = x as f32 + 0.5 - cx;
             if dx.abs() <= 0.9 {
-                let c = if dx < 0.0 { i('W') } else if y % 7 == 3 { i('d') } else { i('w') };
+                let c = if dx < 0.0 {
+                    i('W')
+                } else if y % 7 == 3 {
+                    i('d')
+                } else {
+                    i('w')
+                };
                 body.set(x, y, c);
             }
         }
     }
     // The fibre head: a fat bundle, streaked, with a binding round its foot.
     fill_ellipse(&mut body, 8.0, 14.5, 2.4, 3.2, |x, y, nx, _| {
-        Some(if y == 17 || (x * 3 + y) % 4 == 0 || nx > 0.5 { i('d') } else if nx < -0.4 { i('h') } else { i('w') })
+        Some(if y == 17 || (x * 3 + y) % 4 == 0 || nx > 0.5 {
+            i('d')
+        } else if nx < -0.4 {
+            i('h')
+        } else {
+            i('w')
+        })
     });
     let body = body.outlined(i('o'));
     std::array::from_fn(|f| {
@@ -508,7 +517,19 @@ pub fn pine_cone() -> PixelArt {
 pub fn as_pine(art: &PixelArt) -> PixelArt {
     let shade = |k: char| ITEM_LEGEND.iter().find(|(c, _)| *c == k).map(|(_, i)| *i).unwrap_or(0);
     let (d, w, big_w, h, f) = (shade('d'), shade('w'), shade('W'), shade('h'), shade('f'));
-    art.map(|v| if v == d { w } else if v == w { big_w } else if v == big_w { h } else if v == h { f } else { v })
+    art.map(|v| {
+        if v == d {
+            w
+        } else if v == w {
+            big_w
+        } else if v == big_w {
+            h
+        } else if v == h {
+            f
+        } else {
+            v
+        }
+    })
 }
 
 /// A strip of bark lying on the ground, curling at one end, 8x8.
@@ -531,9 +552,7 @@ pub fn bitten_coconut(bites: usize) -> PixelArt {
     let (outline, flesh, flesh_shade) = (legend('o'), legend('f'), legend('F'));
     // Each bite takes a round mouthful (centre, radius in px).
     const MOUTHFULS: [(f32, f32, f32); 3] = [(6.6, 1.2, 2.4), (3.2, 0.8, 2.6), (5.0, 3.4, 2.7)];
-    let bitten = |x: i32, y: i32| {
-        MOUTHFULS[..bites.min(3)].iter().any(|&(cx, cy, r)| (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) < r * r)
-    };
+    let bitten = |x: i32, y: i32| MOUTHFULS[..bites.min(3)].iter().any(|&(cx, cy, r)| (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) < r * r);
     let solid = |x: i32, y: i32| (0..8).contains(&x) && (0..8).contains(&y) && whole.at(x, y) != 0 && !bitten(x, y);
     let near_bite = |x: i32, y: i32, d: i32| (-d..=d).any(|dy| (-d..=d).any(|dx| bitten(x + dx, y + dy) && whole.at(x + dx, y + dy) != 0));
     let mut art = PixelArt::filled(8, 8, 0);
@@ -791,36 +810,9 @@ pub const ROD_TIP: (i32, i32) = (30, 3);
 /// The float on the line, 8x8: riding the water, bobbing down as a fish
 /// nibbles, and pulled under (just the ring it leaves).
 pub fn float_frames() -> [PixelArt; 3] {
-    let float = [
-        "........",
-        "...oo...",
-        "..oRqo..",
-        "..owwo..",
-        "...oo...",
-        "........",
-        "........",
-        "........",
-    ];
-    let bob = [
-        "........",
-        "........",
-        "...oo...",
-        "..oRqo..",
-        "..owwo..",
-        "........",
-        "........",
-        "........",
-    ];
-    let under = [
-        "........",
-        "........",
-        "........",
-        "........",
-        "...RR...",
-        "........",
-        "........",
-        "........",
-    ];
+    let float = ["........", "...oo...", "..oRqo..", "..owwo..", "...oo...", "........", "........", "........"];
+    let bob = ["........", "........", "...oo...", "..oRqo..", "..owwo..", "........", "........", "........"];
+    let under = ["........", "........", "........", "........", "...RR...", "........", "........", "........"];
     [PixelArt::parse(&float, CRAB_LEGEND), PixelArt::parse(&bob, CRAB_LEGEND), PixelArt::parse(&under, CRAB_LEGEND)]
 }
 

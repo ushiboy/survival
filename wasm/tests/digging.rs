@@ -13,10 +13,7 @@ use survival_core::world::{Feature, WorldMap};
 
 /// The top-left cell of the first patch (in reading order) `is` picks out.
 fn first_patch(map: &WorldMap, is: impl Fn(Feature) -> bool) -> (i32, i32) {
-    (0..map.height())
-        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
-        .find(|&(x, y)| is(map.feature(x, y)))
-        .expect("the island has one")
+    (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).find(|&(x, y)| is(map.feature(x, y))).expect("the island has one")
 }
 
 fn clay_bed(game: &Game) -> (i32, i32) {

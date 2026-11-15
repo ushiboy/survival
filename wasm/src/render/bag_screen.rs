@@ -5,10 +5,10 @@
 
 use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
-use crate::game::state::Inventory;
-use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::crafting::{RECIPES, RecipeBook};
+use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::game::menu::{BagMenu, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices};
+use crate::game::state::Inventory;
 use crate::items::Slot;
 use crate::ppu::Bg3Layer;
 use crate::ppu::oam::ObjEntry;
@@ -240,7 +240,16 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
 /// (a place in the list) is None while only previewing from the tab row.
 /// Recipes not yet thought of aren't shown at all, not even as a count.
 #[allow(clippy::too_many_arguments)]
-fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, near_fire: bool, choice: Option<usize>) {
+fn draw_recipe_list(
+    bg3: &mut Bg3Layer,
+    tiles: &HudTiles,
+    list: &mut DrawList,
+    sprites: &SpriteIds,
+    bag: &Bag,
+    book: &RecipeBook,
+    near_fire: bool,
+    choice: Option<usize>,
+) {
     let listed = book.listed();
     let at = choice.unwrap_or(0);
     let page = at / RECIPES_PER_PAGE;
@@ -288,7 +297,17 @@ fn draw_recipe_list(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, s
 /// one way shows which way this is (`< 1/2 >` by NEEDS), with a `!` on
 /// the side of a way not yet looked at.
 #[allow(clippy::too_many_arguments)]
-fn draw_recipe(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, bag: &Bag, book: &RecipeBook, near_fire: bool, index: usize, choice: usize) {
+fn draw_recipe(
+    bg3: &mut Bg3Layer,
+    tiles: &HudTiles,
+    list: &mut DrawList,
+    sprites: &SpriteIds,
+    bag: &Bag,
+    book: &RecipeBook,
+    near_fire: bool,
+    index: usize,
+    choice: usize,
+) {
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);

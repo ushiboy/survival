@@ -266,11 +266,20 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         Feature::Broadleaf(p) => p.is_trunk_base(),
         Feature::Pine(p) => p.is_trunk_base(),
         Feature::Bamboo(p) => p.is_foot(),
-        Feature::BroadleafStump(_) | Feature::PineStump(_) | Feature::BambooStump(_) | Feature::Stump(_) | Feature::Rock | Feature::Bush | Feature::Driftwood(_) | Feature::Vine | Feature::VineStake => true,
+        Feature::BroadleafStump(_)
+        | Feature::PineStump(_)
+        | Feature::BambooStump(_)
+        | Feature::Stump(_)
+        | Feature::Rock
+        | Feature::Bush
+        | Feature::Driftwood(_)
+        | Feature::Vine
+        | Feature::VineStake => true,
         _ => false,
     };
     TileProps {
-        solid: !matches!(feature, Feature::Ladder(_) | Feature::Bridge(_)) && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River | Terrain::Crag) || terrain.is_cliff()),
+        solid: !matches!(feature, Feature::Ladder(_) | Feature::Bridge(_))
+            && (feature_solid || matches!(terrain, Terrain::DeepWater | Terrain::River | Terrain::Crag) || terrain.is_cliff()),
         wading: terrain == Terrain::ShallowWater,
     }
 }

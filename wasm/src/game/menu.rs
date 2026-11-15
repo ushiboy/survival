@@ -130,19 +130,32 @@ pub enum Mode {
     Tabs(Page),
     Browse,
     /// Choosing what to do with the item at `item`.
-    Commands { item: usize, choice: usize },
+    Commands {
+        item: usize,
+        choice: usize,
+    },
     Holding(HeldItem),
     /// Choosing something to make from the recipes thought of so far
     /// (`choice` is a place in that list).
-    Crafting { choice: usize },
+    Crafting {
+        choice: usize,
+    },
     /// Looking over one recipe (index into `RECIPES`), with MAKE (0) or
     /// BACK (1) chosen. Left and right change to another way of making the
     /// same thing.
-    Recipe { recipe: usize, choice: usize },
+    Recipe {
+        recipe: usize,
+        choice: usize,
+    },
     /// On a gear slot (index into `Slot::ALL`).
-    Gear { slot: usize },
+    Gear {
+        slot: usize,
+    },
     /// Choosing from `gear_choices` for a slot.
-    GearPick { slot: usize, choice: usize },
+    GearPick {
+        slot: usize,
+        choice: usize,
+    },
     /// On the save page, about to save.
     Saving,
 }

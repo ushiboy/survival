@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use super::map::{TILE_SIZE, WorldMap};
 use super::terrain::{BambooPart, BroadleafPart, ClayPart, DriftwoodPart, Feature, PalmPart, PinePart, StumpPart, patch_anchor, patch_cells};
-use crate::items::ItemKind;
 use crate::common::rng::hash_unit;
+use crate::items::ItemKind;
 
 /// Axe hits needed to fell a palm.
 pub const PALM_HP: u8 = 3;
@@ -104,11 +104,7 @@ impl Harvest {
     }
 
     pub fn from_state(s: &HarvestState) -> Self {
-        Self {
-            damage: s.damage.iter().copied().collect(),
-            shakes: s.shakes.iter().copied().collect(),
-            picked: s.picked.iter().copied().collect(),
-        }
+        Self { damage: s.damage.iter().copied().collect(), shakes: s.shakes.iter().copied().collect(), picked: s.picked.iter().copied().collect() }
     }
 }
 

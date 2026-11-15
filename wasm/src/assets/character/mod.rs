@@ -67,7 +67,11 @@ pub enum Sleeve {
 pub enum Top {
     Bare,
     /// `collar` gives a dress-shirt collar and button placket.
-    Shirt { sleeve: Sleeve, torn: bool, collar: bool },
+    Shirt {
+        sleeve: Sleeve,
+        torn: bool,
+        collar: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

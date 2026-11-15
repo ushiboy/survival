@@ -409,7 +409,13 @@ impl WorldMap {
     pub fn lay_bridge(&mut self, span: BridgeSpan) -> Vec<(i32, i32)> {
         (span.west..=span.east)
             .map(|x| {
-                let part = if x == span.west { 0 } else if x == span.east { 2 } else { 1 };
+                let part = if x == span.west {
+                    0
+                } else if x == span.east {
+                    2
+                } else {
+                    1
+                };
                 self.set_feature(x, span.row, Feature::Bridge(part));
                 (x, span.row)
             })
@@ -438,10 +444,7 @@ impl WorldMap {
 
     /// The water spot nearest a world pixel, if any.
     pub fn nearest_water_spot(&self, px: f32, py: f32) -> Option<(f32, f32)> {
-        self.water_spots
-            .iter()
-            .map(|&(x, y)| (x as f32, y as f32))
-            .min_by(|a, b| (a.0 - px).hypot(a.1 - py).total_cmp(&(b.0 - px).hypot(b.1 - py)))
+        self.water_spots.iter().map(|&(x, y)| (x as f32, y as f32)).min_by(|a, b| (a.0 - px).hypot(a.1 - py).total_cmp(&(b.0 - px).hypot(b.1 - py)))
     }
 
     /// Fruit left on the tree whose top-left cell is `anchor`.

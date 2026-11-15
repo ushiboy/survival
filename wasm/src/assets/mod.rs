@@ -10,12 +10,12 @@ pub mod props;
 pub mod sprite_art;
 pub mod terrain;
 
+use crate::items::ItemKind;
 use crate::ppu::Vram;
 use crate::ppu::banks::{HudTileId, MetatileId, SpriteBank, SpriteId};
-use crate::items::ItemKind;
+use crate::ppu::pattern::PixelArt;
 use character::Outfit;
 use character::pose::{Pose, View};
-use crate::ppu::pattern::PixelArt;
 use palettes::PAL_FOLIAGE;
 use props::{PalmArt, PropTile};
 use terrain::TerrainTextures;
@@ -709,11 +709,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         pine_cone: bank.add(&pine_cone()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
-        fire: FireSprites {
-            ring: bank.add(&fire_ring()),
-            flames: flames(12.0, 4.6).map(|a| bank.add(&a)),
-            small: flames(6.0, 3.0).map(|a| bank.add(&a)),
-        },
+        fire: FireSprites { ring: bank.add(&fire_ring()), flames: flames(12.0, 4.6).map(|a| bank.add(&a)), small: flames(6.0, 3.0).map(|a| bank.add(&a)) },
     }
 }
 

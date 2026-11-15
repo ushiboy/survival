@@ -88,13 +88,7 @@ const MASK_LEVELS: [f32; 3] = [0.12, 0.38, 0.66];
 /// at all) the fixed colour — full darkness.
 pub fn night(lines: &mut LineTables, cg: &mut Cgram, light_map: Option<(i32, i32)>, hud_lines: usize, strength: f32, clock: u32) {
     lines.clear();
-    let scale = |k: f32| {
-        Rgb555::new(
-            (DARK[0] * k * strength).round() as u8,
-            (DARK[1] * k * strength).round() as u8,
-            (DARK[2] * k * strength).round() as u8,
-        )
-    };
+    let scale = |k: f32| Rgb555::new((DARK[0] * k * strength).round() as u8, (DARK[1] * k * strength).round() as u8, (DARK[2] * k * strength).round() as u8);
     lines.fixed_color.fill(scale(1.0));
 
     // A flame flickers: nudge the inner levels a little every frame.

@@ -47,14 +47,7 @@ pub struct ColorMath {
 }
 
 impl ColorMath {
-    pub const OFF: Self = Self {
-        layers: 0,
-        op: MathOp::Add,
-        half: false,
-        source: MathSource::Fixed,
-        region: WindowRegion::Everywhere,
-        sub_layers: 0,
-    };
+    pub const OFF: Self = Self { layers: 0, op: MathOp::Add, half: false, source: MathSource::Fixed, region: WindowRegion::Everywhere, sub_layers: 0 };
 
     #[inline]
     pub fn apply(&self, main: Rgb555, other: Rgb555, half: bool) -> Rgb555 {

@@ -1,19 +1,19 @@
 use super::body::Body;
+use crate::assets::character::pose::AxeArt;
+use crate::assets::character::{CHAR_ORIGIN, CHAR_W};
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_PLAYER, OBJ_SHADOW, OBJ_WADE, OBJ_WATER_FX};
 use crate::assets::sprite_art::TORCH_GRIP;
 use crate::assets::{SpriteIds, VIEWS};
-use crate::assets::character::pose::AxeArt;
-use crate::assets::character::{CHAR_ORIGIN, CHAR_W};
-use crate::ppu::banks::SpriteId;
 use crate::common::input::{Buttons, InputState};
 use crate::common::math::{Dir, Rect};
+use crate::items::{ItemKind, Use};
+use crate::ppu::banks::SpriteId;
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
+use crate::world::harvest::{Diggable, can_pull_vine, can_shake, diggable, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
 use crate::world::map::{BridgeSpan, LadderFit};
 use crate::world::{TILE_SIZE, WorldMap};
-use crate::items::{ItemKind, Use};
-use crate::world::harvest::{Diggable, can_pull_vine, can_shake, diggable, has_bark, is_bamboo, is_broadleaf_trunk, is_bush};
 
 pub const SPRITE_W: i32 = 16;
 pub const SPRITE_H: i32 = 24;
@@ -183,71 +183,142 @@ pub enum Action {
     Idle,
     /// Standing hand to chin, wondering how to go about something that
     /// needs a tool or material not carried; `t` counts frames.
-    Ponder { t: u32 },
+    Ponder {
+        t: u32,
+    },
     /// Swinging the axe; `t` counts frames since the swing started.
-    Chop { t: u32 },
+    Chop {
+        t: u32,
+    },
     /// Jabbing with the spear.
-    Thrust { t: u32 },
+    Thrust {
+        t: u32,
+    },
     /// Crouched over the ground at `at` (world px), digging with the tool
     /// in hand.
-    Dig { t: u32, at: (i32, i32) },
+    Dig {
+        t: u32,
+        at: (i32, i32),
+    },
     /// Coming to on the beach; `t` counts frames since the game started,
     /// and it's over at `end`. Waking from sleep picks this up from sitting
     /// up and ends once standing, without looking around.
-    WakeUp { t: u32, end: u32 },
+    WakeUp {
+        t: u32,
+        end: u32,
+    },
     /// Lying asleep; `t` counts frames since lying down.
-    Sleep { t: u32 },
+    Sleep {
+        t: u32,
+    },
     /// Gripping a trunk and rocking it; `t` counts frames in this round.
-    Shake { t: u32 },
+    Shake {
+        t: u32,
+    },
     /// Crouching to pick something up.
-    PickUp { t: u32 },
+    PickUp {
+        t: u32,
+    },
     /// Scooping up water to carry (raw water).
-    Scoop { t: u32 },
+    Scoop {
+        t: u32,
+    },
     /// Drinking water from the bag.
-    Drink { t: u32, water: ItemKind },
+    Drink {
+        t: u32,
+        water: ItemKind,
+    },
     /// Eating something from the bag.
-    Eat { t: u32, food: ItemKind },
+    Eat {
+        t: u32,
+        food: ItemKind,
+    },
     /// Kneeling to drill a fire.
-    Drill { t: u32 },
+    Drill {
+        t: u32,
+    },
     /// Kneeling by the fire at `fire` (ground px), holding `food` over it
     /// until it becomes `dish`.
-    Cook { t: u32, food: ItemKind, dish: ItemKind, fire: (i32, i32) },
+    Cook {
+        t: u32,
+        food: ItemKind,
+        dish: ItemKind,
+        fire: (i32, i32),
+    },
     /// Tugging a vine off a climbing plant, or leaves off a bush.
-    Pull { t: u32 },
+    Pull {
+        t: u32,
+    },
     /// Casting the line out over the water.
-    Cast { t: u32 },
+    Cast {
+        t: u32,
+    },
     /// Holding the rod out with the float on the water, waiting for a bite.
-    Fishing { t: u32 },
+    Fishing {
+        t: u32,
+    },
     /// Grabbing at a low rock face and trying to haul up it, sliding back
     /// down; it ends in thought.
-    Scramble { t: u32 },
+    Scramble {
+        t: u32,
+    },
     /// Stepping sideways to stand under the cliff face whose foot is at
     /// `foot` (a cell), to pitch a ladder there (`Pitch`); `t` counts
     /// frames.
-    ToLadder { t: u32, foot: (i32, i32), rows: i32 },
+    ToLadder {
+        t: u32,
+        foot: (i32, i32),
+        rows: i32,
+    },
     /// Standing a ladder against the cliff face whose foot is at `foot`
     /// (a cell), `rows` cells tall.
-    Pitch { t: u32, foot: (i32, i32), rows: i32 },
+    Pitch {
+        t: u32,
+        foot: (i32, i32),
+        rows: i32,
+    },
     /// Stepping along the bank to the row a log bridge goes across
     /// (`span`), to lay it there (`Lay`), facing `across`.
-    ToBridge { t: u32, span: BridgeSpan, across: Dir },
+    ToBridge {
+        t: u32,
+        span: BridgeSpan,
+        across: Dir,
+    },
     /// Laying a log bridge across the river along `span`.
-    Lay { t: u32, span: BridgeSpan, across: Dir },
+    Lay {
+        t: u32,
+        span: BridgeSpan,
+        across: Dir,
+    },
     /// Stepping along the bank to the mill site's row (`site`, a cell),
     /// to set the water wheel in the river there (`Mount`).
-    ToWheel { t: u32, site: (i32, i32) },
+    ToWheel {
+        t: u32,
+        site: (i32, i32),
+    },
     /// Setting the water wheel in the river off the mill site's bank.
-    Mount { t: u32, site: (i32, i32) },
+    Mount {
+        t: u32,
+        site: (i32, i32),
+    },
     /// Come upon a place by the river (the mill site, the narrow): struck
     /// by an idea, then walking straight over to its bank (`to`,
     /// a cell) and turning `across` the river; then, if `think`, stopping
     /// to think.
-    Survey { t: u32, to: (i32, i32), across: Dir, think: bool },
+    Survey {
+        t: u32,
+        to: (i32, i32),
+        across: Dir,
+        think: bool,
+    },
     /// Something found has caught the eye (the pine cone fallen at the
     /// foot of the cliff's recess): looking up, then round about as on
     /// first coming to; then, if `climb`, stepping up to the rock to try
     /// scrambling up it.
-    Notice { t: u32, climb: bool },
+    Notice {
+        t: u32,
+        climb: bool,
+    },
     /// Fallen where they stood, health spent; there's no getting up.
     Collapsed,
 }
@@ -1064,7 +1135,8 @@ impl Player {
             return;
         }
         // One axis at a time, the last pixel exactly, as along a bank.
-        let toward = |from: i32, to: i32, sub: i32| if (to - from).abs() * 256 < SPEED_WALK { (to - from) * 256 - sub } else { (to - from).signum() * SPEED_WALK };
+        let toward =
+            |from: i32, to: i32, sub: i32| if (to - from).abs() * 256 < SPEED_WALK { (to - from) * 256 - sub } else { (to - from).signum() * SPEED_WALK };
         let (dx, dy) = if fx != mx { (toward(fx, mx, self.body.x.rem_euclid(256)), 0) } else { (0, toward(fy, my, self.body.y.rem_euclid(256))) };
         let moved = self.body.move_by(dx, dy, 0, &|r| map.is_solid_rect(r));
         if !moved || t > SURVEY_STRUCK + SURVEY_WALK {
@@ -1204,10 +1276,11 @@ impl Player {
         }
 
         if let Action::WakeUp { t, .. } = self.action
-            && t < WAKE_KNEEL {
-                self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
-                return;
-            }
+            && t < WAKE_KNEEL
+        {
+            self.draw_waking(list, (sx, sy), (cx, cy), depth, sprites, t, prio, shadows);
+            return;
+        }
 
         if self.action == Action::Collapsed {
             list.actor(depth, ObjEntry::new(sx - 15, sy + 6, sprites.player.sleeping, OBJ_PLAYER, prio));
@@ -1496,7 +1569,18 @@ impl Player {
     /// in the hands of the drinking pose and bobs as they chew (a coconut
     /// shrinks a mouthful at a time). From behind, it is hidden by the head.
     #[allow(clippy::too_many_arguments)]
-    fn draw_eating(&self, list: &mut DrawList, (sx, sy): (i32, i32), (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, t: u32, food: ItemKind, prio: u8, shadows: bool) {
+    fn draw_eating(
+        &self,
+        list: &mut DrawList,
+        (sx, sy): (i32, i32),
+        (cx, cy): (i32, i32),
+        depth: i32,
+        sprites: &SpriteIds,
+        t: u32,
+        food: ItemKind,
+        prio: u8,
+        shadows: bool,
+    ) {
         let (view, flip) = view_for(self.facing);
         let raised = (EAT_RAISE..EAT_TOTAL - 6).contains(&t);
         let (body, pose) = if raised {
@@ -1598,7 +1682,16 @@ impl Player {
     /// or away). It's behind the body facing away;
     /// otherwise in front, with the hands drawn over its handle.
     #[allow(clippy::too_many_arguments)]
-    fn draw_torch(&self, list: &mut DrawList, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (view, flip, phase): (usize, bool, usize), (clock, low): (u32, bool), prio: u8) {
+    fn draw_torch(
+        &self,
+        list: &mut DrawList,
+        (cx, cy): (i32, i32),
+        depth: i32,
+        sprites: &SpriteIds,
+        (view, flip, phase): (usize, bool, usize),
+        (clock, low): (u32, bool),
+        prio: u8,
+    ) {
         let poses = if self.queasy { &sprites.player.queasy_poses } else { &sprites.player.walk_poses };
         let pose = &poses[view][phase];
         // Held a little out from the body, so the flame stands clear of
@@ -1624,7 +1717,16 @@ impl Player {
     /// arm's length, bobbing as it's turned. Crabs are turned over now and
     /// then; a pot is held steady. Facing away, it's hidden by the body.
     #[allow(clippy::too_many_arguments)]
-    fn draw_cooking(&self, list: &mut DrawList, camera: &Camera, (cx, cy): (i32, i32), depth: i32, sprites: &SpriteIds, (t, food, fire): (u32, ItemKind, (i32, i32)), prio: u8) {
+    fn draw_cooking(
+        &self,
+        list: &mut DrawList,
+        camera: &Camera,
+        (cx, cy): (i32, i32),
+        depth: i32,
+        sprites: &SpriteIds,
+        (t, food, fire): (u32, ItemKind, (i32, i32)),
+        prio: u8,
+    ) {
         let (view, flip) = view_for(self.facing);
         list.actor(depth, ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip));
         if food == ItemKind::Branch {

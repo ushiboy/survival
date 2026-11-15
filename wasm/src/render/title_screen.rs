@@ -2,8 +2,8 @@
 //! opens, the game's name over it in large letters, and a menu to begin
 //! (START, and CONTINUE below it when there is a saved game).
 
-use crate::assets::{HudTiles, TITLE};
 use crate::assets::palettes::{HUD_SKY, HUD_TEXT};
+use crate::assets::{HudTiles, TITLE};
 use crate::ppu::Bg3Layer;
 use crate::render::hud::HUD_COLS;
 

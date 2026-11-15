@@ -3,9 +3,7 @@
 
 /// Integer hash of a 2D coordinate. Good enough for map decoration and noise.
 pub fn hash2(x: i32, y: i32, seed: u32) -> u32 {
-    let mut h = seed
-        ^ (x as u32).wrapping_mul(0x27d4_eb2d)
-        ^ (y as u32).wrapping_mul(0x1656_67b1);
+    let mut h = seed ^ (x as u32).wrapping_mul(0x27d4_eb2d) ^ (y as u32).wrapping_mul(0x1656_67b1);
     h ^= h >> 15;
     h = h.wrapping_mul(0x85eb_ca6b);
     h ^= h >> 13;
@@ -27,9 +25,7 @@ pub struct Rng {
 
 impl Rng {
     pub fn new(seed: u32) -> Self {
-        Self {
-            state: hash2(seed as i32, 0x5eed, 0x9e37_79b9) | 1,
-        }
+        Self { state: hash2(seed as i32, 0x5eed, 0x9e37_79b9) | 1 }
     }
 
     pub fn next_u32(&mut self) -> u32 {

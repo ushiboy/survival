@@ -21,14 +21,17 @@ fn main() {
         let pal = outfit.palette();
         let mut row: Vec<Vec<PixelArt>> = views
             .iter()
-            .map(|&v| (0..4).map(|p| walk(v, p)).chain((0..3).map(|s| chop(v, s))).chain((0..2).map(|s| shake(v, s))).chain([crouch(v), drink(v)]).map(|p| render(&p, outfit).body).collect())
+            .map(|&v| {
+                (0..4)
+                    .map(|p| walk(v, p))
+                    .chain((0..3).map(|s| chop(v, s)))
+                    .chain((0..2).map(|s| shake(v, s)))
+                    .chain([crouch(v), drink(v)])
+                    .map(|p| render(&p, outfit).body)
+                    .collect()
+            })
             .collect();
-        row.push(vec![
-            render_lying(outfit, false),
-            render_lying(outfit, true),
-            render(&sitting(), outfit).body,
-            render(&kneeling(), outfit).body,
-        ]);
+        row.push(vec![render_lying(outfit, false), render_lying(outfit, true), render(&sitting(), outfit).body, render(&kneeling(), outfit).body]);
         for (ri, arts) in row.iter().enumerate() {
             for (ci, art) in arts.iter().enumerate() {
                 let (ox, oy) = (ci * CELL + 1, (oi * rows_per_outfit + ri) * CELL + 1);

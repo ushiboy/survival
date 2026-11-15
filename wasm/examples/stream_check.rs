@@ -55,7 +55,11 @@ fn main() {
     let mut y = 0;
     while y <= ph - sh {
         let xs: Vec<i32> = (0..=(pw - sw)).step_by(6).collect();
-        if (y / 200) % 2 == 0 { path.extend(xs.iter().map(|&x| (x, y))) } else { path.extend(xs.iter().rev().map(|&x| (x, y))) }
+        if (y / 200) % 2 == 0 {
+            path.extend(xs.iter().map(|&x| (x, y)))
+        } else {
+            path.extend(xs.iter().rev().map(|&x| (x, y)))
+        }
         y += 200;
     }
     let mut worst = 0;
@@ -72,7 +76,11 @@ fn main() {
         fresh.stream(&map, &mut fresh_assets, &mut fresh_visual, view);
         for cy in y.div_euclid(TILE_SIZE)..=(y + sh).div_euclid(TILE_SIZE) {
             for cx in x.div_euclid(TILE_SIZE)..=(x + sw).div_euclid(TILE_SIZE) {
-                for (l, (a, b)) in [(visual.ground.cell(cx, cy), fresh_visual.ground.cell(cx, cy)), (visual.overhead.cell(cx, cy), fresh_visual.overhead.cell(cx, cy))].into_iter().enumerate() {
+                for (l, (a, b)) in
+                    [(visual.ground.cell(cx, cy), fresh_visual.ground.cell(cx, cy)), (visual.overhead.cell(cx, cy), fresh_visual.overhead.cell(cx, cy))]
+                        .into_iter()
+                        .enumerate()
+                {
                     assert!(same(&assets, a, &fresh_assets, b), "layer {l} cell ({cx},{cy}) differs at view ({x},{y})");
                     assert!(l == 1 || !a.is_empty(), "ground cell ({cx},{cy}) not built at view ({x},{y})");
                 }
@@ -80,5 +88,13 @@ fn main() {
         }
         checked += 1;
     }
-    println!("map {}x{} cells, {} views swept, {} checked; ground blocks held: at most {}, at the end {}", map.width(), map.height(), path.len(), checked, worst, tileset.resident());
+    println!(
+        "map {}x{} cells, {} views swept, {} checked; ground blocks held: at most {}, at the end {}",
+        map.width(),
+        map.height(),
+        path.len(),
+        checked,
+        worst,
+        tileset.resident()
+    );
 }

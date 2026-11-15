@@ -39,11 +39,7 @@ impl PixelArt {
                 let v = if c == '.' {
                     0
                 } else {
-                    legend
-                        .iter()
-                        .find(|(k, _)| *k == c)
-                        .map(|(_, v)| *v)
-                        .unwrap_or_else(|| panic!("unknown pixel char {c:?} in row {i}: {row:?}"))
+                    legend.iter().find(|(k, _)| *k == c).map(|(_, v)| *v).unwrap_or_else(|| panic!("unknown pixel char {c:?} in row {i}: {row:?}"))
                 };
                 px.push(v);
             }
@@ -71,11 +67,7 @@ impl PixelArt {
 
     #[inline]
     pub fn at(&self, x: i32, y: i32) -> u8 {
-        if x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h {
-            self.get(x as usize, y as usize)
-        } else {
-            0
-        }
+        if x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h { self.get(x as usize, y as usize) } else { 0 }
     }
 
     /// Wrapping get, for periodic textures.

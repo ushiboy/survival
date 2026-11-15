@@ -91,14 +91,8 @@ fn front_stand(view: View) -> Pose {
         pelvis: (12.0, 21.0),
         shoulder_w: 4.4,
         hip_w: 3.7,
-        arms: [
-            limb((7.9, 14.8), (7.0, 18.6), (7.1, 22.0), true),
-            limb((16.1, 14.8), (17.0, 18.6), (16.9, 22.0), true),
-        ],
-        legs: [
-            limb((10.0, 21.5), (9.8, 25.8), (9.8, 29.6), false),
-            limb((14.0, 21.5), (14.2, 25.8), (14.2, 29.6), false),
-        ],
+        arms: [limb((7.9, 14.8), (7.0, 18.6), (7.1, 22.0), true), limb((16.1, 14.8), (17.0, 18.6), (16.9, 22.0), true)],
+        legs: [limb((10.0, 21.5), (9.8, 25.8), (9.8, 29.6), false), limb((14.0, 21.5), (14.2, 25.8), (14.2, 29.6), false)],
         tool: None,
         closed_eyes: false,
     }
@@ -112,14 +106,8 @@ fn side_stand() -> Pose {
         pelvis: (11.8, 21.0),
         shoulder_w: 3.5,
         hip_w: 3.2,
-        arms: [
-            limb((12.4, 14.8), (11.9, 18.8), (12.3, 22.2), false),
-            limb((11.6, 15.0), (11.2, 19.0), (11.7, 22.4), true),
-        ],
-        legs: [
-            limb((12.2, 21.5), (12.4, 25.8), (12.5, 29.6), false),
-            limb((11.4, 21.5), (11.4, 25.8), (11.3, 29.6), false),
-        ],
+        arms: [limb((12.4, 14.8), (11.9, 18.8), (12.3, 22.2), false), limb((11.6, 15.0), (11.2, 19.0), (11.7, 22.4), true)],
+        legs: [limb((12.2, 21.5), (12.4, 25.8), (12.5, 29.6), false), limb((11.4, 21.5), (11.4, 25.8), (11.3, 29.6), false)],
         tool: None,
         closed_eyes: false,
     }
@@ -138,7 +126,11 @@ pub fn walk(view: View, phase: usize) -> Pose {
         far.c.0 -= 3.2 * s;
         far.b.0 -= 1.8 * s - 0.6;
         // Trailing heel lifts.
-        if s > 0.0 { far.c.1 -= 0.9 } else if s < 0.0 { near.c.1 -= 0.9 }
+        if s > 0.0 {
+            far.c.1 -= 0.9
+        } else if s < 0.0 {
+            near.c.1 -= 0.9
+        }
         let [far_arm, near_arm] = &mut p.arms;
         near_arm.c.0 -= 2.4 * s;
         near_arm.b.0 -= 1.0 * s;
@@ -151,7 +143,11 @@ pub fn walk(view: View, phase: usize) -> Pose {
             leg.c.1 -= 1.3 * k;
             leg.b.1 -= 0.8 * k;
         };
-        if s > 0.0 { lift(l, 1.0) } else if s < 0.0 { lift(r, 1.0) }
+        if s > 0.0 {
+            lift(l, 1.0)
+        } else if s < 0.0 {
+            lift(r, 1.0)
+        }
         let [la, ra] = &mut p.arms;
         la.c.1 -= 1.0 * s;
         ra.c.1 += 1.0 * s;
@@ -184,10 +180,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
     let hold = |art, flip_h, flip_v, front| Some(ToolHold { art, flip_h, flip_v, front });
     match view {
         View::Side => {
-            let legs = [
-                limb((11.2, 21.6), (8.8, 25.6), (7.0, 29.6), false),
-                limb((12.8, 21.6), (15.2, 25.4), (16.8, 29.6), false),
-            ];
+            let legs = [limb((11.2, 21.6), (8.8, 25.6), (7.0, 29.6), false), limb((12.8, 21.6), (15.2, 25.4), (16.8, 29.6), false)];
             match stage {
                 0 => Pose {
                     view,
@@ -196,10 +189,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 3.9,
                     hip_w: 3.2,
-                    arms: [
-                        limb((12.6, 15.0), (9.0, 18.4), (5.8, 21.2), false),
-                        limb((10.6, 15.2), (7.8, 18.8), (5.2, 21.6), true),
-                    ],
+                    arms: [limb((12.6, 15.0), (9.0, 18.4), (5.8, 21.2), false), limb((10.6, 15.2), (7.8, 18.8), (5.2, 21.6), true)],
                     legs,
                     tool: hold(AxeArt::Side, true, false, false),
                     closed_eyes: false,
@@ -211,10 +201,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 3.4,
                     hip_w: 3.2,
-                    arms: [
-                        limb((12.8, 15.0), (13.6, 19.2), (14.4, 22.6), true),
-                        limb((11.4, 15.2), (12.4, 19.4), (13.8, 23.0), true),
-                    ],
+                    arms: [limb((12.8, 15.0), (13.6, 19.2), (14.4, 22.6), true), limb((11.4, 15.2), (12.4, 19.4), (13.8, 23.0), true)],
                     legs,
                     tool: hold(AxeArt::Up, false, true, true),
                     closed_eyes: false,
@@ -226,24 +213,15 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.2, 21.0),
                     shoulder_w: 2.7,
                     hip_w: 3.2,
-                    arms: [
-                        limb((14.2, 14.9), (17.0, 17.0), (19.6, 18.8), false),
-                        limb((13.0, 15.1), (16.2, 17.6), (19.2, 19.4), true),
-                    ],
-                    legs: [
-                        limb((11.4, 21.6), (9.0, 25.6), (7.0, 29.6), false),
-                        limb((13.0, 21.6), (15.8, 25.2), (17.6, 29.6), false),
-                    ],
+                    arms: [limb((14.2, 14.9), (17.0, 17.0), (19.6, 18.8), false), limb((13.0, 15.1), (16.2, 17.6), (19.2, 19.4), true)],
+                    legs: [limb((11.4, 21.6), (9.0, 25.6), (7.0, 29.6), false), limb((13.0, 21.6), (15.8, 25.2), (17.6, 29.6), false)],
                     tool: hold(AxeArt::Side, false, false, false),
                     closed_eyes: false,
                 },
             }
         }
         View::Front => {
-            let legs = [
-                limb((10.0, 21.5), (8.6, 25.6), (7.6, 29.6), false),
-                limb((14.0, 21.5), (15.4, 25.6), (16.4, 29.6), false),
-            ];
+            let legs = [limb((10.0, 21.5), (8.6, 25.6), (7.6, 29.6), false), limb((14.0, 21.5), (15.4, 25.6), (16.4, 29.6), false)];
             match stage {
                 0 => Pose {
                     view,
@@ -252,10 +230,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.0,
                     hip_w: 3.7,
-                    arms: [
-                        limb((7.6, 14.8), (5.6, 18.2), (4.8, 21.4), true),
-                        limb((14.8, 14.8), (10.8, 19.0), (5.6, 21.0), true),
-                    ],
+                    arms: [limb((7.6, 14.8), (5.6, 18.2), (4.8, 21.4), true), limb((14.8, 14.8), (10.8, 19.0), (5.6, 21.0), true)],
                     legs,
                     tool: hold(AxeArt::Side, true, false, false),
                     closed_eyes: false,
@@ -267,10 +242,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.2,
                     hip_w: 3.7,
-                    arms: [
-                        limb((7.8, 14.8), (7.4, 19.0), (8.6, 23.2), true),
-                        limb((15.8, 14.8), (12.6, 19.6), (9.4, 23.4), true),
-                    ],
+                    arms: [limb((7.8, 14.8), (7.4, 19.0), (8.6, 23.2), true), limb((15.8, 14.8), (12.6, 19.6), (9.4, 23.4), true)],
                     legs,
                     tool: hold(AxeArt::Diag, true, true, true),
                     closed_eyes: false,
@@ -282,10 +254,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.2,
                     hip_w: 3.7,
-                    arms: [
-                        limb((8.6, 15.0), (9.8, 19.6), (12.0, 23.4), true),
-                        limb((16.6, 15.0), (15.6, 19.8), (13.2, 23.4), true),
-                    ],
+                    arms: [limb((8.6, 15.0), (9.8, 19.6), (12.0, 23.4), true), limb((16.6, 15.0), (15.6, 19.8), (13.2, 23.4), true)],
                     legs,
                     tool: hold(AxeArt::Up, false, true, true),
                     closed_eyes: false,
@@ -293,10 +262,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
             }
         }
         View::Back => {
-            let legs = [
-                limb((10.0, 21.5), (8.6, 25.6), (7.6, 29.6), false),
-                limb((14.0, 21.5), (15.4, 25.6), (16.4, 29.6), false),
-            ];
+            let legs = [limb((10.0, 21.5), (8.6, 25.6), (7.6, 29.6), false), limb((14.0, 21.5), (15.4, 25.6), (16.4, 29.6), false)];
             match stage {
                 0 => Pose {
                     view,
@@ -305,10 +271,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.0,
                     hip_w: 3.7,
-                    arms: [
-                        limb((9.2, 14.8), (13.2, 19.0), (18.4, 21.0), false),
-                        limb((16.4, 14.8), (18.4, 18.2), (19.2, 21.4), true),
-                    ],
+                    arms: [limb((9.2, 14.8), (13.2, 19.0), (18.4, 21.0), false), limb((16.4, 14.8), (18.4, 18.2), (19.2, 21.4), true)],
                     legs,
                     tool: hold(AxeArt::Side, false, false, false),
                     closed_eyes: false,
@@ -320,10 +283,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.2,
                     hip_w: 3.7,
-                    arms: [
-                        limb((8.4, 14.8), (11.4, 17.0), (14.6, 17.6), false),
-                        limb((16.2, 14.8), (17.4, 16.4), (15.6, 17.2), true),
-                    ],
+                    arms: [limb((8.4, 14.8), (11.4, 17.0), (14.6, 17.6), false), limb((16.2, 14.8), (17.4, 16.4), (15.6, 17.2), true)],
                     legs,
                     tool: hold(AxeArt::Diag, false, false, false),
                     closed_eyes: false,
@@ -335,10 +295,7 @@ pub fn chop(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 4.2,
                     hip_w: 3.7,
-                    arms: [
-                        limb((7.6, 14.8), (9.6, 16.2), (11.4, 16.8), false),
-                        limb((15.4, 14.8), (13.6, 16.4), (12.0, 16.8), false),
-                    ],
+                    arms: [limb((7.6, 14.8), (9.6, 16.2), (11.4, 16.8), false), limb((15.4, 14.8), (13.6, 16.4), (12.0, 16.8), false)],
                     legs,
                     tool: hold(AxeArt::Up, false, false, false),
                     closed_eyes: false,
@@ -358,66 +315,39 @@ pub fn thrust(view: View, stage: usize) -> Pose {
     match view {
         View::Side => {
             let mut p = side_stand();
-            p.legs = [
-                limb((12.0, 21.6), (9.6, 25.6), (7.6, 29.6), false),
-                limb((12.6, 21.6), (14.8, 25.4), (16.4, 29.6), false),
-            ];
+            p.legs = [limb((12.0, 21.6), (9.6, 25.6), (7.6, 29.6), false), limb((12.6, 21.6), (14.8, 25.4), (16.4, 29.6), false)];
             if out {
                 p.head = (14.0, 7.6);
                 p.neck = (13.4, 13.4);
                 p.pelvis = (12.4, 21.0);
-                p.arms = [
-                    limb((13.8, 15.0), (16.8, 16.8), (19.8, 18.2), false),
-                    limb((12.8, 15.2), (15.8, 17.6), (18.6, 18.6), true),
-                ];
+                p.arms = [limb((13.8, 15.0), (16.8, 16.8), (19.8, 18.2), false), limb((12.8, 15.2), (15.8, 17.6), (18.6, 18.6), true)];
             } else {
                 p.head = (11.8, 7.2);
                 p.neck = (11.6, 13.1);
-                p.arms = [
-                    limb((12.6, 14.9), (10.6, 18.2), (8.0, 20.4), false),
-                    limb((11.0, 15.1), (9.6, 18.8), (8.8, 21.4), true),
-                ];
+                p.arms = [limb((12.6, 14.9), (10.6, 18.2), (8.0, 20.4), false), limb((11.0, 15.1), (9.6, 18.8), (8.8, 21.4), true)];
             }
             p
         }
         View::Front => {
             let mut p = front_stand(view);
-            p.legs = [
-                limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false),
-                limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false),
-            ];
+            p.legs = [limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false), limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false)];
             if out {
                 p.head = (12.0, 7.6);
                 p.neck = (12.0, 13.4);
-                p.arms = [
-                    limb((7.9, 15.0), (10.6, 20.2), (15.0, 24.2), true),
-                    limb((16.1, 15.0), (17.6, 20.0), (16.6, 25.2), true),
-                ];
+                p.arms = [limb((7.9, 15.0), (10.6, 20.2), (15.0, 24.2), true), limb((16.1, 15.0), (17.6, 20.0), (16.6, 25.2), true)];
             } else {
-                p.arms = [
-                    limb((7.9, 14.8), (9.6, 18.8), (14.6, 18.8), true),
-                    limb((16.1, 14.8), (18.2, 18.2), (16.8, 20.0), true),
-                ];
+                p.arms = [limb((7.9, 14.8), (9.6, 18.8), (14.6, 18.8), true), limb((16.1, 14.8), (18.2, 18.2), (16.8, 20.0), true)];
             }
             p
         }
         View::Back => {
             let mut p = front_stand(view);
-            p.legs = [
-                limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false),
-                limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false),
-            ];
+            p.legs = [limb((10.0, 21.5), (9.0, 25.6), (8.4, 29.6), false), limb((14.0, 21.5), (15.0, 25.6), (15.6, 29.6), false)];
             if out {
                 p.head = (12.0, 6.8);
-                p.arms = [
-                    limb((7.9, 14.6), (11.4, 13.6), (15.0, 11.4), false),
-                    limb((16.1, 14.6), (18.0, 13.4), (16.2, 11.0), true),
-                ];
+                p.arms = [limb((7.9, 14.6), (11.4, 13.6), (15.0, 11.4), false), limb((16.1, 14.6), (18.0, 13.4), (16.2, 11.0), true)];
             } else {
-                p.arms = [
-                    limb((7.9, 14.8), (10.8, 18.0), (15.0, 17.4), false),
-                    limb((16.1, 14.8), (17.8, 17.4), (16.4, 17.0), true),
-                ];
+                p.arms = [limb((7.9, 14.8), (10.8, 18.0), (15.0, 17.4), false), limb((16.1, 14.8), (17.8, 17.4), (16.4, 17.0), true)];
             }
             p
         }
@@ -442,14 +372,8 @@ pub fn shake(view: View, stage: usize) -> Pose {
                     pelvis: (12.0, 21.0),
                     shoulder_w: 3.5,
                     hip_w: 3.2,
-                    arms: [
-                        limb((13.8, 15.2), (15.4, 19.0), grip[0], false),
-                        limb((13.0, 15.4), (14.8, 19.4), grip[1], true),
-                    ],
-                    legs: [
-                        limb((12.4, 21.6), (10.2, 25.6), (7.4, 29.6), false),
-                        limb((11.6, 21.6), (14.6, 25.0), (15.0, 29.6), false),
-                    ],
+                    arms: [limb((13.8, 15.2), (15.4, 19.0), grip[0], false), limb((13.0, 15.4), (14.8, 19.4), grip[1], true)],
+                    legs: [limb((12.4, 21.6), (10.2, 25.6), (7.4, 29.6), false), limb((11.6, 21.6), (14.6, 25.0), (15.0, 29.6), false)],
                     tool: None,
                     closed_eyes: false,
                 }
@@ -461,14 +385,8 @@ pub fn shake(view: View, stage: usize) -> Pose {
                     pelvis: (11.4, 21.2),
                     shoulder_w: 3.5,
                     hip_w: 3.2,
-                    arms: [
-                        limb((11.6, 15.0), (15.4, 15.8), grip[0], false),
-                        limb((10.8, 15.2), (14.8, 16.2), grip[1], true),
-                    ],
-                    legs: [
-                        limb((11.8, 21.8), (9.8, 25.4), (8.6, 29.6), false),
-                        limb((11.0, 21.8), (13.8, 25.4), (15.4, 29.6), false),
-                    ],
+                    arms: [limb((11.6, 15.0), (15.4, 15.8), grip[0], false), limb((10.8, 15.2), (14.8, 16.2), grip[1], true)],
+                    legs: [limb((11.8, 21.8), (9.8, 25.4), (8.6, 29.6), false), limb((11.0, 21.8), (13.8, 25.4), (15.4, 29.6), false)],
                     tool: None,
                     closed_eyes: false,
                 }
@@ -486,10 +404,7 @@ pub fn shake(view: View, stage: usize) -> Pose {
                     limb((7.8, 14.8 + lean), (7.6 - elbow, 18.4 + lean * 0.5), (9.8, 20.4), true),
                     limb((16.2, 14.8 + lean), (16.4 + elbow, 18.4 + lean * 0.5), (14.2, 20.4), true),
                 ],
-                legs: [
-                    limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false),
-                    limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false),
-                ],
+                legs: [limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false), limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false)],
                 ..p
             }
         }
@@ -502,14 +417,8 @@ pub fn shake(view: View, stage: usize) -> Pose {
                 head: (12.0, p.head.1 + lean * 1.2),
                 neck: (12.0, p.neck.1 + lean),
                 shoulder_w: if push { 4.6 } else { 4.2 },
-                arms: [
-                    limb((7.8, 14.8 + lean), (6.6 - elbow, 17.4), (8.2, 13.6), false),
-                    limb((16.2, 14.8 + lean), (17.4 + elbow, 17.4), (15.8, 13.6), false),
-                ],
-                legs: [
-                    limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false),
-                    limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false),
-                ],
+                arms: [limb((7.8, 14.8 + lean), (6.6 - elbow, 17.4), (8.2, 13.6), false), limb((16.2, 14.8 + lean), (17.4 + elbow, 17.4), (15.8, 13.6), false)],
+                legs: [limb((10.0, 21.5), (8.8, 25.6), (8.4, 29.6), false), limb((14.0, 21.5), (15.2, 25.6), (15.6, 29.6), false)],
                 ..p
             }
         }
@@ -525,14 +434,8 @@ pub fn crouch(view: View) -> Pose {
             let mut p = side_stand().shift_upper(3.4);
             p.head.0 += 2.4;
             p.neck.0 += 1.6;
-            p.legs = [
-                limb((12.0, 24.8), (15.4, 26.0), (12.8, 29.6), false),
-                limb((11.2, 24.8), (14.6, 26.4), (11.6, 29.6), false),
-            ];
-            p.arms = [
-                limb((13.6, 18.2), (15.6, 22.6), (18.0, 27.6), false),
-                limb((12.8, 18.4), (15.0, 23.0), (17.4, 28.0), true),
-            ];
+            p.legs = [limb((12.0, 24.8), (15.4, 26.0), (12.8, 29.6), false), limb((11.2, 24.8), (14.6, 26.4), (11.6, 29.6), false)];
+            p.arms = [limb((13.6, 18.2), (15.6, 22.6), (18.0, 27.6), false), limb((12.8, 18.4), (15.0, 23.0), (17.4, 28.0), true)];
             p
         }
         View::Front | View::Back => {
@@ -543,15 +446,9 @@ pub fn crouch(view: View) -> Pose {
             let bow = if front { 0.8 } else { -0.8 };
             p.head.1 += bow;
             p.neck.1 += bow * 0.6;
-            p.legs = [
-                limb((10.0, 24.9), (7.4, 26.6), (8.6, 29.6), false),
-                limb((14.0, 24.9), (16.6, 26.6), (15.4, 29.6), false),
-            ];
+            p.legs = [limb((10.0, 24.9), (7.4, 26.6), (8.6, 29.6), false), limb((14.0, 24.9), (16.6, 26.6), (15.4, 29.6), false)];
             let hand_y = if front { 28.0 } else { 25.6 };
-            p.arms = [
-                limb((7.9, 18.2), (8.0, 22.4), (10.6, hand_y), front),
-                limb((16.1, 18.2), (16.0, 22.4), (13.4, hand_y), front),
-            ];
+            p.arms = [limb((7.9, 18.2), (8.0, 22.4), (10.6, hand_y), front), limb((16.1, 18.2), (16.0, 22.4), (13.4, hand_y), front)];
             p
         }
     }
@@ -563,10 +460,7 @@ pub fn drink(view: View) -> Pose {
         View::Side => {
             let mut p = side_stand();
             p.head = (12.0, 6.6);
-            p.arms = [
-                limb((12.4, 14.8), (15.0, 17.4), (15.6, 11.8), false),
-                limb((11.6, 15.0), (14.4, 17.8), (15.0, 12.2), true),
-            ];
+            p.arms = [limb((12.4, 14.8), (15.0, 17.4), (15.6, 11.8), false), limb((11.6, 15.0), (14.4, 17.8), (15.0, 12.2), true)];
             p
         }
         View::Front | View::Back => {
@@ -576,10 +470,7 @@ pub fn drink(view: View) -> Pose {
             // Hands meet in front of the chin (hidden behind the head from
             // the back, so only the elbows show).
             let hand_y = if front { 13.4 } else { 12.6 };
-            p.arms = [
-                limb((7.9, 14.8), (7.2, 18.6), (11.0, hand_y), front),
-                limb((16.1, 14.8), (16.8, 18.6), (13.0, hand_y), front),
-            ];
+            p.arms = [limb((7.9, 14.8), (7.2, 18.6), (11.0, hand_y), front), limb((16.1, 14.8), (16.8, 18.6), (13.0, hand_y), front)];
             p
         }
     }
@@ -592,14 +483,8 @@ pub fn drink(view: View) -> Pose {
 pub fn lying(eyes_open: bool) -> Pose {
     Pose {
         head: (11.4, 7.2),
-        arms: [
-            limb((7.9, 14.8), (5.4, 10.6), (4.6, 6.2), true),
-            limb((16.1, 14.8), (19.0, 17.6), (20.8, 21.0), true),
-        ],
-        legs: [
-            limb((10.0, 21.5), (9.0, 25.8), (8.2, 29.6), false),
-            limb((14.0, 21.5), (15.6, 25.6), (16.6, 29.4), false),
-        ],
+        arms: [limb((7.9, 14.8), (5.4, 10.6), (4.6, 6.2), true), limb((16.1, 14.8), (19.0, 17.6), (20.8, 21.0), true)],
+        legs: [limb((10.0, 21.5), (9.0, 25.8), (8.2, 29.6), false), limb((14.0, 21.5), (15.6, 25.6), (16.6, 29.4), false)],
         closed_eyes: !eyes_open,
         ..front_stand(View::Front)
     }
@@ -615,14 +500,8 @@ pub fn sleeping() -> Pose {
         pelvis: (10.0, 21.0),
         shoulder_w: 3.5,
         hip_w: 3.2,
-        arms: [
-            limb((10.8, 15.0), (13.8, 16.6), (14.2, 11.6), false),
-            limb((10.2, 15.2), (13.4, 18.2), (15.0, 12.4), true),
-        ],
-        legs: [
-            limb((10.4, 21.6), (15.8, 22.0), (13.2, 27.6), false),
-            limb((9.6, 21.8), (15.2, 24.2), (11.6, 28.8), false),
-        ],
+        arms: [limb((10.8, 15.0), (13.8, 16.6), (14.2, 11.6), false), limb((10.2, 15.2), (13.4, 18.2), (15.0, 12.4), true)],
+        legs: [limb((10.4, 21.6), (15.8, 22.0), (13.2, 27.6), false), limb((9.6, 21.8), (15.2, 24.2), (11.6, 28.8), false)],
         tool: None,
         closed_eyes: true,
     }
@@ -637,14 +516,8 @@ pub fn sitting() -> Pose {
         pelvis: (9.6, 25.2),
         shoulder_w: 3.5,
         hip_w: 3.2,
-        arms: [
-            limb((9.4, 18.8), (7.4, 22.4), (5.6, 26.6), false),
-            limb((8.6, 19.0), (11.0, 22.0), (13.8, 23.6), true),
-        ],
-        legs: [
-            limb((10.0, 25.6), (15.4, 25.2), (20.2, 28.4), false),
-            limb((9.4, 25.8), (14.6, 24.4), (19.2, 28.6), false),
-        ],
+        arms: [limb((9.4, 18.8), (7.4, 22.4), (5.6, 26.6), false), limb((8.6, 19.0), (11.0, 22.0), (13.8, 23.6), true)],
+        legs: [limb((10.0, 25.6), (15.4, 25.2), (20.2, 28.4), false), limb((9.4, 25.8), (14.6, 24.4), (19.2, 28.6), false)],
         tool: None,
         closed_eyes: false,
     }
@@ -659,14 +532,8 @@ pub fn kneeling() -> Pose {
         pelvis: (11.0, 24.6),
         shoulder_w: 3.5,
         hip_w: 3.2,
-        arms: [
-            limb((13.0, 18.4), (13.0, 22.0), (13.6, 25.4), false),
-            limb((12.4, 18.6), (14.6, 21.6), (15.8, 24.0), true),
-        ],
-        legs: [
-            limb((11.2, 25.0), (12.2, 29.2), (6.8, 29.6), false),
-            limb((10.8, 25.0), (16.0, 24.6), (16.2, 29.6), false),
-        ],
+        arms: [limb((13.0, 18.4), (13.0, 22.0), (13.6, 25.4), false), limb((12.4, 18.6), (14.6, 21.6), (15.8, 24.0), true)],
+        legs: [limb((11.2, 25.0), (12.2, 29.2), (6.8, 29.6), false), limb((10.8, 25.0), (16.0, 24.6), (16.2, 29.6), false)],
         tool: None,
         closed_eyes: false,
     }
@@ -684,10 +551,7 @@ pub fn climb(step: usize) -> Pose {
     };
     let (lx, ly, lh) = reach(7.9, up);
     let (rx, ry, rh) = reach(16.1, !up);
-    p.arms = [
-        limb((7.9, 14.8), (lx - 0.8, ly), (8.4, lh), false),
-        limb((16.1, 14.8), (rx + 0.8, ry), (15.6, rh), false),
-    ];
+    p.arms = [limb((7.9, 14.8), (lx - 0.8, ly), (8.4, lh), false), limb((16.1, 14.8), (rx + 0.8, ry), (15.6, rh), false)];
     // The knee on the side of the lower hand comes up to the next rung.
     let [l, r] = &mut p.legs;
     let knee = if up { r } else { l };

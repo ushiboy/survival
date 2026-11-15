@@ -15,9 +15,7 @@ fn ix(legend: &[(char, u8)], c: char) -> u8 {
 pub fn icon_coconut() -> PixelArt {
     let i = |c| ix(ITEM_LEGEND, c);
     let mut a = PixelArt::filled(16, 16, 0);
-    fill_ellipse(&mut a, 8.0, 8.5, 5.8, 5.4, |x, y, nx, ny| {
-        Some(ramp(&[i('d'), i('w'), i('W'), i('h')], sphere_light(nx, ny) * 0.95, x, y, 0.5))
-    });
+    fill_ellipse(&mut a, 8.0, 8.5, 5.8, 5.4, |x, y, nx, ny| Some(ramp(&[i('d'), i('w'), i('W'), i('h')], sphere_light(nx, ny) * 0.95, x, y, 0.5)));
     for (x, y) in [(6, 5), (8, 4), (7, 7)] {
         a.set(x, y, i('d'));
     }
@@ -106,7 +104,13 @@ pub fn icon_bark_container() -> PixelArt {
                 continue;
             }
             let streak = (x * 5 + y / 3) % 7 == 0;
-            let c = if u < 0.3 { i('W') } else if u > 0.78 || streak { i('o') } else { i('w') };
+            let c = if u < 0.3 {
+                i('W')
+            } else if u > 0.78 || streak {
+                i('o')
+            } else {
+                i('w')
+            };
             a.set(x, y, c);
         }
     }
@@ -252,7 +256,13 @@ pub fn icon_leaf() -> PixelArt {
                 if u.abs() > len || v.abs() > half {
                     continue;
                 }
-                let col = if v.abs() < 0.5 { i('h') } else if v < 0.0 { i('G') } else { i('g') };
+                let col = if v.abs() < 0.5 {
+                    i('h')
+                } else if v < 0.0 {
+                    i('G')
+                } else {
+                    i('g')
+                };
                 a.set(x, y, col);
             }
         }
@@ -390,7 +400,13 @@ pub fn icon_branch() -> PixelArt {
                     let dx = x as f32 + 0.5 - cx;
                     if dx * dx + (y as f32 + 0.5 - cy).powi(2) <= r * r && (0..16).contains(&x) && (0..32).contains(&y) {
                         // Lit from the left; knots darken the bark.
-                        let c = if dx < -0.4 { i('W') } else if dx > 0.6 || (y % 9 == 4) { i('d') } else { i('w') };
+                        let c = if dx < -0.4 {
+                            i('W')
+                        } else if dx > 0.6 || (y % 9 == 4) {
+                            i('d')
+                        } else {
+                            i('w')
+                        };
                         a.set(x as usize, y as usize, c);
                     }
                 }
@@ -531,7 +547,13 @@ pub fn icon_thatch() -> PixelArt {
         for x in 1..31 {
             let row = (y - 2) / 4;
             let stroke = (x + (y - 2) % 4 + row * 2) % 4;
-            let c = if (y - 2) % 4 == 3 { i('g') } else if stroke == 0 { i('h') } else { i('G') };
+            let c = if (y - 2) % 4 == 3 {
+                i('g')
+            } else if stroke == 0 {
+                i('h')
+            } else {
+                i('G')
+            };
             a.set(x, y, c);
         }
     }
@@ -559,7 +581,15 @@ pub fn icon_shelter() -> PixelArt {
     for y in 8..25 {
         for x in 5..27 {
             let ny = (y as f32 - 16.0) / 8.5;
-            let c = if (x + y) % 5 == 0 { i('g') } else if ny < -0.4 { i('h') } else if ny < 0.4 { i('G') } else { i('g') };
+            let c = if (x + y) % 5 == 0 {
+                i('g')
+            } else if ny < -0.4 {
+                i('h')
+            } else if ny < 0.4 {
+                i('G')
+            } else {
+                i('g')
+            };
             a.set(x, y, c);
         }
     }
@@ -651,7 +681,17 @@ pub fn icon_sea_shell() -> PixelArt {
             }
             let rib = ((ang + 2.6) * 9.0 / 2.06) as i32 % 2 == 0;
             let lit = dx < 0.0;
-            a.set(x, y, if rib { if lit { i('w') } else { i('l') } } else if lit { i('l') } else { i('q') });
+            a.set(
+                x,
+                y,
+                if rib {
+                    if lit { i('w') } else { i('l') }
+                } else if lit {
+                    i('l')
+                } else {
+                    i('q')
+                },
+            );
         }
     }
     // The ears at the hinge.
@@ -722,10 +762,20 @@ pub fn icon_fish() -> PixelArt {
     let mut a = PixelArt::filled(16, 16, 0);
     fill_ellipse(&mut a, 7.0, 8.0, 5.6, 3.0, |x, y, nx, ny| {
         let _ = (x, y, nx);
-        Some(if ny < -0.45 { i('b') } else if ny < 0.0 { i('M') } else if ny < 0.5 { i('L') } else { i('i') })
+        Some(if ny < -0.45 {
+            i('b')
+        } else if ny < 0.0 {
+            i('M')
+        } else if ny < 0.5 {
+            i('L')
+        } else {
+            i('i')
+        })
     });
     // Tail.
-    for (x, y, c) in [(12, 6, 'b'), (13, 5, 'b'), (14, 4, 'm'), (12, 8, 'M'), (13, 8, 'M'), (12, 10, 'L'), (13, 11, 'L'), (14, 12, 'm'), (12, 7, 'M'), (12, 9, 'L')] {
+    for (x, y, c) in
+        [(12, 6, 'b'), (13, 5, 'b'), (14, 4, 'm'), (12, 8, 'M'), (13, 8, 'M'), (12, 10, 'L'), (13, 11, 'L'), (14, 12, 'm'), (12, 7, 'M'), (12, 9, 'L')]
+    {
         a.set(x, y, i(c));
     }
     let mut a = a.outlined(i('o'));
@@ -832,7 +882,13 @@ fn log_bridge_art(h: usize) -> PixelArt {
                 } else {
                     match dx {
                         0 => 'h',
-                        1..=3 => if (y * 7 + left * 3 + dx * 5) % 11 == 0 { 'w' } else { 'W' },
+                        1..=3 => {
+                            if (y * 7 + left * 3 + dx * 5) % 11 == 0 {
+                                'w'
+                            } else {
+                                'W'
+                            }
+                        }
                         _ => 'w',
                     }
                 };
@@ -968,7 +1024,13 @@ pub fn icon_bamboo_spade() -> PixelArt {
             let dx = x as f32 + 0.5 - 8.0;
             if dx.abs() <= half {
                 let edge = dx.abs() > half - 1.0;
-                let c = if edge { if dx < 0.0 { i('h') } else { i('g') } } else if dx > half - 2.0 { i('W') } else { i('c') };
+                let c = if edge {
+                    if dx < 0.0 { i('h') } else { i('g') }
+                } else if dx > half - 2.0 {
+                    i('W')
+                } else {
+                    i('c')
+                };
                 a.set(x, y, c);
             }
         }
@@ -988,14 +1050,22 @@ pub fn icon_clay() -> PixelArt {
     let i = |c| ix(FX_LEGEND, c);
     let mut a = PixelArt::filled(16, 16, 0);
     // Back to front, bottom row last so it overlaps the ones above.
-    for (cx, cy, rx, ry) in [(8.0, 5.5, 2.6, 2.0), (5.5, 8.5, 2.8, 2.2), (10.5, 8.5, 2.8, 2.2), (3.5, 12.0, 2.8, 2.0), (8.0, 11.8, 3.0, 2.3), (12.5, 12.0, 2.6, 2.0)] {
+    for (cx, cy, rx, ry) in
+        [(8.0, 5.5, 2.6, 2.0), (5.5, 8.5, 2.8, 2.2), (10.5, 8.5, 2.8, 2.2), (3.5, 12.0, 2.8, 2.0), (8.0, 11.8, 3.0, 2.3), (12.5, 12.0, 2.6, 2.0)]
+    {
         fill_ellipse(&mut a, cx, cy, rx, ry, |x, y, nx, ny| {
             // A dark crease where each lump rests on its neighbours.
             if nx * nx + ny * ny > 0.75 {
                 return Some(i('m'));
             }
             let light = sphere_light(nx, ny);
-            Some(if light > 0.93 { i('L') } else if light > 0.55 || (light > 0.35 && (x + y) % 2 == 0) { i('M') } else { i('m') })
+            Some(if light > 0.93 {
+                i('L')
+            } else if light > 0.55 || (light > 0.35 && (x + y) % 2 == 0) {
+                i('M')
+            } else {
+                i('m')
+            })
         });
     }
     a.outlined(i('o'))

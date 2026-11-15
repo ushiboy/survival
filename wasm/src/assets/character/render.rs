@@ -66,11 +66,7 @@ impl Canvas {
     }
 
     fn get(&self, x: i32, y: i32) -> Option<&Px> {
-        if x < 0 || y < 0 || x >= CHAR_W as i32 || y >= CHAR_H as i32 {
-            None
-        } else {
-            Some(&self.px[y as usize * CHAR_W + x as usize])
-        }
+        if x < 0 || y < 0 || x >= CHAR_W as i32 || y >= CHAR_H as i32 { None } else { Some(&self.px[y as usize * CHAR_W + x as usize]) }
     }
 
     /// Writes a pixel if it is not behind what's already there.
@@ -177,9 +173,7 @@ fn arm(cv: &mut Canvas, limb: &Limb, outfit: &Outfit, group: u8, z: i32) {
         Sleeve::Rolled | Sleeve::Long => 1.0,
     };
     let sleeve_r = if sleeve == Sleeve::None { 1.55 } else { 1.8 };
-    capsule(cv, limb.a, limb.b, sleeve_r, group, z, |t, _| {
-        if t < upper_cover { (Mat::Top, None) } else { (Mat::Skin, None) }
-    });
+    capsule(cv, limb.a, limb.b, sleeve_r, group, z, |t, _| if t < upper_cover { (Mat::Top, None) } else { (Mat::Skin, None) });
     // How far down the forearm the sleeve reaches, and where its cuff starts.
     let (cover, cuff) = match sleeve {
         Sleeve::Long => (0.78, 0.62),
@@ -187,11 +181,7 @@ fn arm(cv: &mut Canvas, limb: &Limb, outfit: &Outfit, group: u8, z: i32) {
         _ => (0.0, 0.0),
     };
     capsule(cv, limb.b, limb.c, if cover > 0.0 { 1.55 } else { 1.35 }, group, z, |t, _| {
-        if t < cover {
-            (Mat::Top, if t > cuff { Some(2) } else { None })
-        } else {
-            (Mat::Skin, None)
-        }
+        if t < cover { (Mat::Top, if t > cuff { Some(2) } else { None }) } else { (Mat::Skin, None) }
     });
     // Hand, flagged so it can be extracted as an overlay.
     let (hx, hy) = limb.c;
@@ -433,11 +423,7 @@ fn headwear(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
             let rx = if pose.view == View::Side { 5.5 } else { 5.8 };
             ellipse(cv, (hx, hy), rx, 6.0, group::HAT, z, |_, y, _, _| {
                 let yc = y as f32 + 0.5;
-                if (hy - 3.2..hy - 1.2).contains(&yc) {
-                    Some((Mat::Accent, Some(if yc < hy - 2.2 { 1 } else { 0 })))
-                } else {
-                    None
-                }
+                if (hy - 3.2..hy - 1.2).contains(&yc) { Some((Mat::Accent, Some(if yc < hy - 2.2 { 1 } else { 0 }))) } else { None }
             });
             // Knot and tails at the back of the head.
             let (kx, tail_dir) = match pose.view {
@@ -467,7 +453,16 @@ fn headwear(cv: &mut Canvas, pose: &Pose, outfit: &Outfit, z: i32) {
                     return Some((Mat::Hair, Some(0)));
                 }
                 let weave = (x * 2 + y) % 3 == 0;
-                Some((Mat::Accent, if weave { Some(0) } else if ny < -0.4 { Some(1) } else { None }))
+                Some((
+                    Mat::Accent,
+                    if weave {
+                        Some(0)
+                    } else if ny < -0.4 {
+                        Some(1)
+                    } else {
+                        None
+                    },
+                ))
             });
         }
     }
@@ -571,9 +566,9 @@ pub fn render(pose: &Pose, outfit: &Outfit) -> Rendered {
         for x in 0..CHAR_W as i32 {
             let me = snapshot[y as usize * CHAR_W + x as usize];
             let Some(mat) = me.mat else { continue };
-            let overlapped = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
-                at(x + dx, y + dy).is_some_and(|n| n.mat.is_some() && n.z > me.z + 2 && divides(n.group, me.group))
-            });
+            let overlapped = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                .iter()
+                .any(|&(dx, dy)| at(x + dx, y + dy).is_some_and(|n| n.mat.is_some() && n.z > me.z + 2 && divides(n.group, me.group)));
             if overlapped && me.idx != slot::OUTLINE {
                 cv.px[y as usize * CHAR_W + x as usize].idx = mat.ramp()[0];
             }
@@ -593,9 +588,7 @@ pub fn render(pose: &Pose, outfit: &Outfit) -> Rendered {
                 }
                 continue;
             }
-            let near = |f: &dyn Fn(&Px) -> bool| {
-                [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| cv.get(x + dx, y + dy).is_some_and(f))
-            };
+            let near = |f: &dyn Fn(&Px) -> bool| [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| cv.get(x + dx, y + dy).is_some_and(f));
             if near(&|n| n.mat.is_some()) {
                 body.set(x as usize, y as usize, slot::OUTLINE);
                 if near(&|n| n.hand) {

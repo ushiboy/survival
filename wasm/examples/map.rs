@@ -44,8 +44,8 @@ use image::{Image, Rgb, text_width};
 use survival_core::game::Game;
 use survival_core::ppu::{SCREEN_H, SCREEN_W};
 use survival_core::world::island::PLAN_BLOCK;
-use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
 use survival_core::world::terrain::Soil;
+use survival_core::world::{CHUNK_CELLS, Feature, TILE_SIZE, Terrain, WorldMap};
 
 const CHANGED: Rgb = [255, 0, 255];
 /// Cells the earlier run didn't have (the island grew, or the view
@@ -177,7 +177,12 @@ fn main() {
         if d.old_size != (map.width(), map.height()) {
             println!(
                 "plan: the island was {}x{} cells in {against_name}; its cells are compared {},{} cells over ({} new, {} gone)",
-                d.old_size.0, d.old_size.1, d.shift.0, d.shift.1, d.added.len(), d.removed
+                d.old_size.0,
+                d.old_size.1,
+                d.shift.0,
+                d.shift.1,
+                d.added.len(),
+                d.removed
             );
         }
         if d.changed.is_empty() && d.added.is_empty() {
@@ -207,7 +212,11 @@ fn main() {
         let area = (area.0.max(0), area.1.max(0), area.2.min(map.width() - 1), area.3.min(map.height() - 1));
         let meta = format!("area {},{},{},{} shrink {}\n", area.0, area.1, area.2, area.3, o.shrink);
         let old_meta = std::fs::read_to_string(against.join("view.txt")).ok();
-        let old_view = old_meta.as_deref().and_then(parse_view_meta).filter(|&(_, shrink)| shrink == o.shrink).and_then(|(a, _)| Image::load_png(&against.join("view.png")).map(|img| (a, img)));
+        let old_view = old_meta
+            .as_deref()
+            .and_then(parse_view_meta)
+            .filter(|&(_, shrink)| shrink == o.shrink)
+            .and_then(|(a, _)| Image::load_png(&against.join("view.png")).map(|img| (a, img)));
         let raw = draw_view(&mut game, area).shrink(o.shrink);
         let cell_px = TILE_SIZE as f32 / o.shrink as f32;
         let view = with_axes(&raw, cell_px, (area.0, area.1), label_step(cell_px));
@@ -301,13 +310,7 @@ fn report_counts(game: &Game) {
                 .count()
         })
     };
-    println!(
-        "on the high ground: {} branches, {} stones, {} vines, {} fish in the lake",
-        lying("Branch", true),
-        lying("Stone", true),
-        vines(true),
-        fish(true)
-    );
+    println!("on the high ground: {} branches, {} stones, {} vines, {} fish in the lake", lying("Branch", true), lying("Stone", true), vines(true), fish(true));
     println!(
         "on the island ({} cells of dry land): {} branches, {} stones, {} vines, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
         (0..game.map().height())
@@ -383,10 +386,8 @@ fn report_reach(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32,
     if let (Some((bx, by)), Some(river)) = (map.spots.bridge, map.river.as_ref()) {
         // Look across the river at the narrow, both ways.
         let p = river.nearest(bx as f32, by as f32);
-        let banks: Vec<bool> = [-1, 1]
-            .iter()
-            .map(|side| (1..8).map(|k| (bx + side * k, by)).find(|&(x, y)| map.terrain(x, y) != Terrain::River).is_some_and(near))
-            .collect();
+        let banks: Vec<bool> =
+            [-1, 1].iter().map(|side| (1..8).map(|k| (bx + side * k, by)).find(|&(x, y)| map.terrain(x, y) != Terrain::River).is_some_and(near)).collect();
         println!("  banks at the narrow in reach (west, east): {banks:?} (channel half-width {:.2})", p.half);
     }
 }
@@ -457,7 +458,8 @@ fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32
     for y in 0..h {
         for x in 0..w {
             let mut c = ground_colour(map, x, y);
-            let walkable = !map.props(x, y).solid || matches!(map.feature(x, y), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_) | Feature::Bamboo(_));
+            let walkable =
+                !map.props(x, y).solid || matches!(map.feature(x, y), Feature::Palm(_) | Feature::Broadleaf(_) | Feature::Pine(_) | Feature::Bamboo(_));
             if walkable && map.terrain(x, y).is_land() && !reach[(y * w + x) as usize] {
                 c = c.map(|v| (v as u32 * 3 / 5) as u8);
             }
@@ -466,11 +468,23 @@ fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32
     }
     // The plan's blocks faintly, chunks (and labelled coordinates) firmly.
     for x in 0..=w {
-        let a = if x % CHUNK_CELLS == 0 { 150 } else if x % PLAN_BLOCK == 0 { 45 } else { 0 };
+        let a = if x % CHUNK_CELLS == 0 {
+            150
+        } else if x % PLAN_BLOCK == 0 {
+            45
+        } else {
+            0
+        };
         (0..h * s).for_each(|py| img.blend(x * s, py, [0; 3], a));
     }
     for y in 0..=h {
-        let a = if y % CHUNK_CELLS == 0 { 150 } else if y % PLAN_BLOCK == 0 { 45 } else { 0 };
+        let a = if y % CHUNK_CELLS == 0 {
+            150
+        } else if y % PLAN_BLOCK == 0 {
+            45
+        } else {
+            0
+        };
         (0..w * s).for_each(|px| img.blend(px, y * s, [0; 3], a));
     }
     if let Some((x0, y0, x1, y1)) = area {
@@ -609,13 +623,19 @@ struct CellDiff {
 /// earlier one is lined up where it matches best: moved by anything from
 /// nothing to all the cells it grew or shrank by, along each side.
 fn diff_cells(old: &str, new: &str) -> CellDiff {
-    let grid = |s: &str| -> Vec<Vec<[u8; 2]>> { s.lines().map(|l| l.as_bytes().chunks(2).map(|c| [c[0], c.get(1).copied().unwrap_or(b' ')]).collect()).collect() };
+    let grid =
+        |s: &str| -> Vec<Vec<[u8; 2]>> { s.lines().map(|l| l.as_bytes().chunks(2).map(|c| [c[0], c.get(1).copied().unwrap_or(b' ')]).collect()).collect() };
     let (old, new) = (grid(old), grid(new));
     let size = |g: &Vec<Vec<[u8; 2]>>| (g.iter().map(|r| r.len()).max().unwrap_or(0) as i32, g.len() as i32);
     let (old_size, new_size) = (size(&old), size(&new));
     let at = |g: &Vec<Vec<[u8; 2]>>, x: i32, y: i32| -> Option<[u8; 2]> { g.get(usize::try_from(y).ok()?)?.get(usize::try_from(x).ok()?).copied() };
     let span = |d: i32| d.min(0)..=d.max(0);
-    let same = |(dx, dy): (i32, i32)| (0..old_size.1).flat_map(|y| (0..old_size.0).map(move |x| (x, y))).filter(|&(x, y)| at(&old, x, y).is_some() && at(&old, x, y) == at(&new, x + dx, y + dy)).count();
+    let same = |(dx, dy): (i32, i32)| {
+        (0..old_size.1)
+            .flat_map(|y| (0..old_size.0).map(move |x| (x, y)))
+            .filter(|&(x, y)| at(&old, x, y).is_some() && at(&old, x, y) == at(&new, x + dx, y + dy))
+            .count()
+    };
     let shift = span(new_size.0 - old_size.0)
         .flat_map(|dx| span(new_size.1 - old_size.1).map(move |dy| (dx, dy)))
         .max_by_key(|&(dx, dy)| (same((dx, dy)), -(dx.abs() + dy.abs())))
@@ -630,7 +650,10 @@ fn diff_cells(old: &str, new: &str) -> CellDiff {
             }
         }
     }
-    let removed = (0..old_size.1).flat_map(|y| (0..old_size.0).map(move |x| (x, y))).filter(|&(x, y)| at(&old, x, y).is_some() && at(&new, x + shift.0, y + shift.1).is_none()).count();
+    let removed = (0..old_size.1)
+        .flat_map(|y| (0..old_size.0).map(move |x| (x, y)))
+        .filter(|&(x, y)| at(&old, x, y).is_some() && at(&new, x + shift.0, y + shift.1).is_none())
+        .count();
     CellDiff { old_size, shift, changed, added, removed }
 }
 

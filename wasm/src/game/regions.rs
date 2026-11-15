@@ -36,10 +36,13 @@ impl Regions {
     /// Since when each chunk has slept (`None` if awake), row by row (for
     /// saving).
     pub fn asleep_since(&self) -> Vec<Option<u32>> {
-        self.state.iter().map(|s| match *s {
-            State::Awake => None,
-            State::Asleep(t) => Some(t),
-        }).collect()
+        self.state
+            .iter()
+            .map(|s| match *s {
+                State::Awake => None,
+                State::Asleep(t) => Some(t),
+            })
+            .collect()
     }
 
     /// Puts the chunks back as saved: asleep since when they fell asleep,

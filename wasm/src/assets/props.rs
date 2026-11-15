@@ -56,7 +56,11 @@ fn shade_ground(palette: u8, ground: Ground, v: u8) -> u8 {
     }
     match palette {
         PAL_SAND => {
-            if v == sand::RAMP[0] || v == sand::DEBRIS || v == sand::DEBRIS_DARK { sand::SHADOW[0] } else { sand::SHADOW[1] }
+            if v == sand::RAMP[0] || v == sand::DEBRIS || v == sand::DEBRIS_DARK {
+                sand::SHADOW[0]
+            } else {
+                sand::SHADOW[1]
+            }
         }
         PAL_ROCK => rock::SAND_SHADOW,
         PAL_FOLIAGE => foliage::SAND_SHADOW,
@@ -111,11 +115,7 @@ pub fn boulder() -> PropTile {
             let mut l = sphere_light(nx, ny) * 0.92 + noise_px(x, y, 0xB01) * 0.12 - 0.02;
             // The flared foot sits lower and darker.
             l -= 0.18 * t.powi(4);
-            let c = if t < 0.4 && ny < -0.3 && nx < 0.3 && noise_px(x, y, 0x3055) < 0.45 {
-                rock::MOSS
-            } else {
-                ramp(&rock::STONE[1..], l, x, y, 0.6)
-            };
+            let c = if t < 0.4 && ny < -0.3 && nx < 0.3 && noise_px(x, y, 0x3055) < 0.45 { rock::MOSS } else { ramp(&rock::STONE[1..], l, x, y, 0.6) };
             stone.put(x, y, c);
         }
     }
@@ -281,11 +281,7 @@ pub fn bush() -> PropTile {
 pub fn flowers() -> PropTile {
     let mut a = PixelArt::filled(16, 16, 0);
     let r = grass::RAMP;
-    for &(x, y, petal, centre) in &[
-        (4, 4, grass::WHITE, grass::YELLOW),
-        (11, 7, grass::YELLOW, grass::RED),
-        (6, 12, grass::PINK, grass::YELLOW),
-    ] {
+    for &(x, y, petal, centre) in &[(4, 4, grass::WHITE, grass::YELLOW), (11, 7, grass::YELLOW, grass::RED), (6, 12, grass::PINK, grass::YELLOW)] {
         a.put(x, y + 2, r[2]);
         a.put(x, y + 3, r[1]);
         for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
@@ -358,7 +354,13 @@ pub fn stump() -> PropTile {
         for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
             let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
             if (0.0..=1.0).contains(&u) {
-                let i = if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 };
+                let i = if u < 0.3 {
+                    3
+                } else if u < 0.65 {
+                    2
+                } else {
+                    1
+                };
                 s.put(x, y, foliage::BARK[i]);
             }
         }
@@ -366,7 +368,15 @@ pub fn stump() -> PropTile {
     // Cut face with growth rings.
     fill_ellipse(&mut s, cx, top, 4.0, 1.9, |_, _, nx, ny| {
         let r = (nx * nx + ny * ny).sqrt();
-        Some(if r > 0.75 { foliage::BARK[2] } else if r > 0.4 { foliage::SAND[1] } else if r > 0.25 { foliage::BARK[3] } else { foliage::SAND[1] })
+        Some(if r > 0.75 {
+            foliage::BARK[2]
+        } else if r > 0.4 {
+            foliage::SAND[1]
+        } else if r > 0.25 {
+            foliage::BARK[3]
+        } else {
+            foliage::SAND[1]
+        })
     });
     a.overlay(&s.outlined(foliage::BARK[0]), 0, 0);
     // Wood chips scattered around.
@@ -442,7 +452,13 @@ fn palm_with(coconuts: usize) -> (PixelArt, [PropTile; 3], [PropTile; 3]) {
             if !(0.0..=1.0).contains(&u) {
                 continue;
             }
-            let mut i = if u < 0.25 { 3 } else if u < 0.55 { 2 } else { 1 };
+            let mut i = if u < 0.25 {
+                3
+            } else if u < 0.55 {
+                2
+            } else {
+                1
+            };
             if ring {
                 i -= 1;
                 // A lighter notch on the lit side of each ring.
@@ -460,11 +476,18 @@ fn palm_with(coconuts: usize) -> (PixelArt, [PropTile; 3], [PropTile; 3]) {
     let mut canopy = PixelArt::filled(PALM_W as usize, PALM_H as usize, 0);
     let leaf = foliage::LEAF;
     let fronds: [(f32, f32, f32, bool); 12] = [
-        (-130.0, 15.0, 4.0, true), (-90.0, 12.0, 2.0, true), (-50.0, 15.0, 4.0, true),
-        (-170.0, 22.0, 16.0, false), (-10.0, 22.0, 16.0, false),
-        (163.0, 19.0, 18.0, false), (17.0, 19.0, 18.0, false),
-        (-150.0, 18.0, 9.0, false), (-30.0, 18.0, 9.0, false),
-        (130.0, 14.0, 12.0, false), (50.0, 14.0, 12.0, false), (92.0, 9.0, 7.0, false),
+        (-130.0, 15.0, 4.0, true),
+        (-90.0, 12.0, 2.0, true),
+        (-50.0, 15.0, 4.0, true),
+        (-170.0, 22.0, 16.0, false),
+        (-10.0, 22.0, 16.0, false),
+        (163.0, 19.0, 18.0, false),
+        (17.0, 19.0, 18.0, false),
+        (-150.0, 18.0, 9.0, false),
+        (-30.0, 18.0, 9.0, false),
+        (130.0, 14.0, 12.0, false),
+        (50.0, 14.0, 12.0, false),
+        (92.0, 9.0, 7.0, false),
     ];
     for (fi, &(deg, len, droop, back)) in fronds.iter().enumerate() {
         let a = deg.to_radians();
@@ -503,13 +526,29 @@ fn palm_with(coconuts: usize) -> (PixelArt, [PropTile; 3], [PropTile; 3]) {
                     }
                 }
             }
-            canopy.put(px.round() as i32, py.round() as i32, if back { leaf[2] } else if t < 0.7 { leaf[5] } else { leaf[4] });
+            canopy.put(
+                px.round() as i32,
+                py.round() as i32,
+                if back {
+                    leaf[2]
+                } else if t < 0.7 {
+                    leaf[5]
+                } else {
+                    leaf[4]
+                },
+            );
         }
     }
     // Coconuts.
     for &(cx, cy) in &coconut_spots()[..coconuts] {
         fill_ellipse(&mut canopy, cx, cy, 2.3, 2.1, |_, _, nx, ny| {
-            Some(if nx + ny < -0.6 { foliage::BARK[3] } else if nx + ny > 0.7 { foliage::BARK[0] } else { foliage::COCONUT })
+            Some(if nx + ny < -0.6 {
+                foliage::BARK[3]
+            } else if nx + ny > 0.7 {
+                foliage::BARK[0]
+            } else {
+                foliage::COCONUT
+            })
         });
     }
     // Dark edge only below/beside leaves (light comes from above).
@@ -570,7 +609,13 @@ pub fn broadleaf() -> BroadleafArt {
                     continue;
                 }
                 // Rounded shading with long vertical cracks in the bark.
-                let mut i = if u < 0.28 { 3 } else if u < 0.6 { 2 } else { 1 };
+                let mut i = if u < 0.28 {
+                    3
+                } else if u < 0.6 {
+                    2
+                } else {
+                    1
+                };
                 if noise_px(x, y / 4, 0xBA4C) < 0.18 {
                     i -= 1;
                 }
@@ -591,8 +636,15 @@ pub fn broadleaf() -> BroadleafArt {
     // whole dome lit from above.
     let mut crown = PixelArt::filled(48, 48, 0);
     let clumps = [
-        (13.0, 22.0, 9.0), (35.0, 22.0, 9.0), (24.0, 25.0, 9.5), (9.0, 14.0, 7.5), (39.0, 14.0, 7.5),
-        (17.0, 11.0, 9.0), (31.0, 10.0, 9.0), (24.0, 6.0, 7.0), (24.0, 16.0, 9.0),
+        (13.0, 22.0, 9.0),
+        (35.0, 22.0, 9.0),
+        (24.0, 25.0, 9.5),
+        (9.0, 14.0, 7.5),
+        (39.0, 14.0, 7.5),
+        (17.0, 11.0, 9.0),
+        (31.0, 10.0, 9.0),
+        (24.0, 6.0, 7.0),
+        (24.0, 16.0, 9.0),
     ];
     let leaf = foliage::LEAF;
     for &(x0, y0, r) in &clumps {
@@ -634,13 +686,29 @@ pub fn broadleaf() -> BroadleafArt {
         for x in (8.0 - hw).floor() as i32..=(8.0 + hw).ceil() as i32 {
             let u = (x as f32 + 0.5 - (8.0 - hw)) / (2.0 * hw);
             if (0.0..=1.0).contains(&u) {
-                stump.put(x, y, bark[if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 }]);
+                stump.put(
+                    x,
+                    y,
+                    bark[if u < 0.3 {
+                        3
+                    } else if u < 0.65 {
+                        2
+                    } else {
+                        1
+                    }],
+                );
             }
         }
     }
     fill_ellipse(&mut stump, 8.0, 7.0, 4.6, 2.1, |_, _, nx, ny| {
         let r = (nx * nx + ny * ny).sqrt();
-        Some(if r > 0.78 { bark[2] } else if (0.35..0.55).contains(&r) { bark[3] } else { foliage::SAND[1] })
+        Some(if r > 0.78 {
+            bark[2]
+        } else if (0.35..0.55).contains(&r) {
+            bark[3]
+        } else {
+            foliage::SAND[1]
+        })
     });
     let mut stump_tile = PixelArt::filled(16, 16, 0);
     shadow_ellipse(&mut stump_tile, 9.5, 13.5, 7.5, 2.4);
@@ -680,7 +748,13 @@ pub fn pine() -> PineArt {
         for x in (cx - hw).floor() as i32..=(cx + hw).ceil() as i32 {
             let u = (x as f32 + 0.5 - (cx - hw)) / (2.0 * hw);
             if (0.0..=1.0).contains(&u) {
-                let i = if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 };
+                let i = if u < 0.3 {
+                    3
+                } else if u < 0.65 {
+                    2
+                } else {
+                    1
+                };
                 let i = if noise_px(x, y / 3, 0x914E) < 0.2 { i - 1 } else { i };
                 full.put(x, y, bark[i]);
             }
@@ -730,13 +804,29 @@ pub fn pine() -> PineArt {
         for x in (8.0 - hw).floor() as i32..=(8.0 + hw).ceil() as i32 {
             let u = (x as f32 + 0.5 - (8.0 - hw)) / (2.0 * hw);
             if (0.0..=1.0).contains(&u) {
-                stump.put(x, y, bark[if u < 0.3 { 3 } else if u < 0.65 { 2 } else { 1 }]);
+                stump.put(
+                    x,
+                    y,
+                    bark[if u < 0.3 {
+                        3
+                    } else if u < 0.65 {
+                        2
+                    } else {
+                        1
+                    }],
+                );
             }
         }
     }
     fill_ellipse(&mut stump, 8.0, 8.0, 3.4, 1.6, |_, _, nx, ny| {
         let r = (nx * nx + ny * ny).sqrt();
-        Some(if r > 0.75 { bark[2] } else if (0.3..0.5).contains(&r) { foliage::SAND[0] } else { foliage::SAND[1] })
+        Some(if r > 0.75 {
+            bark[2]
+        } else if (0.3..0.5).contains(&r) {
+            foliage::SAND[0]
+        } else {
+            foliage::SAND[1]
+        })
     });
     let mut stump_tile = PixelArt::filled(16, 16, 0);
     shadow_ellipse(&mut stump_tile, 9.5, 13.5, 6.0, 2.2);
@@ -857,7 +947,13 @@ pub fn pine_cone() -> PropTile {
         // Rows of scales: a dark seam under each.
         let seam = (y + (x % 2)) % 2 == 0 && ny > -0.6;
         let lit = sphere_light(nx, ny);
-        Some(if seam { bark[1] } else if lit > 0.6 { bark[3] } else { bark[2] })
+        Some(if seam {
+            bark[1]
+        } else if lit > 0.6 {
+            bark[3]
+        } else {
+            bark[2]
+        })
     });
     a.overlay(&c.outlined(bark[0]), 0, 0);
     PropTile { palette: PAL_FOLIAGE, ground: Ground::Grass, overlay: a }

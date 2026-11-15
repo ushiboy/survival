@@ -2,10 +2,10 @@
 
 pub mod body;
 pub mod campfire;
-pub mod item;
 pub mod crab;
 pub mod fish;
 pub mod gull;
+pub mod item;
 pub mod particles;
 pub mod player;
 

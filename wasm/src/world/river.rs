@@ -98,11 +98,12 @@ impl River {
     fn straight(a: (f32, f32), b: (f32, f32)) -> Vec<(f32, f32)> {
         let len = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
         let n = (len / STRAIGHT_STEP).ceil().max(1.0) as usize;
-        (0..n).map(|i| {
-            let t = i as f32 / n as f32;
-            (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
-        })
-        .collect()
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / n as f32;
+                (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+            })
+            .collect()
     }
 
     /// Puts the stream's upper course in front of the river: from
@@ -261,9 +262,7 @@ impl River {
         // A segment's distance from a point is convex, so over the box it
         // is greatest at a corner; the nearest segment to any point in the
         // box is no further than the least of those greatest distances.
-        let reach = (0..self.path.len() - 1)
-            .map(|i| corners.iter().map(|&(x, y)| seg(i, x, y)).fold(0.0, f32::max))
-            .fold(f32::MAX, f32::min);
+        let reach = (0..self.path.len() - 1).map(|i| corners.iter().map(|&(x, y)| seg(i, x, y)).fold(0.0, f32::max)).fold(f32::MAX, f32::min);
         // Keep each segment whose bounding box comes within that of the box.
         let segments = (0..self.path.len() - 1)
             .filter(|&i| {
