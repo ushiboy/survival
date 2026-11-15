@@ -2,6 +2,9 @@
 
 A top-down survival action RPG set on a desert island. The game logic and rendering are written in Rust and compiled to WebAssembly, drawing through a software PPU modelled on Mode 1 of the SNES (Super Famicom). The page is built with Vite, React and TypeScript.
 
+> [!NOTE]
+> This game is under development. Everything about it is a beta: rules, items, recipes, the island and the save format may change without notice, and saves from an earlier version may stop loading.
+
 The game's concept, how to play and its full specification live in [docs/](docs/README.md) (in Japanese). This file covers only what you need to develop it.
 
 ## Requirements
