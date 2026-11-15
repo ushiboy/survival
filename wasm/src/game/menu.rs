@@ -8,7 +8,8 @@
 //! the bag from anywhere but the hand.
 //!
 //! Pages are chosen on a tab row above the grid (pressing up off the top of
-//! the grid or the crafting list reaches it). On the items page, A on an
+//! the grid or the crafting list reaches it), or with L and R, which open
+//! the page beside the one shown (but not in the middle of something). On the items page, A on an
 //! item opens its commands; B closes the bag. On the crafting page, A makes
 //! the chosen recipe from materials in the bag (holding the result if
 //! there's no room for it) and B returns to the tabs. Holding an item, A
@@ -249,10 +250,38 @@ impl BagMenu {
         };
     }
 
+    /// L or R (`dx` -1 or 1): on the tab row, moves along it; on a page,
+    /// opens the one beside it. Not in the middle of something (a command
+    /// list, a recipe, a gear choice, an item in hand). Whether it was
+    /// taken.
+    fn switch_page(&mut self, dx: i32) -> bool {
+        let on_tabs = matches!(self.mode, Mode::Tabs(_));
+        if !on_tabs && !matches!(self.mode, Mode::Browse | Mode::Crafting { .. } | Mode::Gear { .. } | Mode::Saving) {
+            return false;
+        }
+        let page = self.page();
+        let i = Page::ALL.iter().position(|&p| p == page).unwrap_or(0) as i32;
+        let next = Page::ALL[(i + dx).clamp(0, Page::ALL.len() as i32 - 1) as usize];
+        if next != page {
+            if on_tabs {
+                self.mode = Mode::Tabs(next);
+                self.notice = None;
+            } else {
+                self.open(next);
+            }
+        }
+        true
+    }
+
     pub fn update(&mut self, input: &InputState, inv: &mut Inventory) -> Outcome {
         let step = self.direction(input);
         if input.pressed(Buttons::X) && !matches!(self.mode, Mode::Holding(_)) {
             return Outcome::Close;
+        }
+        if let Some(dx) = [(Buttons::L, -1), (Buttons::R, 1)].into_iter().find(|&(b, _)| input.pressed(b)).map(|(_, dx)| dx)
+            && self.switch_page(dx)
+        {
+            return Outcome::Stay;
         }
         match self.mode {
             Mode::Saving => {
@@ -576,5 +605,77 @@ impl BagMenu {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Presses `buttons` for a frame of the bag screen, then lets go.
+    fn press(menu: &mut BagMenu, inv: &mut Inventory, buttons: u16) -> Outcome {
+        let mut input = InputState::default();
+        input.update(buttons);
+        let outcome = menu.update(&input, inv);
+        input.update(0);
+        menu.update(&input, inv);
+        outcome
+    }
+
+    #[test]
+    fn r_and_l_switch_to_the_next_and_previous_page() {
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu::browse();
+        press(&mut menu, &mut inv, Buttons::R);
+        assert_eq!(menu.page(), Page::Craft);
+        assert!(matches!(menu.mode, Mode::Crafting { .. }), "the page opens, not just its tab");
+        press(&mut menu, &mut inv, Buttons::R);
+        assert_eq!(menu.mode, Mode::Gear { slot: 0 });
+        press(&mut menu, &mut inv, Buttons::R);
+        assert_eq!(menu.mode, Mode::Saving);
+        press(&mut menu, &mut inv, Buttons::L);
+        press(&mut menu, &mut inv, Buttons::L);
+        press(&mut menu, &mut inv, Buttons::L);
+        assert_eq!(menu.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn r_and_l_stop_at_the_ends_of_the_tabs() {
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu::browse();
+        press(&mut menu, &mut inv, Buttons::L);
+        assert_eq!(menu.mode, Mode::Browse);
+        for _ in 0..Page::ALL.len() {
+            press(&mut menu, &mut inv, Buttons::R);
+        }
+        assert_eq!(menu.mode, Mode::Saving);
+    }
+
+    #[test]
+    fn r_and_l_on_the_tab_row_move_along_it() {
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu::browse();
+        menu.mode = Mode::Tabs(Page::Items);
+        press(&mut menu, &mut inv, Buttons::R);
+        assert_eq!(menu.mode, Mode::Tabs(Page::Craft));
+    }
+
+    #[test]
+    fn r_and_l_do_nothing_while_holding_an_item() {
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu::holding(ItemKind::Stone, 1);
+        press(&mut menu, &mut inv, Buttons::R);
+        assert!(matches!(menu.mode, Mode::Holding(_)));
+    }
+
+    #[test]
+    fn the_items_page_keeps_its_cursor_when_switched_back_to() {
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu::browse();
+        press(&mut menu, &mut inv, Buttons::RIGHT);
+        press(&mut menu, &mut inv, Buttons::DOWN);
+        press(&mut menu, &mut inv, Buttons::R);
+        press(&mut menu, &mut inv, Buttons::L);
+        assert_eq!(menu.cursor, (1, 1));
     }
 }
