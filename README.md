@@ -18,7 +18,7 @@ pnpm test     # Rust のテスト（cargo test --manifest-path wasm/Cargo.toml�
 pnpm test:web # TypeScript のテスト（Vitest + Testing Library、jsdom）。見張って回すなら pnpm test:web:watch
 ```
 
-Rust のテストはネイティブで動きます（ブラウザは要りません）。単体テストは各ファイルの末尾の `#[cfg(test)] mod tests`、`Game` を外から動かすシナリオテストは `wasm/tests/` にあります。セーブの変換のテストは、古い版のセーブの見本（`wasm/src/game/save_samples/`）を読みます。
+Rust のテストはネイティブで動きます（ブラウザは要りません）。単体テストは各ファイルの末尾の `#[cfg(test)] mod tests`、`Game` を外から動かすシナリオテストは `wasm/tests/` にあります。セーブのテストは、版ごとのセーブの見本（`wasm/src/game/save_samples/`）を読みます。
 
 TypeScript のテストは、対象のファイルの隣に `*.test.ts(x)` として置きます（例: `src/game/touch.test.ts`）。wasm はビルドせずに動きます。wasm を使う部品（`GameScreen`）のテストは、`vi.mock` で `game/wasmCore` とゲームのループを差し替えます。jsdom にない要素の位置・当たり判定（`elementFromPoint`）・`matchMedia` は、`src/test/dom.ts` の補助で用意します。
 
