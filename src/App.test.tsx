@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { fakeMatchMedia } from './test/dom';
+import { fakeMatchMedia, offerInstall } from './test/dom';
 import { skipHelpOnStart } from './game/helpCookie';
 import { renderIn } from './test/intl';
 
@@ -264,6 +264,62 @@ describe('App', () => {
       fakeMatchMedia(false);
       renderIn(<App />);
       expect(screen.queryByRole('button', { name: '操作説明' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('インストールのバナー', () => {
+    const banner = () => screen.queryByRole('region', { name: 'アプリとしてインストール' });
+
+    it('ブラウザがインストールできると知らせてきたら、バナーを出す', () => {
+      skipHelpOnStart();
+      fakeMatchMedia(false);
+      renderIn(<App />);
+      expect(banner()).not.toBeInTheDocument();
+      offerInstall();
+      expect(banner()).toBeInTheDocument();
+    });
+
+    it('バナーの「インストール」でブラウザの確認を開き、バナーをしまう', async () => {
+      skipHelpOnStart();
+      fakeMatchMedia(true);
+      renderIn(<App />);
+      const offer = offerInstall();
+      await userEvent.click(within(banner()!).getByRole('button', { name: 'インストール' }));
+      expect(offer.prompt).toHaveBeenCalledTimes(1);
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it('バナーを閉じたら覚えておき、次に開いたときも出さない', async () => {
+      skipHelpOnStart();
+      fakeMatchMedia(false);
+      const first = renderIn(<App />);
+      offerInstall();
+      await userEvent.click(within(banner()!).getByRole('button', { name: '閉じる' }));
+      expect(banner()).not.toBeInTheDocument();
+      first.unmount();
+      renderIn(<App />);
+      offerInstall();
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it('操作説明が出ている間はバナーを出さず、閉じたら出す', async () => {
+      fakeMatchMedia(true);
+      renderIn(<App />);
+      offerInstall();
+      expect(banner()).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: '閉じる' }));
+      expect(banner()).toBeInTheDocument();
+    });
+
+    it('バナーを閉じたあとも、操作説明からインストールできる', async () => {
+      skipHelpOnStart();
+      fakeMatchMedia(false);
+      renderIn(<App />);
+      const offer = offerInstall();
+      await userEvent.click(within(banner()!).getByRole('button', { name: '閉じる' }));
+      await userEvent.click(screen.getByRole('button', { name: '操作' }));
+      await userEvent.click(screen.getByRole('button', { name: 'アプリとしてインストール' }));
+      expect(offer.prompt).toHaveBeenCalledTimes(1);
     });
   });
 });

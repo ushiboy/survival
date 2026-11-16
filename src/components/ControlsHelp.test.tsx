@@ -77,4 +77,25 @@ describe('ControlsHelp', () => {
     await userEvent.click(screen.getByRole('button', { name: '閉じる' }));
     expect(onClose).toHaveBeenCalledWith(false);
   });
+
+  it('インストールできるときは、インストールのボタンを出す（押しても閉じない）', async () => {
+    const onInstall = vi.fn();
+    const onClose = vi.fn();
+    renderIn(<ControlsHelp install={{ way: 'prompt', onInstall }} onClose={onClose} />);
+    await userEvent.click(screen.getByRole('button', { name: 'アプリとしてインストール' }));
+    expect(onInstall).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('iPhone では、ボタンの代わりに「ホーム画面に追加」の手順を出す', () => {
+    renderIn(<ControlsHelp install={{ way: 'ios', onInstall: () => {} }} onClose={() => {}} />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('「ホーム画面に追加」');
+    expect(screen.queryByRole('button', { name: 'アプリとしてインストール' })).not.toBeInTheDocument();
+  });
+
+  it('インストールできないときは、インストールのことは出さない', () => {
+    renderIn(<ControlsHelp onClose={() => {}} />);
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('インストール');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('ホーム画面');
+  });
 });

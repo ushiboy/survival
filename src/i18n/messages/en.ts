@@ -24,6 +24,13 @@ const en: typeof ja = {
     skip: "Don't show on start",
     close: 'Close',
   },
+  install: {
+    title: 'Install as an app',
+    body: 'Opens full screen without the browser around it, and plays offline.',
+    ios: 'To install it as an app, open the browser\'s Share menu and choose "Add to Home Screen".',
+    action: 'Install',
+    close: 'Close',
+  },
   display: {
     title: 'Display',
     scale: 'Scale',

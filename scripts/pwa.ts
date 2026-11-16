@@ -27,6 +27,8 @@ export function serviceWorker(): Plugin {
         hash.update(chunk.type === 'chunk' ? chunk.code : chunk.source);
       }
       for (const name of readdirSync(publicDir).sort()) {
+        // Only link previews fetch it; the game never shows it.
+        if (name === 'og-image.png') continue;
         files.push(name);
         hash.update(name);
         hash.update(readFileSync(join(publicDir, name)));

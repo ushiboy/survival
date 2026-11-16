@@ -43,7 +43,8 @@ pnpm fmt             # format the Rust code (rustfmt, configured in wasm/rustfmt
 
 - **Debugging**: add `?debug=true` to the URL (e.g. `http://localhost:5173/?debug=true`) to show a "Debug" button. What the debug dialog can do (give items, unlock every recipe, move to set places, advance the time, ...) is described under "デバッグ機能" in [docs/README.md](docs/README.md#デバッグ機能).
 - **Touch layout**: devices with `pointer: coarse` get the touch layout (see "操作の手段" in [docs/README.md](docs/README.md#操作の手段)). The URL option that forces it on a PC (`?touch=true`) is described under "デバッグ機能" too. To open the dev server from a phone on the same LAN, start it with `pnpm dev --host`.
-- **PWA**: the dev server (`pnpm dev`) doesn't register the service worker, so check installing and offline play with `pnpm build` followed by `pnpm preview`. The manifest is `public/manifest.webmanifest`. The service worker comes from `scripts/service-worker.js`: during `vite build`, `scripts/pwa.ts` (a Vite plugin) writes in the list of the page's and build's files and a version (a hash of their contents) to make `dist/sw.js`.
+- **Link previews**: `index.html` carries the Open Graph tags (title, description, `og-image.png`). They need absolute URLs, so `scripts/site-url.ts` (a Vite plugin) writes `SITE_URL` in place of `__SITE_URL__`; the deploy workflow sets it. To check a build locally: `SITE_URL=https://example.com/survival BASE_PATH=/survival/ pnpm build`, then read `dist/index.html`. `public/og-image.png` (1200×630) is a snapshot scaled up ×5 and cropped to 240×126 from (8, 62): `cargo run --profile tools --example snapshot -- out.ppm "0000:300,0200:14,0400:4,0000:40"` in `wasm/`.
+- **PWA**: the dev server (`pnpm dev`) doesn't register the service worker, so check installing and offline play with `pnpm build` followed by `pnpm preview`. The manifest is `public/manifest.webmanifest`. The page's own install banner (`src/components/InstallBanner.tsx`, `src/game/install.ts`) shows when the browser sends `beforeinstallprompt`, which Chrome does only for an installable page (so not on the dev server), or with the steps on iOS. The service worker comes from `scripts/service-worker.js`: during `vite build`, `scripts/pwa.ts` (a Vite plugin) writes in the list of the page's and build's files and a version (a hash of their contents) to make `dist/sw.js`.
 
 ## Development tools
 
@@ -115,7 +116,7 @@ cd wasm && cargo run --release --example palms -- 1        # cells of the water 
 Every push to `main` builds the game and publishes it to GitHub Pages as the [Demo Site](https://ushiboy.github.io/survival/) (`.github/workflows/deploy.yml`); it can also be run by hand from the Actions tab. The workflow installs Node, pnpm and wasm-pack from `mise.toml` and Rust from `rust-toolchain.toml`, checks the formatting, runs both test suites, and deploys `dist/`.
 
 - In the repository's **Settings → Pages**, set **Source** to **GitHub Actions** (once).
-- A project site is served under `/<repository>/`, so the workflow builds with `BASE_PATH` set to that path (taken from `actions/configure-pages`). To try such a build locally: `BASE_PATH=/survival/ pnpm build`. Without `BASE_PATH` the build is for `/`.
+- A project site is served under `/<repository>/`, so the workflow builds with `BASE_PATH` set to that path and `SITE_URL` to the site's full address, for the link preview's absolute URLs (both taken from `actions/configure-pages`). To try such a build locally: `BASE_PATH=/survival/ pnpm build`. Without `BASE_PATH` the build is for `/`.
 
 ### Actions the workflows use
 
@@ -141,13 +142,14 @@ src/                    React / TS (display and input only)
   game/touchMode.ts     whether to use the touch layout (pointer: coarse / ?touch=)
   game/gameLoop.ts      60.1 Hz fixed-step loop
   game/serviceWorker.ts service worker registration (production builds only)
-  components/           screen, on-screen controller, controls help, display and debug dialogs
+  game/install.ts       whether and how the page can be installed (beforeinstallprompt / iOS), for the install banner
+  components/           screen, on-screen controller, controls help, install banner, display and debug dialogs
   i18n/                 page text in Japanese and English (use-intl); messages/ja.ts is the source and en.ts
                         has the same entries; chosen by navigator.language
 public/                 served as is: the favicon (favicon.svg is the original 16×16 pixel art; favicon.ico,
                         apple-touch-icon.png for home screens and icon-192/512.png for the PWA are integer
                         scale-ups of it; icon-maskable-512.png adds sea around it so it can be cropped round)
-                        and the PWA manifest (manifest.webmanifest)
+                        and the PWA manifest (manifest.webmanifest); og-image.png is the picture for link previews
 wasm/src/               Rust core
   lib.rs                facade for JS (the only place using wasm_bindgen)
   common/               fixed point, random numbers, input
@@ -163,7 +165,8 @@ wasm/src/               Rust core
 wasm/tests/             scenario tests driving a Game from outside
 wasm/examples/          development tools (snapshot, island map, art sheet, streaming check, ...)
 scripts/                development scripts (watchers that redraw the island map and art sheet), and the
-                        service worker source (service-worker.js) and Vite plugin (pwa.ts) that build dist/sw.js
+                        service worker source (service-worker.js) and Vite plugin (pwa.ts) that build dist/sw.js,
+                        and the Vite plugin that writes the site's URL into index.html (site-url.ts)
 docs/                   the game's specification (concept, rules, items, recipes, island, saving, rendering)
 ```
 
