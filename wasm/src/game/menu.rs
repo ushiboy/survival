@@ -10,9 +10,10 @@
 //! Pages are chosen on a tab row above the grid (pressing up off the top of
 //! the grid or the crafting list reaches it), or with L and R, which open
 //! the page beside the one shown (but not in the middle of something). On the items page, A on an
-//! item opens its commands; B closes the bag. On the crafting page, A makes
-//! the chosen recipe from materials in the bag (holding the result if
-//! there's no room for it) and B returns to the tabs. Holding an item, A
+//! item opens its commands; B closes the bag. On the crafting page, A opens
+//! the chosen recipe and B returns to the tabs; on a recipe, A asks
+//! whether to make it and A again makes it from materials in the bag
+//! (holding the result if there's no room for it), and B goes back. Holding an item, A
 //! puts it down (swapping with the one item it covers, if any) and B
 //! returns it where it came from (or, if it came off the ground or there's
 //! no room left, leaves it on the ground). On the gear page, A on a slot
@@ -173,12 +174,14 @@ pub enum Mode {
     Crafting {
         choice: usize,
     },
-    /// Looking over one recipe (index into `RECIPES`), with MAKE (0) or
-    /// BACK (1) chosen. Left and right change to another way of making the
-    /// same thing.
+    /// Looking over one recipe (index into `RECIPES`), what it needs
+    /// scrolled down `scroll` lines; `confirming` while asking whether to
+    /// make it. Left and right change to another way of making the same
+    /// thing.
     Recipe {
         recipe: usize,
-        choice: usize,
+        scroll: usize,
+        confirming: bool,
     },
     /// On a line of the gear page (index into `gear_rows`).
     Gear {
@@ -233,6 +236,60 @@ pub struct BagMenu {
     /// load can be got at.
     pub cart_at_hand: bool,
     held_frames: u32,
+}
+
+/// Lines of what a recipe needs shown at once on its page; more scroll.
+pub const NEEDS_SHOWN: usize = 9;
+
+/// A line of what a recipe needs, as listed on its page: the materials
+/// used up under one heading, then (if any) what isn't used up under
+/// another: the tools carried, and a fire or the lathe to be beside.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NeedLine {
+    Materials,
+    Material(ItemKind, u32),
+    Gap,
+    Tools,
+    Tool(ItemKind),
+    Fire,
+    Lathe,
+}
+
+pub fn need_lines(recipe: &crate::crafting::Recipe) -> Vec<NeedLine> {
+    let mut lines = vec![NeedLine::Materials];
+    lines.extend(recipe.needs.iter().map(|&(kind, n)| NeedLine::Material(kind, n)));
+    let place = [(recipe.at_fire, NeedLine::Fire), (recipe.at_lathe, NeedLine::Lathe)].into_iter().filter(|p| p.0).map(|p| p.1);
+    let others: Vec<NeedLine> = recipe.tools.iter().map(|&t| NeedLine::Tool(t)).chain(place).collect();
+    if !others.is_empty() {
+        lines.extend([NeedLine::Gap, NeedLine::Tools]);
+        lines.extend(others);
+    }
+    lines
+}
+
+/// `scroll` moved `dy` lines through `lines` lines of needs, no further
+/// than the last line at the bottom.
+pub fn scrolled(scroll: usize, dy: i32, lines: usize) -> usize {
+    let last = lines.saturating_sub(NEEDS_SHOWN) as i32;
+    (scroll as i32 + dy).clamp(0, last) as usize
+}
+
+/// Why `recipe` can't be made here and now, if it can't.
+fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) -> Option<&'static str> {
+    if !inv.can_make(recipe) {
+        return Some(if recipe.tools.iter().all(|&t| inv.carries(t)) { "NOT ENOUGH MATERIALS" } else { "MISSING A TOOL" });
+    }
+    if recipe.at_fire && !menu.near_fire {
+        return Some("NEEDS A FIRE");
+    }
+    if recipe.at_lathe && !menu.near_lathe {
+        return Some("NEEDS A LATHE");
+    }
+    // A handcart: there's only ever the one.
+    if recipe.makes == ItemKind::Handcart && inv.cart.is_some() {
+        return Some("YOU HAVE ONE ALREADY");
+    }
+    None
 }
 
 /// Commands offered for an item, in menu order: taking a tool in hand
@@ -458,7 +515,7 @@ impl BagMenu {
             Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
             Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
-            Mode::Recipe { recipe, choice } => self.update_recipe(input, inv, recipe, choice, step),
+            Mode::Recipe { recipe, scroll, confirming } => self.update_recipe(input, inv, recipe, scroll, confirming, step),
             Mode::Gear { slot } => {
                 let rows = gear_rows(&inv.gear);
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
@@ -545,18 +602,40 @@ impl BagMenu {
             self.notice = None;
         } else if let Some(&recipe) = listed.get(choice).filter(|_| input.pressed(Buttons::A)) {
             inv.recipes.looked_at(recipe);
-            self.mode = Mode::Recipe { recipe, choice: 0 };
+            self.mode = Mode::Recipe { recipe, scroll: 0, confirming: false };
             self.notice = None;
         }
         Outcome::Stay
     }
 
-    /// One recipe: MAKE or BACK. Making keeps the recipe open so more can
-    /// be made, unless it's cooked at the fire (the bag closes) or there's
-    /// no room for it (it's held to be placed).
-    fn update_recipe(&mut self, input: &InputState, inv: &mut Inventory, mut index: usize, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
+    /// One recipe: A asks whether to make it (or says why it can't be
+    /// made), and A again makes it; B goes back (or, while asking, doesn't
+    /// make it). Up and down scroll what it needs. Making keeps the recipe
+    /// open so more can be made, unless it's cooked at the fire (the bag
+    /// closes) or there's no room for it (it's held to be placed).
+    fn update_recipe(
+        &mut self,
+        input: &InputState,
+        inv: &mut Inventory,
+        mut index: usize,
+        mut scroll: usize,
+        confirming: bool,
+        step: Option<(i32, i32)>,
+    ) -> Outcome {
+        if confirming {
+            if input.pressed(Buttons::B) {
+                self.mode = Mode::Recipe { recipe: index, scroll, confirming: false };
+                self.notice = None;
+                return Outcome::Stay;
+            }
+            if input.pressed(Buttons::A) {
+                self.mode = Mode::Recipe { recipe: index, scroll, confirming: false };
+                return self.make(inv, index);
+            }
+            return Outcome::Stay;
+        }
         match step {
-            Some((0, dy)) => choice = (choice as i32 + dy).rem_euclid(2) as usize,
+            Some((0, dy)) => scroll = scrolled(scroll, dy, need_lines(&RECIPES[index]).len()),
             // Another way of making the same thing, if there is one.
             Some((dx, _)) => {
                 let ways = inv.recipes.ways(index);
@@ -565,43 +644,39 @@ impl BagMenu {
                     && next != index
                 {
                     index = next;
+                    scroll = 0;
                     inv.recipes.looked_at(index);
                     self.notice = None;
                 }
             }
             None => {}
         }
-        self.mode = Mode::Recipe { recipe: index, choice };
-        let back = input.pressed(Buttons::B) || (input.pressed(Buttons::A) && choice == 1);
-        if back {
+        self.mode = Mode::Recipe { recipe: index, scroll, confirming: false };
+        if input.pressed(Buttons::B) {
             let makes = RECIPES[index].makes;
             let place = inv.recipes.listed().iter().position(|&i| RECIPES[i].makes == makes).unwrap_or(0);
             self.mode = Mode::Crafting { choice: place };
             self.notice = None;
-            return Outcome::Stay;
+        } else if input.pressed(Buttons::A) {
+            match why_not(self, inv, &RECIPES[index]) {
+                Some(why) => self.notice = Some(why),
+                None => {
+                    self.mode = Mode::Recipe { recipe: index, scroll, confirming: true };
+                    self.notice = None;
+                }
+            }
         }
-        if !input.pressed(Buttons::A) {
-            return Outcome::Stay;
-        }
+        Outcome::Stay
+    }
+
+    /// Makes the recipe at `index`, already found makeable.
+    fn make(&mut self, inv: &mut Inventory, index: usize) -> Outcome {
         let recipe = &RECIPES[index];
-        if !inv.can_make(recipe) {
-            self.notice = Some(if recipe.tools.iter().all(|&t| inv.carries(t)) { "NOT ENOUGH MATERIALS" } else { "MISSING A TOOL" });
-            return Outcome::Stay;
-        }
-        if recipe.at_fire && !self.near_fire {
-            self.notice = Some("NEEDS A FIRE");
-            return Outcome::Stay;
-        }
-        if recipe.at_lathe && !self.near_lathe {
-            self.notice = Some("NEEDS A LATHE");
+        if let Some(why) = why_not(self, inv, recipe) {
+            self.notice = Some(why);
             return Outcome::Stay;
         }
         if !recipe.makes.goes_in_bag() && !recipe.at_fire {
-            // A handcart: there's only ever the one.
-            if recipe.makes == ItemKind::Handcart && inv.cart.is_some() {
-                self.notice = Some("YOU HAVE ONE ALREADY");
-                return Outcome::Stay;
-            }
             inv.recipes.made(index);
             inv.bag.use_up(recipe);
             self.notice = Some("MADE IT!");
@@ -793,7 +868,7 @@ mod tests {
         for &kind in RECIPES[index].tools {
             inv.bag.stow_one(kind);
         }
-        let menu = BagMenu { mode: Mode::Recipe { recipe: index, choice: 0 }, ..BagMenu::browse() };
+        let menu = BagMenu { mode: Mode::Recipe { recipe: index, scroll: 0, confirming: false }, ..BagMenu::browse() };
         (menu, inv)
     }
 
@@ -812,6 +887,7 @@ mod tests {
         menu.near_lathe = true;
         let index = RECIPES.iter().position(|r| r.at_lathe).unwrap();
         press_a(&mut menu, &mut inv);
+        press_a(&mut menu, &mut inv);
         assert!(inv.bag.has(RECIPES[index].makes));
     }
 
@@ -827,12 +903,13 @@ mod tests {
         for &kind in RECIPES[index].tools {
             inv.bag.stow_one(kind);
         }
-        (BagMenu { mode: Mode::Recipe { recipe: index, choice: 0 }, ..BagMenu::browse() }, inv)
+        (BagMenu { mode: Mode::Recipe { recipe: index, scroll: 0, confirming: false }, ..BagMenu::browse() }, inv)
     }
 
     #[test]
     fn a_handcart_made_is_handed_over_not_put_in_the_bag() {
         let (mut menu, mut inv) = at_the_handcart();
+        press_a(&mut menu, &mut inv);
         let mut input = InputState::default();
         input.update(Buttons::A);
         assert_eq!(menu.update(&input, &mut inv), Outcome::Made(ItemKind::Handcart));
@@ -848,6 +925,84 @@ mod tests {
         press_a(&mut menu, &mut inv);
         assert_eq!(inv.bag, before, "nothing is used up");
         assert!(menu.notice.is_some());
+    }
+
+    /// The menu open on the stone knife's recipe, with two stones carried.
+    fn at_the_knife() -> (BagMenu, Inventory) {
+        let index = RECIPES.iter().position(|r| r.makes == ItemKind::StoneKnife).unwrap();
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Stone, 2);
+        (BagMenu { mode: Mode::Recipe { recipe: index, scroll: 0, confirming: false }, ..BagMenu::browse() }, inv)
+    }
+
+    #[test]
+    fn a_on_a_recipe_asks_before_making_and_a_again_makes_it() {
+        let (mut menu, mut inv) = at_the_knife();
+        let before = inv.bag.clone();
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.bag, before, "nothing is made yet");
+        assert!(matches!(menu.mode, Mode::Recipe { confirming: true, .. }));
+        press(&mut menu, &mut inv, Buttons::A);
+        assert!(inv.bag.has(ItemKind::StoneKnife));
+        assert!(matches!(menu.mode, Mode::Recipe { confirming: false, .. }), "the recipe stays open to make another");
+    }
+
+    #[test]
+    fn b_while_asking_makes_nothing_and_stays_on_the_recipe() {
+        let (mut menu, mut inv) = at_the_knife();
+        let before = inv.bag.clone();
+        press(&mut menu, &mut inv, Buttons::A);
+        press(&mut menu, &mut inv, Buttons::B);
+        assert_eq!(inv.bag, before);
+        assert!(matches!(menu.mode, Mode::Recipe { confirming: false, .. }));
+    }
+
+    #[test]
+    fn b_on_a_recipe_goes_back_to_the_list() {
+        let (mut menu, mut inv) = at_the_knife();
+        press(&mut menu, &mut inv, Buttons::B);
+        assert!(matches!(menu.mode, Mode::Crafting { .. }));
+    }
+
+    #[test]
+    fn a_on_a_recipe_that_cant_be_made_says_why_without_asking() {
+        let (mut menu, mut inv) = at_the_knife();
+        inv.bag = Bag::default();
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(menu.notice, Some("NOT ENOUGH MATERIALS"));
+        assert!(matches!(menu.mode, Mode::Recipe { confirming: false, .. }));
+    }
+
+    #[test]
+    fn what_a_recipe_needs_lists_the_materials_then_the_tools_and_the_place() {
+        let lathe = RECIPES.iter().find(|r| r.at_lathe && !r.tools.is_empty()).unwrap();
+        let lines = need_lines(lathe);
+        assert_eq!(lines[0], NeedLine::Materials);
+        let tools = lines.iter().position(|l| *l == NeedLine::Tools).expect("a tools heading");
+        assert!(lines[..tools].iter().all(|l| !matches!(l, NeedLine::Tool(_) | NeedLine::Lathe | NeedLine::Fire)));
+        assert!(lines[tools..].iter().all(|l| !matches!(l, NeedLine::Material(..))));
+        assert!(lines[tools..].contains(&NeedLine::Lathe), "the lathe goes with the tools");
+    }
+
+    #[test]
+    fn a_recipe_without_tools_has_no_tools_heading() {
+        let knife = RECIPES.iter().find(|r| r.makes == ItemKind::StoneKnife).unwrap();
+        assert!(!need_lines(knife).contains(&NeedLine::Tools));
+    }
+
+    #[test]
+    fn every_recipe_fits_its_needs_on_the_page_without_scrolling() {
+        // Not a rule, just how things stand: scrolling is for later.
+        assert!(RECIPES.iter().all(|r| need_lines(r).len() <= NEEDS_SHOWN));
+    }
+
+    #[test]
+    fn up_and_down_scroll_the_needs_only_as_far_as_they_go() {
+        let long = NEEDS_SHOWN + 3;
+        assert_eq!(scrolled(0, -1, long), 0);
+        assert_eq!(scrolled(0, 1, long), 1);
+        assert_eq!(scrolled(3, 1, long), 3, "stops with the last line at the bottom");
+        assert_eq!(scrolled(0, 1, NEEDS_SHOWN), 0, "nothing to scroll when it all fits");
     }
 
     /// The cart page, with a stack of rope in the bag and the cart at hand.

@@ -23,6 +23,12 @@ fn open_first_recipe(game: &mut Game) {
     press(game, Buttons::A);
 }
 
+/// Makes the recipe open on the page: A, then A again to say yes.
+fn make(game: &mut Game) {
+    press(game, Buttons::A);
+    press(game, Buttons::A);
+}
+
 /// A game carrying enough husks and bark for a rope either way, and the
 /// knife to split the bark.
 fn ready_for_rope() -> Game {
@@ -37,7 +43,7 @@ fn ready_for_rope() -> Game {
 fn rope_is_made_the_way_shown_on_its_page() {
     let mut game = ready_for_rope();
     open_first_recipe(&mut game);
-    press(&mut game, Buttons::A);
+    make(&mut game);
     assert_eq!(carried(&game, ItemKind::Rope), 1);
     assert_eq!(carried(&game, ItemKind::Husk), 0, "the first way uses husks");
     assert_eq!(carried(&game, ItemKind::Bark), 3);
@@ -48,7 +54,7 @@ fn left_and_right_on_the_page_change_the_way_it_is_made() {
     let mut game = ready_for_rope();
     open_first_recipe(&mut game);
     press(&mut game, Buttons::RIGHT);
-    press(&mut game, Buttons::A);
+    make(&mut game);
     assert_eq!(carried(&game, ItemKind::Rope), 1);
     assert_eq!(carried(&game, ItemKind::Bark), 0, "the second way uses bark");
     assert_eq!(carried(&game, ItemKind::Husk), 2);
@@ -60,10 +66,10 @@ fn the_page_opens_on_the_way_last_made() {
     game.debug_give_n(ItemKind::Bark, 3);
     open_first_recipe(&mut game);
     press(&mut game, Buttons::RIGHT);
-    press(&mut game, Buttons::A);
+    make(&mut game);
     press(&mut game, Buttons::X);
     open_first_recipe(&mut game);
-    press(&mut game, Buttons::A);
+    make(&mut game);
     assert_eq!(carried(&game, ItemKind::Rope), 2);
     assert_eq!(carried(&game, ItemKind::Bark), 0, "made from bark both times");
     assert_eq!(carried(&game, ItemKind::Husk), 2);
