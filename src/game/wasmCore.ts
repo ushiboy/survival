@@ -14,7 +14,17 @@ export interface CoreStatus {
   paused: boolean;
   /** VRAM needed for the current screen, in bytes (SNES has 64 KiB). */
   vramBytes: number;
+  /** The castaway's feet, in pixels on the island. */
+  feetX: number;
+  feetY: number;
+  facing: Facing;
+  /** Whole hours on the clock since the game started (the snapshot's `SNAP_HOURS`). */
+  hoursSinceStart: number;
 }
+
+export type Facing = 'up' | 'down' | 'left' | 'right';
+/** In the order the core numbers them. */
+const FACINGS: Facing[] = ['up', 'down', 'left', 'right'];
 
 export interface DebugItem {
   /** Index to pass to `GameCore.debugGive`. */
@@ -110,8 +120,20 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
       return image;
     },
     status() {
-      const [tileX, tileY, day, minuteOfDay, paused, vramBytes] = handle.status();
-      return { tileX, tileY, day, minuteOfDay, paused: paused === 1, vramBytes };
+      const [tileX, tileY, day, minuteOfDay, paused, vramBytes, feetX, feetY, facing, hoursSinceStart] =
+        handle.status();
+      return {
+        tileX,
+        tileY,
+        day,
+        minuteOfDay,
+        paused: paused === 1,
+        vramBytes,
+        feetX,
+        feetY,
+        facing: FACINGS[facing] ?? 'down',
+        hoursSinceStart,
+      };
     },
     setSpriteLimit: (on) => handle.set_sprite_limit(on),
     cycleOutfit: () => handle.debug_cycle_outfit(),

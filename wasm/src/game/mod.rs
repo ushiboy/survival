@@ -1894,6 +1894,17 @@ impl Game {
         (x.div_euclid(crate::world::TILE_SIZE), y.div_euclid(crate::world::TILE_SIZE))
     }
 
+    /// Which way the castaway faces.
+    pub fn player_facing(&self) -> Dir {
+        self.player.facing
+    }
+
+    /// Debug: whole hours on the clock since the game started (what the
+    /// snapshot's `SNAP_HOURS` takes to come back to this time of day).
+    pub fn debug_hours_since_start(&self) -> u32 {
+        (self.clock.total_minutes() - GameClock::new(1, START_HOUR).total_minutes()) / 60
+    }
+
     pub fn clock(&self) -> &GameClock {
         &self.clock
     }

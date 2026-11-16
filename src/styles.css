@@ -192,7 +192,8 @@ button.active {
 }
 
 select,
-input.count {
+input.count,
+input.memo {
   background: #22222e;
   color: var(--text);
   border: 1px solid var(--border);
@@ -641,4 +642,43 @@ input.count {
     justify-self: end;
     margin-right: 4vmin;
   }
+}
+
+input.memo {
+  flex: 1;
+  min-width: 0;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.spots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.spots li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--border);
+}
+
+.spots .mono {
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* A frame took longer than the game's 60 Hz allows. */
+.over {
+  color: #f0b040;
+  font-weight: bold;
 }

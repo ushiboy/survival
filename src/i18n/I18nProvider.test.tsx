@@ -75,7 +75,18 @@ describe('ページの言語', () => {
         onDisplayChange={() => {}}
         spriteLimit
         onSpriteLimitChange={() => {}}
-        status={{ tileX: 1, tileY: 2, day: 1, minuteOfDay: 0, paused: false, vramBytes: 2048 }}
+        status={{
+          tileX: 1,
+          tileY: 2,
+          day: 1,
+          minuteOfDay: 0,
+          paused: false,
+          vramBytes: 2048,
+          feetX: 16,
+          feetY: 32,
+          facing: 'down',
+          hoursSinceStart: 0,
+        }}
       />,
       'en',
     );

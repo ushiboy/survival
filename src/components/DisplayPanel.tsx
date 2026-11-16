@@ -1,5 +1,6 @@
 import { useTranslations } from 'use-intl';
 import type { DisplayOptions } from './GameScreen';
+import { formatTime } from '../game/status';
 import type { CoreStatus } from '../game/wasmCore';
 
 interface Props {
@@ -11,12 +12,6 @@ interface Props {
 }
 
 const SCALES = [2, 3, 4];
-
-function formatTime(minuteOfDay: number) {
-  const h = Math.floor(minuteOfDay / 60);
-  const m = minuteOfDay % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
 
 /** The display settings (shown in a side panel on a PC). */
 export function DisplayPanel({ display, onDisplayChange, spriteLimit, onSpriteLimitChange, status }: Props) {
