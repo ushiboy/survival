@@ -7,7 +7,7 @@ use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_HEART, HUD_MENU, HUD_TEXT, 
 use crate::assets::{HudTiles, SpriteIds};
 use crate::crafting::RECIPES;
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
-use crate::game::menu::{BagMenu, GearRow, Mode, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows};
+use crate::game::menu::{BagMenu, GearRow, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows, need_lines};
 use crate::game::state::Inventory;
 use crate::items::{ItemKind, Slot};
 use crate::ppu::Bg3Layer;
@@ -37,15 +37,21 @@ const TAB_R_COL_FIVE: usize = 31;
 /// The cart page: the cart's grid starts this column, right of the bag's.
 const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
-/// list; in a recipe, its picture's right edge (tiles), the description's
-/// width, the material count columns, and the MAKE / BACK rows.
+/// list; in a recipe, its picture's right edge (tiles), the row its
+/// description starts and the widest it runs (narrower beside a wide
+/// picture), the top row of what it needs, and the count columns there.
 const PREVIEW_COL: usize = 22;
-const ICON_RIGHT: i32 = 30;
+const ICON_RIGHT: usize = 30;
+const DESC_ROW: usize = GRID_ROW + 2;
 const DESC_WIDTH: usize = 24;
+const NEEDS_ROW: usize = 15;
 const NEED_COL: usize = 20;
 const HAVE_COL: usize = 26;
-const CHOICE_ROW: usize = 21;
+/// The ▲ / ▼ beside what a recipe needs when it scrolls.
+const SCROLL_COL: usize = 29;
 const NOTICE_ROW: usize = 24;
+// What a recipe needs ends above the notice.
+const _: () = assert!(NEEDS_ROW + NEEDS_SHOWN <= NOTICE_ROW);
 /// The mark of the lathe (a cog), by recipes turned on it as `^` (a
 /// flame) is by those made at a fire.
 const LATHE_MARK: &str = "*";
@@ -234,7 +240,9 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
         Mode::Browse => "A CHOOSE   B CLOSE",
         Mode::Crafting { .. } => "A CHOOSE   B BACK",
-        Mode::Recipe { .. } | Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
+        Mode::Recipe { confirming: true, .. } => "A YES   B NO",
+        Mode::Recipe { .. } => "A MAKE   B BACK",
+        Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
         Mode::Saving => "A SAVE   B CLOSE",
@@ -341,7 +349,12 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
         text(bg3, tiles, INFO_COL + 4, TAB_ROW + 1, "BY THE FIRE");
     }
     match menu.mode {
-        Mode::Recipe { recipe, choice } => draw_recipe(bg3, tiles, list, sprites, inventory, menu, recipe, choice),
+        Mode::Recipe { recipe, scroll, confirming } => {
+            draw_recipe(bg3, tiles, list, sprites, inventory, menu, recipe, scroll);
+            if confirming {
+                text(bg3, tiles, GRID_COL, NOTICE_ROW, &fit(&format!("MAKE {}?", RECIPES[recipe].makes.name()), HUD_COLS - GRID_COL));
+            }
+        }
         Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, Some(choice)),
         _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, None),
     }
@@ -349,6 +362,13 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
     }
     draw_help(bg3, tiles, menu);
+    // A MAKE greyed while something's short; it can still be pressed, to
+    // hear why.
+    if let Mode::Recipe { recipe, confirming: false, .. } = menu.mode
+        && !(inventory.can_make(&RECIPES[recipe]) && menu.in_place_for(&RECIPES[recipe]))
+    {
+        text_in(bg3, tiles, GRID_COL, LAST_ROW - 1, "A MAKE", HUD_DIM);
+    }
 }
 
 /// A page of the recipes thought of so far: those that can be made now
@@ -412,11 +432,14 @@ fn draw_recipe_list(
     }
 }
 
-/// One recipe opened: what it makes and what that's for, the materials
-/// with how many are needed and carried (short ones marked in red), the tools it
-/// takes, whether it needs a fire, and MAKE / BACK. An item made more than
-/// one way shows which way this is (`< 1/2 >` by NEEDS), with a `!` on
-/// the side of a way not yet looked at.
+/// One recipe opened: what it makes and what that's for, then what it
+/// needs: the materials used up, with how many are needed and carried,
+/// and under them what isn't used up, the tools carried and a fire or
+/// the lathe to be beside. Short ones are marked (see `need_row`). What
+/// it needs scrolls, with a ▲ or ▼ where there's more, red if something
+/// lacking is out of sight. An item made more than one way shows which
+/// way this is (`< 1/2 >` under its name), with a `!` on the side of a
+/// way not yet looked at.
 #[allow(clippy::too_many_arguments)]
 fn draw_recipe(
     bg3: &mut Bg3Layer,
@@ -426,83 +449,108 @@ fn draw_recipe(
     inventory: &Inventory,
     menu: &BagMenu,
     index: usize,
-    choice: usize,
+    scroll: usize,
 ) {
-    let (near_fire, near_lathe) = (menu.near_fire, menu.near_lathe);
-    let (bag, book) = (&inventory.bag, &inventory.recipes);
+    let book = &inventory.recipes;
     let recipe = &RECIPES[index];
     let makes = recipe.makes;
     let (w, h) = footprint(makes, false);
     text(bg3, tiles, GRID_COL, GRID_ROW, makes.name());
+    let mut col = GRID_COL;
     if makes.goes_in_bag() {
-        text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+        let size = format!("SIZE {w}X{h}");
+        text(bg3, tiles, GRID_COL, GRID_ROW + 1, &size);
+        col += size.len() + 2;
     }
     let (gfx, pal) = sprites.bag.icon(makes, false);
-    list.sky(ObjEntry::new(ICON_RIGHT * 8 - w * CELL, GRID_ROW as i32 * 8, gfx, pal, 3));
-    for (i, line) in wrap(makes.description(), DESC_WIDTH).iter().enumerate() {
-        text(bg3, tiles, GRID_COL, GRID_ROW + 3 + i, line);
+    list.sky(ObjEntry::new((ICON_RIGHT as i32 * 8) - w * CELL, GRID_ROW as i32 * 8, gfx, pal, 3));
+    for (i, line) in wrap(makes.description(), desc_width(w)).iter().enumerate() {
+        text(bg3, tiles, GRID_COL, DESC_ROW + i, line);
     }
 
-    let top = GRID_ROW + 7;
-    text(bg3, tiles, GRID_COL, top, "NEEDS");
     let ways = book.ways(index);
     if ways.len() > 1 {
         let at = ways.iter().position(|&w| w == index).unwrap_or(0);
         let (left, right) = (&ways[..at], &ways[at + 1..]);
-        let col = GRID_COL + 7;
+        let col = col + 1;
+        let row = GRID_ROW + 1;
         let label = format!("{}/{}", at + 1, ways.len());
-        text_in(bg3, tiles, col, top, "<", if left.is_empty() { HUD_DIM } else { HUD_TEXT });
-        text(bg3, tiles, col + 2, top, &label);
-        text_in(bg3, tiles, col + 3 + label.len(), top, ">", if right.is_empty() { HUD_DIM } else { HUD_TEXT });
+        text_in(bg3, tiles, col, row, "<", if left.is_empty() { HUD_DIM } else { HUD_TEXT });
+        text(bg3, tiles, col + 2, row, &label);
+        text_in(bg3, tiles, col + 3 + label.len(), row, ">", if right.is_empty() { HUD_DIM } else { HUD_TEXT });
         if left.iter().any(|&w| book.is_fresh(w)) {
-            text_in(bg3, tiles, col - 1, top, "!", HUD_FOOD);
+            text_in(bg3, tiles, col - 1, row, "!", HUD_FOOD);
         }
         if right.iter().any(|&w| book.is_fresh(w)) {
-            text_in(bg3, tiles, col + 4 + label.len(), top, "!", HUD_FOOD);
+            text_in(bg3, tiles, col + 4 + label.len(), row, "!", HUD_FOOD);
         }
-    }
-    text_in(bg3, tiles, NEED_COL - 2, top, "NEED", HUD_DIM);
-    text_in(bg3, tiles, HAVE_COL - 2, top, "HAVE", HUD_DIM);
-    for (i, &(kind, n)) in recipe.needs.iter().enumerate() {
-        let row = top + 1 + i;
-        let have = bag.count(kind);
-        let palette = need_row(bg3, tiles, row, Supply::of(have, n));
-        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
-        text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
-        text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
-    }
-    // Tools: carried, not used up.
-    for (i, &kind) in recipe.tools.iter().enumerate() {
-        let row = top + 1 + recipe.needs.len() + i;
-        let have = inventory.carries(kind);
-        let palette = need_row(bg3, tiles, row, Supply::from(have));
-        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
-        text_in(bg3, tiles, NEED_COL - 2, row, "TOOL", palette);
-        text_in(bg3, tiles, HAVE_COL - 1, row, if have { "YES" } else { " NO" }, palette);
-    }
-    if recipe.at_fire {
-        let row = top + 1 + recipe.needs.len() + recipe.tools.len();
-        let palette = need_row(bg3, tiles, row, Supply::from(near_fire));
-        text_in(bg3, tiles, GRID_COL + 2, row, "^", if near_fire { HUD_FOOD } else { palette });
-        text_in(bg3, tiles, GRID_COL + 4, row, "A FIRE", palette);
-        text_in(bg3, tiles, HAVE_COL - 1, row, if near_fire { "YES" } else { " NO" }, palette);
-    }
-    if recipe.at_lathe {
-        let row = top + 1 + recipe.needs.len() + recipe.tools.len();
-        let palette = need_row(bg3, tiles, row, Supply::from(near_lathe));
-        text_in(bg3, tiles, GRID_COL + 2, row, LATHE_MARK, if near_lathe { HUD_FOOD } else { palette });
-        text_in(bg3, tiles, GRID_COL + 4, row, "A LATHE", palette);
-        text_in(bg3, tiles, HAVE_COL - 1, row, if near_lathe { "YES" } else { " NO" }, palette);
     }
 
-    // MAKE greyed while something's short; it can still be chosen.
-    let ready = inventory.can_make(recipe) && menu.in_place_for(recipe);
-    for (i, label) in ["MAKE", "BACK"].into_iter().enumerate() {
-        let row = CHOICE_ROW + i;
-        if i == choice {
-            text(bg3, tiles, GRID_COL, row, ">");
+    let lines = need_lines(recipe);
+    for (i, &line) in lines.iter().enumerate().skip(scroll).take(NEEDS_SHOWN) {
+        draw_need(bg3, tiles, inventory, menu, NEEDS_ROW + i - scroll, line);
+    }
+    let short = |l: &NeedLine| supply(inventory, menu, *l) != Supply::Enough;
+    let below = scroll + NEEDS_SHOWN;
+    if scroll > 0 {
+        let palette = if lines[..scroll].iter().any(short) { HUD_HEART } else { HUD_TEXT };
+        text_in(bg3, tiles, SCROLL_COL, NEEDS_ROW, "▲", palette);
+    }
+    if lines.len() > below {
+        let palette = if lines[below..].iter().any(short) { HUD_HEART } else { HUD_TEXT };
+        text_in(bg3, tiles, SCROLL_COL, NEEDS_ROW + NEEDS_SHOWN - 1, "▼", palette);
+    }
+}
+
+/// How wide a recipe's description runs beside a picture `w` cells wide.
+fn desc_width(w: i32) -> usize {
+    DESC_WIDTH.min(ICON_RIGHT - w as usize * 2 - GRID_COL - 1)
+}
+
+/// How much of what a line of a recipe's needs asks for is at hand
+/// (headings and gaps ask for nothing).
+fn supply(inventory: &Inventory, menu: &BagMenu, line: NeedLine) -> Supply {
+    match line {
+        NeedLine::Material(kind, n) => Supply::of(inventory.bag.count(kind), n),
+        NeedLine::Tool(kind) => Supply::from(inventory.carries(kind)),
+        NeedLine::Fire => Supply::from(menu.near_fire),
+        NeedLine::Lathe => Supply::from(menu.near_lathe),
+        NeedLine::Materials | NeedLine::Tools | NeedLine::Gap => Supply::Enough,
+    }
+}
+
+fn draw_need(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu, row: usize, line: NeedLine) {
+    let have = supply(inventory, menu, line);
+    let yes_no = |bg3: &mut Bg3Layer, palette| text_in(bg3, tiles, HAVE_COL - 1, row, if have == Supply::Enough { "YES" } else { " NO" }, palette);
+    match line {
+        NeedLine::Materials => {
+            text(bg3, tiles, GRID_COL, row, "MATERIALS");
+            text(bg3, tiles, NEED_COL - 2, row, "NEED");
+            text(bg3, tiles, HAVE_COL - 2, row, "HAVE");
         }
-        text_in(bg3, tiles, GRID_COL + 1, row, label, if i == 0 && !ready { HUD_DIM } else { HUD_TEXT });
+        NeedLine::Tools => {
+            text(bg3, tiles, GRID_COL, row, "TOOLS");
+            text(bg3, tiles, HAVE_COL - 2, row, "HAVE");
+        }
+        NeedLine::Gap => {}
+        NeedLine::Material(kind, n) => {
+            let palette = need_row(bg3, tiles, row, have);
+            text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
+            text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
+            text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", inventory.bag.count(kind).min(99)), palette);
+        }
+        NeedLine::Tool(kind) => {
+            let palette = need_row(bg3, tiles, row, have);
+            text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
+            yes_no(bg3, palette);
+        }
+        NeedLine::Fire | NeedLine::Lathe => {
+            let palette = need_row(bg3, tiles, row, have);
+            let (mark, name) = if line == NeedLine::Fire { ("^", "A FIRE") } else { (LATHE_MARK, "A LATHE") };
+            text_in(bg3, tiles, GRID_COL + 2, row, mark, if have == Supply::Enough { HUD_FOOD } else { palette });
+            text_in(bg3, tiles, GRID_COL + 4, row, name, palette);
+            yes_no(bg3, palette);
+        }
     }
 }
 
@@ -622,6 +670,16 @@ fn draw_gear(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_recipe_description_ends_above_what_it_needs() {
+        for r in RECIPES {
+            let (w, _) = footprint(r.makes, false);
+            let lines = wrap(r.makes.description(), desc_width(w));
+            assert!(DESC_ROW + lines.len() < NEEDS_ROW, "{:?}'s description runs into its needs", r.makes);
+            assert!(lines.iter().all(|l| l.len() <= desc_width(w)), "{:?}'s description runs under its picture", r.makes);
+        }
+    }
 
     #[test]
     fn a_name_that_fits_is_left_whole() {
