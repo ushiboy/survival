@@ -128,10 +128,29 @@ impl GameHandle {
     }
 
     /// Compact status for the debug panel:
-    /// `[tileX, tileY, day, minuteOfDay, paused, vramBytes]`.
+    /// `[tileX, tileY, day, minuteOfDay, paused, vramBytes, feetX, feetY,
+    /// facing, hoursSinceStart]`; facing is 0 up, 1 down, 2 left, 3 right.
     pub fn status(&self) -> Vec<i32> {
         let (tx, ty) = self.game.player_tile();
+        let (fx, fy) = self.game.player_feet();
+        let facing = match self.game.player_facing() {
+            common::math::Dir::Up => 0,
+            common::math::Dir::Down => 1,
+            common::math::Dir::Left => 2,
+            common::math::Dir::Right => 3,
+        };
         let c = self.game.clock();
-        vec![tx, ty, c.day as i32, c.minute as i32, self.game.is_paused() as i32, self.game.vram_usage() as i32]
+        vec![
+            tx,
+            ty,
+            c.day as i32,
+            c.minute as i32,
+            self.game.is_paused() as i32,
+            self.game.vram_usage() as i32,
+            fx,
+            fy,
+            facing,
+            self.game.debug_hours_since_start() as i32,
+        ]
     }
 }

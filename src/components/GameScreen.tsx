@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { FrameTimer } from '../game/frameTimer';
 import { startFixedLoop } from '../game/gameLoop';
-import { Button, InputController } from '../game/input';
+import { Button, InputController, isFormControl } from '../game/input';
 import { touchInput } from '../game/touch';
-import { loadGameCore, type CoreStatus, type GameCore } from '../game/wasmCore';
+import type { GameStatus } from '../game/status';
+import { loadGameCore, type GameCore } from '../game/wasmCore';
 
 export interface DisplayOptions {
   scale: number;
@@ -22,7 +24,8 @@ interface Props {
    * SELECT (the core skips 3 hours on it) and the outfit key.
    */
   debug?: boolean;
-  onStatus?: (s: CoreStatus) => void;
+  /** A few times a second: the core's status and how heavy the recent frames were. */
+  onStatus?: (s: GameStatus) => void;
   /** Called with the core once it's loaded, and with null when it goes away. */
   onCore?: (core: GameCore | null) => void;
 }
@@ -61,7 +64,7 @@ export function GameScreen({ seed, display, spriteLimit, fit = false, debug = fa
         const input = new InputController([touchInput]);
         const detachPad = input.attach(window);
         const onDebugKey = (e: KeyboardEvent) => {
-          if (debugRef.current && e.code === OUTFIT_KEY && !e.repeat) core.cycleOutfit();
+          if (debugRef.current && e.code === OUTFIT_KEY && !e.repeat && !isFormControl(e.target)) core.cycleOutfit();
         };
         window.addEventListener('keydown', onDebugKey);
         detachInput = () => {
@@ -69,15 +72,26 @@ export function GameScreen({ seed, display, spriteLimit, fit = false, debug = fa
           window.removeEventListener('keydown', onDebugKey);
         };
         let frames = 0;
+        // Time spent on the game (steps, render and putting the image) per drawn frame.
+        const timer = new FrameTimer();
+        let busy = 0;
         stopLoop = startFixedLoop({
           step: () => {
+            const start = performance.now();
             const bits = input.read();
             core.step(debugRef.current ? bits : bits & ~Button.Select);
+            busy += performance.now() - start;
           },
           draw: () => {
+            const start = performance.now();
             core.render();
             ctx.putImageData(core.frame(), 0, 0);
-            if (++frames % STATUS_INTERVAL_FRAMES === 0) onStatusRef.current?.(core.status());
+            const end = performance.now();
+            timer.record(busy + end - start, end);
+            busy = 0;
+            if (++frames % STATUS_INTERVAL_FRAMES === 0) {
+              onStatusRef.current?.({ ...core.status(), frame: timer.stats() });
+            }
           },
         });
       })

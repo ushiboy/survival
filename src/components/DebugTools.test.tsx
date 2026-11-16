@@ -1,7 +1,8 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DebugTools } from './DebugTools';
+import type { GameStatus } from '../game/status';
 import type { GameCore } from '../game/wasmCore';
 import { renderIn } from '../test/intl';
 
@@ -22,7 +23,7 @@ function fakeCore() {
 describe('DebugTools の体調', () => {
   it('お腹を壊した状態にできる', async () => {
     const core = fakeCore();
-    renderIn(<DebugTools core={core as unknown as GameCore} />);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
     await userEvent.click(screen.getByRole('button', { name: 'お腹を壊す' }));
     expect(core.debugUpsetStomach).toHaveBeenCalled();
     expect(screen.getByText('お腹を壊した状態にしました')).toBeInTheDocument();
@@ -30,9 +31,94 @@ describe('DebugTools の体調', () => {
 
   it('体調の悪いのを治せる', async () => {
     const core = fakeCore();
-    renderIn(<DebugTools core={core as unknown as GameCore} />);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
     await userEvent.click(screen.getByRole('button', { name: '治す' }));
     expect(core.debugCure).toHaveBeenCalled();
     expect(screen.getByText('体調を元に戻しました')).toBeInTheDocument();
+  });
+});
+
+const status: GameStatus = {
+  tileX: 123,
+  tileY: 45,
+  day: 2,
+  minuteOfDay: 7 * 60 + 30,
+  paused: false,
+  vramBytes: 41062,
+  feetX: 1972,
+  feetY: 728,
+  facing: 'left',
+  hoursSinceStart: 24,
+  frame: { avgMs: 2.14, maxMs: 9.8, fps: 60 },
+};
+const line = 'cell (123, 45) px (1972, 728) facing left · day 2 07:30 · frame 2.1ms avg / 9.8ms max · 60 fps · VRAM 40.1 KiB';
+const snapshot = 'cd wasm && SNAP_AT=123,45 SNAP_HOURS=24 cargo run --release --example snapshot -- out.ppm';
+
+describe('DebugTools のいまの場所', () => {
+  afterEach(() => localStorage.clear());
+
+  const show = (s: GameStatus | null = status) =>
+    renderIn(<DebugTools core={fakeCore() as unknown as GameCore} status={s} />);
+
+  it('今いるマス・足元・向き・処理の重さを出す', () => {
+    show();
+    expect(screen.getByText('マス (123, 45) · 足元 (1972, 728) · 向き 左')).toBeInTheDocument();
+    expect(screen.getByText('処理 2.1 ms（平均）／ 9.8 ms（最大）· 60 fps')).toBeInTheDocument();
+  });
+
+  it('1フレームの枠を超えたら処理の重さを目立たせる', () => {
+    const { unmount } = show();
+    expect(screen.getByText(/^処理/)).not.toHaveClass('over');
+    unmount();
+    show({ ...status, frame: { avgMs: 12, maxMs: 21.3, fps: 55 } });
+    expect(screen.getByText(/^処理/)).toHaveClass('over');
+  });
+
+  it('場所がまだわからないうちはコピーも記録もできない', () => {
+    show(null);
+    expect(screen.getByRole('button', { name: 'コピー' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '記録' })).toBeDisabled();
+  });
+
+  it('場所とスナップショットのコマンドをコピーできる', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.click(screen.getByRole('button', { name: 'コピー' }));
+    expect(await navigator.clipboard.readText()).toBe(`${line}\n${snapshot}`);
+    expect(screen.getByText('場所をコピーしました')).toBeInTheDocument();
+  });
+
+  it('今いるマスを移動のマス欄に入れられる', async () => {
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'マス欄に入れる' }));
+    expect(screen.getByLabelText('x')).toHaveValue(123);
+    expect(screen.getByLabelText('y')).toHaveValue(45);
+  });
+
+  it('種類とメモを付けて記録し、まとめてコピーできる', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.selectOptions(screen.getByLabelText('種類'), '通れない');
+    await user.type(screen.getByLabelText('メモ'), '橋の手前');
+    await user.click(screen.getByRole('button', { name: '記録' }));
+    expect(screen.getByText('記録した場所（1）')).toBeInTheDocument();
+    expect(screen.getByText(/橋の手前/)).toBeInTheDocument();
+    expect(screen.getByLabelText('メモ')).toHaveValue('');
+
+    await user.click(screen.getByRole('button', { name: '全部コピー' }));
+    expect(await navigator.clipboard.readText()).toBe(`- [blocked] 橋の手前\n  ${line}\n  ${snapshot}`);
+  });
+
+  it('記録した場所は開き直しても残り、1つずつ消せる', async () => {
+    const user = userEvent.setup();
+    const { unmount } = show();
+    await user.type(screen.getByLabelText('メモ'), '重い所');
+    await user.click(screen.getByRole('button', { name: '記録' }));
+    unmount();
+
+    show();
+    expect(screen.getByText(/重い所/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '消す' }));
+    expect(screen.queryByText(/重い所/)).not.toBeInTheDocument();
   });
 });

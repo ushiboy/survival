@@ -8,7 +8,8 @@ import { SidePanel } from './components/SidePanel';
 import { VirtualPad } from './components/VirtualPad';
 import { showHelpOnStart, skipsHelpOnStart, skipHelpOnStart } from './game/helpCookie';
 import { useTouchMode } from './game/touchMode';
-import type { CoreStatus, GameCore } from './game/wasmCore';
+import type { GameStatus } from './game/status';
+import type { GameCore } from './game/wasmCore';
 
 const SEED = 1;
 /** `?debug=true` turns on the debug tools. */
@@ -41,7 +42,7 @@ export function App({ debug = DEBUG }: Props) {
   const t = useTranslations();
   const [display, setDisplay] = useState<DisplayOptions>({ scale: 3, crtAspect: false, scanlines: false });
   const [spriteLimit, setSpriteLimit] = useState(true);
-  const [status, setStatus] = useState<CoreStatus | null>(null);
+  const [status, setStatus] = useState<GameStatus | null>(null);
   const [core, setCore] = useState<GameCore | null>(null);
   const touch = useTouchMode();
   const rootRef = useRef<HTMLElement>(null);
@@ -92,7 +93,7 @@ export function App({ debug = DEBUG }: Props) {
           )}
           {debug && debugOpen && core && (
             <SidePanel title={t('debug.title')} onClose={() => setDebugOpen(false)}>
-              <DebugTools core={core} />
+              <DebugTools core={core} status={status} />
             </SidePanel>
           )}
         </div>

@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'use-intl';
+import { locationLine, overBudget, snapshotCommand, type GameStatus } from '../game/status';
+import { loadNotes, notesReport, saveNotes, SPOT_KINDS, type SpotKind, type SpotNote } from '../game/spotNotes';
 import type { GameCore } from '../game/wasmCore';
 
 interface Props {
   core: GameCore;
+  /** Where the castaway is now; null until the game has reported it. */
+  status: GameStatus | null;
 }
 
 const MAX_COUNT = 99;
@@ -17,8 +21,8 @@ const VITALS: Array<['full' | 'hungry' | 'thirsty' | 'dying', number, number, nu
   ['dying', 1, -1, -1],
 ];
 
-/** Debug tools, shown with `?debug=true`: put any item in the bag, move anywhere. */
-export function DebugTools({ core }: Props) {
+/** Debug tools, shown with `?debug=true`: note where you are, put any item in the bag, move anywhere. */
+export function DebugTools({ core, status }: Props) {
   const t = useTranslations('debug');
   const items = useMemo(() => core.debugItems(), [core]);
   const places = useMemo(() => core.debugPlaces(), [core]);
@@ -26,7 +30,29 @@ export function DebugTools({ core }: Props) {
   const [cell, setCell] = useState({ x: 0, y: 0 });
   const [count, setCount] = useState(1);
   const [message, setMessage] = useState<string | null>(null);
+  const [kind, setKind] = useState<SpotKind>('heavy');
+  const [memo, setMemo] = useState('');
+  const [notes, setNotes] = useState<SpotNote[]>(loadNotes);
   const item = items[index];
+
+  const copy = (text: string, done: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => setMessage(done),
+      () => setMessage(t('copyFailed')),
+    );
+  };
+
+  const keepNotes = (next: SpotNote[]) => {
+    setNotes(next);
+    saveNotes(next);
+  };
+
+  const record = () => {
+    if (!status) return;
+    keepNotes([...notes, { kind, memo: memo.trim(), line: locationLine(status), snapshot: snapshotCommand(status) }]);
+    setMemo('');
+    setMessage(t('recorded', { kind: t(`spotKinds.${kind}`) }));
+  };
 
   const give = (n: number) => {
     if (!item) return;
@@ -54,6 +80,131 @@ export function DebugTools({ core }: Props) {
 
   return (
     <>
+      <div className="row">
+        <span>{t('here')}</span>
+        <button
+          disabled={!status}
+          onClick={(e) => {
+            if (status) copy(`${locationLine(status)}\n${snapshotCommand(status)}`, t('copied'));
+            release(e);
+          }}
+        >
+          {t('copy')}
+        </button>
+        <button
+          disabled={!status}
+          onClick={(e) => {
+            if (status) setCell({ x: status.tileX, y: status.tileY });
+            release(e);
+          }}
+        >
+          {t('fillCell')}
+        </button>
+      </div>
+      <p className="note mono">
+        {status ? (
+          <>
+            <span>
+              {t('hereCell', {
+                x: status.tileX,
+                y: status.tileY,
+                px: status.feetX,
+                py: status.feetY,
+                facing: t(`facings.${status.facing}`),
+              })}
+            </span>
+            {status.frame && (
+              <>
+                <br />
+                <span className={overBudget(status.frame) ? 'over' : undefined}>
+                  {t('hereFrame', {
+                    avg: status.frame.avgMs.toFixed(1),
+                    max: status.frame.maxMs.toFixed(1),
+                    fps: status.frame.fps,
+                  })}
+                </span>
+              </>
+            )}
+          </>
+        ) : (
+          t('hereUnknown')
+        )}
+      </p>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          record();
+          // Hand the keys back to the game.
+          (document.activeElement as HTMLElement | null)?.blur();
+        }}
+      >
+        <select
+          aria-label={t('spotKind')}
+          value={kind}
+          onChange={(e) => setKind(e.target.value as SpotKind)}
+        >
+          {SPOT_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(`spotKinds.${k}`)}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          className="memo"
+          aria-label={t('memo')}
+          placeholder={t('memo')}
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+        />
+        <button type="submit" disabled={!status}>
+          {t('record')}
+        </button>
+      </form>
+      {notes.length > 0 && (
+        <>
+          <div className="row">
+            <span>{t('spots', { count: notes.length })}</span>
+            <button
+              onClick={(e) => {
+                copy(notesReport(notes), t('copiedAll'));
+                release(e);
+              }}
+            >
+              {t('copyAll')}
+            </button>
+            <button
+              onClick={(e) => {
+                if (window.confirm(t('clearAll'))) keepNotes([]);
+                release(e);
+              }}
+            >
+              {t('clearAll')}
+            </button>
+          </div>
+          <ul className="spots">
+            {notes.map((n, i) => (
+              <li key={i}>
+                <span>
+                  [{t(`spotKinds.${n.kind}`)}] {n.memo}
+                  <br />
+                  <span className="mono">{n.line}</span>
+                </span>
+                <button
+                  aria-label={t('remove')}
+                  onClick={(e) => {
+                    keepNotes(notes.filter((_, j) => j !== i));
+                    release(e);
+                  }}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <div className="row">
         <span>{t('item')}</span>
         <select
