@@ -52,6 +52,8 @@ jobs:
         env:
           # e.g. /survival/ for https://<owner>.github.io/survival/
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+          # e.g. https://<owner>.github.io/survival, for the absolute URLs of the link preview
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
 
       # Needs wasm/pkg, which the build step makes
       - name: Test (TypeScript)

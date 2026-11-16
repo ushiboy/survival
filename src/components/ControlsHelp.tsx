@@ -2,12 +2,15 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslations } from 'use-intl';
 import { CONTROLS } from './controls';
+import type { InstallWay } from '../game/install';
 
 interface Props {
   /** On a PC: list the keyboard keys too (touch devices have only the on-screen buttons). */
   keyboard?: boolean;
   /** Whether it's already set not to show on start (the tick starts from this). */
   skipping?: boolean;
+  /** Given while the page can be installed: the way in that stays after the install banner is closed. */
+  install?: { way: InstallWay; onInstall: () => void };
   /** Closed; `skipOnStart` if "起動時に表示しない" was ticked. */
   onClose: (skipOnStart: boolean) => void;
 }
@@ -17,7 +20,7 @@ interface Props {
  * <body>, outside the touch layout, so touching it never presses the on-screen
  * controller's buttons; while it's open the keys are its, not the game's (see input.ts).
  */
-export function ControlsHelp({ keyboard = false, skipping = false, onClose }: Props) {
+export function ControlsHelp({ keyboard = false, skipping = false, install, onClose }: Props) {
   const t = useTranslations();
   const [skip, setSkip] = useState(skipping);
   const titleId = useId();
@@ -52,6 +55,12 @@ export function ControlsHelp({ keyboard = false, skipping = false, onClose }: Pr
           ))}
         </dl>
         <p className="note">{keyboard ? t('controls.note') : t('help.runNote')}</p>
+        {install?.way === 'ios' && <p className="note">{t('install.ios')}</p>}
+        {install?.way === 'prompt' && (
+          <button type="button" className="modal-install" onClick={install.onInstall}>
+            {t('install.title')}
+          </button>
+        )}
         <div className="modal-actions">
           <label className="row">
             <input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} />

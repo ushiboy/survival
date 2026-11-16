@@ -1,12 +1,13 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { serviceWorker } from './scripts/pwa.ts';
+import { siteUrl } from './scripts/site-url.ts';
 
 export default defineConfig({
   // Where the page is served from. GitHub Pages serves a project site under
   // /<repository>/, so the deploy workflow sets BASE_PATH (e.g. /survival/).
   base: process.env.BASE_PATH || '/',
-  plugins: [react(), serviceWorker()],
+  plugins: [react(), siteUrl(process.env.SITE_URL), serviceWorker()],
   server: { port: 5173 },
   test: {
     environment: 'jsdom',

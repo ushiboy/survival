@@ -3,10 +3,13 @@ import { useTranslations } from 'use-intl';
 import { GameScreen, type DisplayOptions } from './components/GameScreen';
 import { ControlsHelp } from './components/ControlsHelp';
 import { DebugTools } from './components/DebugTools';
+import { InstallBanner } from './components/InstallBanner';
 import { DisplayPanel } from './components/DisplayPanel';
 import { SidePanel } from './components/SidePanel';
 import { VirtualPad } from './components/VirtualPad';
 import { showHelpOnStart, skipsHelpOnStart, skipHelpOnStart } from './game/helpCookie';
+import { useInstall } from './game/install';
+import { skipInstallBanner, skipsInstallBanner } from './game/installCookie';
 import { useTouchMode } from './game/touchMode';
 import type { GameStatus } from './game/status';
 import type { GameCore } from './game/wasmCore';
@@ -49,6 +52,12 @@ export function App({ debug = DEBUG }: Props) {
   const [help, setHelp] = useState(() => !skipsHelpOnStart());
   const [displayOpen, setDisplayOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const { way: installWay, install } = useInstall();
+  const [bannerClosed, setBannerClosed] = useState(skipsInstallBanner);
+  const closeBanner = () => {
+    skipInstallBanner();
+    setBannerClosed(true);
+  };
   const closeHelp = (skipOnStart: boolean) => {
     if (skipOnStart) skipHelpOnStart();
     else showHelpOnStart();
@@ -98,7 +107,18 @@ export function App({ debug = DEBUG }: Props) {
           )}
         </div>
       )}
-      {help && <ControlsHelp keyboard={!touch} skipping={skipsHelpOnStart()} onClose={closeHelp} />}
+      {help && (
+        <ControlsHelp
+          keyboard={!touch}
+          skipping={skipsHelpOnStart()}
+          install={installWay ? { way: installWay, onInstall: install } : undefined}
+          onClose={closeHelp}
+        />
+      )}
+      {/* After the controls help, so the two don't pile up on opening the page. */}
+      {installWay && !bannerClosed && !help && (
+        <InstallBanner way={installWay} touch={touch} onInstall={install} onClose={closeBanner} />
+      )}
     </main>
   );
 }

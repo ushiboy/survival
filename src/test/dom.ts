@@ -2,6 +2,7 @@
  * What jsdom leaves out, for the tests: layout (element boxes, hit-testing)
  * and media queries.
  */
+import { act } from '@testing-library/react';
 import { vi } from 'vitest';
 
 export interface Box {
@@ -76,3 +77,19 @@ export const finger = {
     window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: id }));
   },
 };
+
+/**
+ * Has the browser say the page can be installed (Chrome's `beforeinstallprompt`).
+ * `outcome` is what the user answers once the browser's own dialog is opened.
+ */
+export function offerInstall(outcome: 'accepted' | 'dismissed' = 'accepted') {
+  const prompt = vi.fn(async () => ({ outcome }));
+  const event = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
+    prompt,
+    userChoice: Promise.resolve({ outcome }),
+  });
+  act(() => {
+    window.dispatchEvent(event);
+  });
+  return event;
+}
