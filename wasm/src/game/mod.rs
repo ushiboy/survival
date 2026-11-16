@@ -138,6 +138,9 @@ struct TreeShake {
 pub struct Game {
     assets: Assets,
     map: WorldMap,
+    /// The island as it was made from the seed, before anything on it
+    /// changed: a save keeps only what differs from it.
+    made: WorldMap,
     tileset: Tileset,
     visual: VisualMap,
     harvest: Harvest,
@@ -228,6 +231,7 @@ impl Game {
     fn build(seed: u32, save: Option<&SaveData>) -> Self {
         let mut assets = Assets::load();
         let mut map = island::generate(seed);
+        let made = map.clone();
         let driftwood_cap = driftwood::logs_on_west_coast(&map);
         if let Some(s) = save {
             for &((x, y), f) in &s.island.features {
@@ -265,6 +269,7 @@ impl Game {
         let mut game = Self {
             assets,
             map,
+            made,
             tileset,
             visual,
             harvest: save.map_or_else(Harvest::default, |s| Harvest::from_state(&s.island.harvest)),
@@ -346,7 +351,7 @@ impl Game {
 
     /// The game as it stands, to be saved.
     fn save_data(&self) -> SaveData {
-        let made = island::generate(self.seed);
+        let made = &self.made;
         let mut features = Vec::new();
         for y in 0..self.map.height() {
             for x in 0..self.map.width() {
@@ -356,7 +361,7 @@ impl Game {
                 }
             }
         }
-        let (fruit, bark) = self.map.tree_changes(&made);
+        let (fruit, bark) = self.map.tree_changes(made);
         let inv = &self.inventory;
         SaveData {
             version: SAVE_VERSION,
