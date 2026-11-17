@@ -11,6 +11,9 @@ const GAUGE_TILES: usize = 8;
 /// Where the icons of what ails the castaway start (a column clear of the
 /// gauges).
 const AILMENTS_COL: usize = 2 + GAUGE_TILES + 2;
+/// Where the sign that the game was just saved shows: under the clock's
+/// last figure.
+const SAVED_AT: (usize, usize) = (30, 3);
 /// The HUD occupies the top-left of the BG3 map.
 pub const HUD_COLS: usize = 32;
 pub const HUD_ROWS: usize = 4;
@@ -34,7 +37,9 @@ fn gauge(hud: &mut HudLayer, tiles: &HudTiles, col: usize, row: usize, value: u3
     hud.put(col + 1 + GAUGE_TILES, row, tiles.gauge_cap_right, palette);
 }
 
-pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameClock, night: bool) {
+/// `saved`: the frame of the sign that the game is being saved, while it
+/// shows.
+pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameClock, night: bool, saved: Option<usize>) {
     hud.clear_rect(0, 0, HUD_COLS, HUD_ROWS);
     hud.put(1, 1, tiles.heart, HUD_HEART);
     gauge(hud, tiles, 2, 1, vitals.hp, vitals.max_hp, HUD_HEART);
@@ -56,4 +61,7 @@ pub fn draw(hud: &mut HudLayer, tiles: &HudTiles, vitals: &Vitals, clock: &GameC
     let (ampm, h12) = if h < 12 { ("AM", h) } else { ("PM", h - 12) };
     let h12 = if h12 == 0 { 12 } else { h12 };
     text(hud, tiles, 23, 2, &format!("{ampm} {h12:02}:{m:02}"));
+    if let Some(&tile) = saved.and_then(|i| tiles.saved.get(i)) {
+        hud.put(SAVED_AT.0, SAVED_AT.1, tile, HUD_TEXT);
+    }
 }

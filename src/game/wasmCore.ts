@@ -5,6 +5,7 @@ import init, {
   screen_height,
   screen_width,
 } from '../../wasm/pkg/survival_core';
+import { createSaveWriter, whenIdle } from './saveWriter';
 
 export interface CoreStatus {
   tileX: number;
@@ -95,6 +96,21 @@ function writeSave(op: string): void {
 export async function loadGameCore(seed: number): Promise<GameCore> {
   const wasm = await init();
   const handle = new GameHandle(seed, readSave());
+  const saves = createSaveWriter({ write: writeSave, whenIdle });
+  const handOver = () => {
+    const op = handle.take_save_op();
+    if (op !== undefined) saves.offer(op);
+  };
+  // Leaving the page (hidden, or going away): what waits to be saved is
+  // saved and written there and then.
+  const keepNow = () => {
+    handle.flush_save();
+    handOver();
+    saves.flush();
+  };
+  const onVisibility = () => document.visibilityState === 'hidden' && keepNow();
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', keepNow);
   const width = screen_width();
   const height = screen_height();
 
@@ -106,8 +122,7 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     height,
     step(buttons) {
       handle.step(buttons);
-      const op = handle.take_save_op();
-      if (op !== undefined) writeSave(op);
+      handOver();
     },
     render: () => handle.render(),
     frame() {
@@ -151,6 +166,11 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     debugSetVitals: (hp, food, water) => handle.debug_set_vitals(hp, food, water),
     debugUpsetStomach: () => handle.debug_upset_stomach(),
     debugCure: () => handle.debug_cure(),
-    dispose: () => handle.free(),
+    dispose: () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', keepNow);
+      keepNow();
+      handle.free();
+    },
   };
 }

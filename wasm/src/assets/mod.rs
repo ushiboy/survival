@@ -434,6 +434,8 @@ pub struct HudTiles {
     pub moon: HudTileId,
     /// Shown right of the health gauge while the stomach is upset.
     pub upset_stomach: HudTileId,
+    /// The frames of the sign that the game is being saved.
+    pub saved: [HudTileId; hud_art::SAVED_FRAMES],
     /// A bag cell's four 8x8 quarters: top-left, top-right, bottom-left,
     /// bottom-right.
     pub bag_cell: [HudTileId; 4],
@@ -783,6 +785,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         sun: bank.add(&hud_art::icon_sun()),
         moon: bank.add(&hud_art::icon_moon()),
         upset_stomach: bank.add(&hud_art::icon_upset_stomach()),
+        saved: hud_art::icon_saved().map(|a| bank.add(&a)),
         bag_cell: hud_art::bag_cell().map(|a| bank.add(&a)),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),

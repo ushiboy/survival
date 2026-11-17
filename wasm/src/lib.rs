@@ -65,6 +65,12 @@ impl GameHandle {
         })
     }
 
+    /// Saves straight away whatever waits to be saved (the page is being
+    /// left); `take_save_op` then hands it over.
+    pub fn flush_save(&mut self) {
+        self.game.flush_save();
+    }
+
     pub fn render(&mut self) {
         self.game.render();
     }

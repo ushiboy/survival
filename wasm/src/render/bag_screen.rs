@@ -25,15 +25,10 @@ const INFO_COL: usize = 17;
 /// The page tabs and each one's column (its `>`; the label follows), a
 /// space apart, leaving room for CRAFT's `!`.
 const TAB_ROW: usize = 5;
-/// With the cart's page there are five, packed closer (a `>` and no
-/// space between them), and the L and R marks go to the screen's edges.
 const TAB_COLS: [usize; 4] = [3, 10, 18, 24];
-const TAB_COLS_FIVE: [usize; 5] = [1, 7, 14, 20, 25];
 /// The L and R marks either side of the tabs.
 const TAB_L_COL: usize = 1;
 const TAB_R_COL: usize = 30;
-const TAB_L_COL_FIVE: usize = 0;
-const TAB_R_COL_FIVE: usize = 31;
 /// The cart page: the cart's grid starts this column, right of the bag's.
 const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
@@ -97,9 +92,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
     let pages = menu.pages();
-    let (cols, l_col, r_col): (&[usize], usize, usize) =
-        if pages.len() > TAB_COLS.len() { (&TAB_COLS_FIVE, TAB_L_COL_FIVE, TAB_R_COL_FIVE) } else { (&TAB_COLS, TAB_L_COL, TAB_R_COL) };
-    for (page, &col) in pages.into_iter().zip(cols) {
+    for (page, &col) in pages.into_iter().zip(&TAB_COLS) {
         if menu.mode == Mode::Tabs(page) {
             text(bg3, tiles, col, TAB_ROW, ">");
         }
@@ -109,14 +102,10 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         }
     }
     // L and R either side of the tabs: they switch pages.
-    text_in(bg3, tiles, l_col, TAB_ROW, "L", HUD_DIM);
-    text_in(bg3, tiles, r_col, TAB_ROW, "R", HUD_DIM);
+    text_in(bg3, tiles, TAB_L_COL, TAB_ROW, "L", HUD_DIM);
+    text_in(bg3, tiles, TAB_R_COL, TAB_ROW, "R", HUD_DIM);
     if menu.page() == Page::Craft {
         draw_craft_page(bg3, tiles, list, sprites, inventory, menu);
-        return;
-    }
-    if menu.page() == Page::Save {
-        draw_save_page(bg3, tiles, menu);
         return;
     }
     if menu.page() == Page::Cart {
@@ -220,21 +209,6 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     draw_help(bg3, tiles, menu);
 }
 
-/// The save page: one choice, SAVE, and word of the last save.
-fn draw_save_page(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
-    if menu.mode == Mode::Saving {
-        text(bg3, tiles, GRID_COL, GRID_ROW, ">");
-    }
-    text(bg3, tiles, GRID_COL + 1, GRID_ROW, "SAVE");
-    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 2, "KEEP HOW THINGS STAND NOW.", HUD_DIM);
-    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 3, "IT IS ALSO SAVED EACH TIME", HUD_DIM);
-    text_in(bg3, tiles, GRID_COL + 1, GRID_ROW + 4, "YOU WAKE.", HUD_DIM);
-    if let Some(n) = menu.notice {
-        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
-    }
-    draw_help(bg3, tiles, menu);
-}
-
 fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
     let help = match menu.mode {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
@@ -245,7 +219,6 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHANGE   B BACK",
-        Mode::Saving => "A SAVE   B CLOSE",
         Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);

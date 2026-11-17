@@ -2,6 +2,7 @@
 //! `step` advances simulation; `render` produces the picture. They are kept
 //! separate so the host can run fixed-rate updates independent of display.
 
+pub mod autosave;
 pub mod bag;
 pub mod cart;
 pub mod fishing;
@@ -39,6 +40,7 @@ use crate::world::driftwood::WestCoast;
 use crate::world::harvest::{self, Harvest, Shaken, Strike};
 use crate::world::map::BridgeSpan;
 use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, island};
+use autosave::{AutoSave, Cue};
 use bag::Bag;
 use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
 use fishing::{Float, Line};
@@ -58,6 +60,10 @@ const HITSTOP_CRAB: u32 = 5;
 /// In-game minutes that pass each frame while asleep (an hour in half a
 /// second).
 const SLEEP_MINUTES_PER_FRAME: u32 = 2;
+/// Frames each picture of the sign that the game was saved shows; the sign
+/// plays through its pictures once (a pen writing, a page turned).
+const SAVED_SIGN_HOLD: u32 = 6;
+const SAVED_SIGN_FRAMES: u32 = SAVED_SIGN_HOLD * crate::assets::hud_art::SAVED_FRAMES as u32;
 /// Frames the screen takes to fade out once the castaway collapses, and
 /// before the end can be dismissed.
 const COLLAPSE_FADE: u32 = 120;
@@ -185,6 +191,13 @@ pub struct Game {
     /// The page keeps a saved game, even one that can't be read here (from
     /// a newer version, say): beginning anew asks first.
     save_kept: bool,
+    /// When the game saves itself.
+    autosave: AutoSave,
+    /// What was carried when the bag was opened (as saved), while it's
+    /// open: closing it saves if that changed.
+    bag_opened_with: Option<String>,
+    /// Frames left of the sign that the game was saved.
+    saved_sign: u32,
     /// Frames since the castaway collapsed, once they have.
     collapsed: Option<u32>,
     gulls: Vec<Gull>,
@@ -296,6 +309,9 @@ impl Game {
             saved: None,
             outbox: None,
             save_kept: false,
+            autosave: AutoSave::new(),
+            bag_opened_with: None,
+            saved_sign: 0,
             collapsed: None,
             gulls,
             camera: Camera::new(0),
@@ -375,7 +391,7 @@ impl Game {
                 mill_noticed: self.mill_noticed,
                 bridge_noticed: self.bridge_noticed,
             },
-            inventory: save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone() },
+            inventory: self.carried_now(),
             island: save::IslandState {
                 features,
                 fruit,
@@ -394,12 +410,37 @@ impl Game {
         }
     }
 
+    /// What the castaway carries, as saved.
+    fn carried_now(&self) -> save::Carried {
+        let inv = &self.inventory;
+        save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone() }
+    }
+
+    /// What is carried, as text to tell whether it changed.
+    fn carried_json(&self) -> String {
+        serde_json::to_string(&self.carried_now()).unwrap_or_default()
+    }
+
     /// Saves the game: the page is handed it to keep.
     fn save(&mut self) {
         let data = self.save_data();
         self.outbox = Some(SaveOp::Write(data.to_json()));
         self.saved = Some(data);
         self.save_kept = true;
+        self.autosave.saved();
+        self.saved_sign = SAVED_SIGN_FRAMES;
+    }
+
+    /// Saves straight away whatever waits to be saved (the page is being
+    /// left). Not at the title, nor once the castaway has collapsed.
+    pub fn flush_save(&mut self) {
+        if self.title.is_some() || self.collapsed.is_some() {
+            return;
+        }
+        let bag_changed = self.bag_opened_with.as_ref().is_some_and(|before| *before != self.carried_json());
+        if self.autosave.pending() || bag_changed {
+            self.save();
+        }
     }
 
     /// Erases the saved game (the castaway has collapsed).
@@ -501,7 +542,11 @@ impl Game {
         }
 
         self.frame_count = self.frame_count.wrapping_add(1);
+        self.saved_sign = self.saved_sign.saturating_sub(1);
         let (near_fire, near_lathe, cart_at_hand) = (self.near_fire(), self.is_near_lathe(), self.cart_at_hand());
+        if self.menu.is_some() && self.bag_opened_with.is_none() {
+            self.bag_opened_with = Some(self.carried_json());
+        }
         if let Some(menu) = &mut self.menu {
             menu.near_fire = near_fire;
             menu.near_lathe = near_lathe;
@@ -518,6 +563,11 @@ impl Game {
             self.inventory.think();
             return;
         }
+        if let Some(before) = self.bag_opened_with.take()
+            && before != self.carried_json()
+        {
+            self.autosave.note(Cue::BagClosed);
+        }
         if self.input.pressed(Buttons::X) && self.player.is_idle() {
             self.menu = Some(BagMenu::browse());
             return;
@@ -525,6 +575,7 @@ impl Game {
         if self.player.is_asleep() {
             self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
             self.sleep_on();
+            self.autosave.slept(SLEEP_MINUTES_PER_FRAME);
         } else {
             if self.player.running {
                 self.ran_frames += 1;
@@ -582,7 +633,11 @@ impl Game {
                 .is_some_and(|c| c.pulled || cart_reach(c).overlaps(&Rect::new(self.player.reach_point().0, self.player.reach_point().1, 1, 1))),
         };
         let was_asleep = self.player.is_asleep();
-        match self.player.update(&self.input, &self.map, situation) {
+        let deed = self.player.update(&self.input, &self.map, situation);
+        if let Some(cue) = deed.as_ref().and_then(autosave::cue_of) {
+            self.autosave.note(cue);
+        }
+        match deed {
             Some(Deed::Chop(point)) => self.resolve_axe(point),
             Some(Deed::Dig(point)) => self.dig(point),
             Some(Deed::Shake(point)) => self.resolve_shake(point),
@@ -613,8 +668,9 @@ impl Game {
             None => {
                 // A with nothing else to do: set the cart down, or take
                 // up the one set down just ahead.
-                if idle_before && self.player.is_idle() && self.input.pressed(Buttons::A) {
+                if idle_before && self.player.is_idle() && self.input.pressed(Buttons::A) && self.cart.is_some() {
                     self.handle_cart();
+                    self.autosave.note(Cue::Changed);
                 }
             }
         }
@@ -626,7 +682,10 @@ impl Game {
         self.come_upon_the_narrow();
         if was_asleep && !self.player.is_asleep() {
             // Each waking is saved.
-            self.save();
+            self.autosave.woke();
+        }
+        if self.player.moving {
+            self.autosave.note(Cue::Moved);
         }
         self.tend_line();
         let now = self.clock.total_minutes();
@@ -663,6 +722,12 @@ impl Game {
             self.spawn_fish(true, lake);
         }
         self.camera.follow(pc, self.map.pixel_size());
+        // Saved when something worth keeping happened and the castaway is
+        // calm (see `AutoSave`).
+        let calm = self.player.is_idle() && !self.player.moving;
+        if self.autosave.tick(calm) {
+            self.save();
+        }
     }
 
     /// Changes what the castaway wears: re-renders their frames into VRAM and
@@ -867,6 +932,7 @@ impl Game {
             return;
         }
         self.mill_noticed = true;
+        self.autosave.note(Cue::Changed);
         self.player.survey(site, Dir::Right, self.inventory.gear.hand != Some(ItemKind::WaterWheel));
     }
 
@@ -884,6 +950,7 @@ impl Game {
             return;
         }
         self.bridge_noticed = true;
+        self.autosave.note(Cue::Changed);
         self.player.survey(bank, Dir::Left, self.inventory.gear.hand != Some(ItemKind::LogBridge));
     }
 
@@ -1265,12 +1332,6 @@ impl Game {
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
             Outcome::Made(kind) => self.carry_off(kind),
-            Outcome::Save => {
-                self.save();
-                if let Some(menu) = &mut self.menu {
-                    menu.notice = Some("SAVED.");
-                }
-            }
         }
     }
 
@@ -1297,6 +1358,7 @@ impl Game {
         self.player.collapse();
         self.collapsed = Some(0);
         // There's no going back: the saved game goes with them.
+        self.autosave.forget();
         self.erase_save();
     }
 
@@ -1447,6 +1509,8 @@ impl Game {
         }
         let lighting = Lighting::at(self.clock.minute_f());
         let night = lighting.darkness > NIGHT_THRESHOLD;
+        // The sign that the game was saved plays through its pictures.
+        let saved_sign = (self.saved_sign > 0).then(|| ((SAVED_SIGN_FRAMES - self.saved_sign) / SAVED_SIGN_HOLD) as usize);
         let mut camera = self.camera;
         if self.camera_shake > 0 {
             camera.y += if self.camera_shake % 4 < 2 { 1 } else { -1 };
@@ -1490,7 +1554,7 @@ impl Game {
             f.math = ColorMath::OFF;
             f.main_layers = layer::BG3 | layer::OBJ;
             f.bg3_priority = false;
-            hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night);
+            hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night, saved_sign);
             let list = &mut self.draw_list;
             list.clear();
             bag_screen::draw(&mut f.bg3, list, &self.assets.hud, &self.assets.sprites, &self.inventory, menu, self.frame_count);
@@ -1525,7 +1589,7 @@ impl Game {
                 let items = title_items(self.saved.is_some());
                 title_screen::draw(&mut f.bg3, &self.assets.hud, &items, title.choice, title.confirm, !(self.frame_count / 20).is_multiple_of(3))
             }
-            None => hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night),
+            None => hud::draw(&mut f.bg3, &self.assets.hud, &self.vitals, &self.clock, night, saved_sign),
         }
 
         // Sprites.
