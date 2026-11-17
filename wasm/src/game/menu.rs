@@ -79,11 +79,10 @@ pub enum Page {
     /// Moving things between the bag and the handcart's load (only with
     /// the cart at hand).
     Cart,
-    Save,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Save];
+    pub const ALL: [Page; 4] = [Page::Items, Page::Craft, Page::Gear, Page::Cart];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -91,7 +90,6 @@ impl Page {
             Page::Craft => "CRAFT",
             Page::Gear => "GEAR",
             Page::Cart => "CART",
-            Page::Save => "SAVE",
         }
     }
 }
@@ -192,8 +190,6 @@ pub enum Mode {
         slot: usize,
         choice: usize,
     },
-    /// On the save page, about to save.
-    Saving,
     /// On the cart page, the cursor (`BagMenu::cursor`) on a cell of the
     /// bag or (`in_cart`) of the cart's load.
     Cart {
@@ -214,8 +210,6 @@ pub enum Outcome {
     /// The recipe (index into `RECIPES`) is to be cooked over the fire;
     /// its materials are still in the bag.
     Cook(usize),
-    /// The game is to be saved (the bag stays open).
-    Save,
     /// Something made that doesn't go in the bag (a handcart) is handed
     /// over to the game; its materials are used up.
     Made(ItemKind),
@@ -352,7 +346,6 @@ impl BagMenu {
             Mode::Tabs(page) => page,
             Mode::Crafting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
-            Mode::Saving => Page::Save,
             Mode::Cart { .. } => Page::Cart,
             _ => Page::Items,
         }
@@ -364,7 +357,6 @@ impl BagMenu {
             Page::Items => Mode::Browse,
             Page::Craft => Mode::Crafting { choice: 0 },
             Page::Gear => Mode::Gear { slot: 0 },
-            Page::Save => Mode::Saving,
             Page::Cart => {
                 self.cursor = (0, 0);
                 Mode::Cart { in_cart: false }
@@ -378,7 +370,7 @@ impl BagMenu {
     /// taken.
     fn switch_page(&mut self, dx: i32) -> bool {
         let on_tabs = matches!(self.mode, Mode::Tabs(_));
-        if !on_tabs && !matches!(self.mode, Mode::Browse | Mode::Crafting { .. } | Mode::Gear { .. } | Mode::Saving | Mode::Cart { .. }) {
+        if !on_tabs && !matches!(self.mode, Mode::Browse | Mode::Crafting { .. } | Mode::Gear { .. } | Mode::Cart { .. }) {
             return false;
         }
         let page = self.page();
@@ -407,16 +399,6 @@ impl BagMenu {
             return Outcome::Stay;
         }
         match self.mode {
-            Mode::Saving => {
-                if matches!(step, Some((0, dy)) if dy < 0) {
-                    self.mode = Mode::Tabs(Page::Save);
-                } else if input.pressed(Buttons::B) {
-                    return Outcome::Close;
-                } else if input.pressed(Buttons::A) {
-                    return Outcome::Save;
-                }
-                Outcome::Stay
-            }
             Mode::Tabs(page) => {
                 let pages = self.pages();
                 let i = pages.iter().position(|&p| p == page).unwrap_or(0) as i32;
@@ -1100,9 +1082,6 @@ mod tests {
         assert!(matches!(menu.mode, Mode::Crafting { .. }), "the page opens, not just its tab");
         press(&mut menu, &mut inv, Buttons::R);
         assert_eq!(menu.mode, Mode::Gear { slot: 0 });
-        press(&mut menu, &mut inv, Buttons::R);
-        assert_eq!(menu.mode, Mode::Saving);
-        press(&mut menu, &mut inv, Buttons::L);
         press(&mut menu, &mut inv, Buttons::L);
         press(&mut menu, &mut inv, Buttons::L);
         assert_eq!(menu.mode, Mode::Browse);
@@ -1117,7 +1096,7 @@ mod tests {
         for _ in 0..Page::ALL.len() {
             press(&mut menu, &mut inv, Buttons::R);
         }
-        assert_eq!(menu.mode, Mode::Saving);
+        assert_eq!(menu.mode, Mode::Gear { slot: 0 }, "the last page without the cart at hand");
     }
 
     #[test]
@@ -1157,10 +1136,8 @@ mod tests {
             press(&mut menu, &mut inv, Buttons::R);
         }
         assert_eq!(menu.page(), Page::Cart, "after GEAR");
-        press(&mut menu, &mut inv, Buttons::R);
-        assert_eq!(menu.mode, Mode::Saving);
         press(&mut menu, &mut inv, Buttons::L);
-        assert_eq!(menu.page(), Page::Cart);
+        assert_eq!(menu.page(), Page::Gear);
     }
 
     #[test]
@@ -1168,6 +1145,6 @@ mod tests {
         let mut inv = Inventory::default();
         let mut menu = BagMenu { mode: Mode::Gear { slot: 0 }, ..BagMenu::browse() };
         press(&mut menu, &mut inv, Buttons::R);
-        assert_eq!(menu.mode, Mode::Saving);
+        assert_eq!(menu.mode, Mode::Gear { slot: 0 });
     }
 }

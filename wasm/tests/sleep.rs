@@ -55,5 +55,8 @@ fn a_and_b_still_wake_up() {
 fn y_does_not_wake_up() {
     let mut game = asleep();
     press(&mut game, Buttons::Y);
-    assert_eq!(save_op_within(&mut game, 300), None);
+    // Still asleep, time runs far faster than awake.
+    let start = game.clock().total_minutes();
+    hold(&mut game, 0, 60);
+    assert!(game.clock().total_minutes() - start > 4 * minutes_after_pressing(0));
 }
