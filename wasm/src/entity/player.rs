@@ -124,6 +124,17 @@ const DRILL_STROKE: u32 = 6;
 const DRILL_SMOKE: u32 = 50;
 const DRILL_CATCH: u32 = 100;
 const DRILL_TOTAL: u32 = 112;
+/// How near (px) the reach point must come to the middle of a signal
+/// fire's stones to light it (about the ring as drawn, which is wider than
+/// its cell), or the feet when standing over it.
+const SIGNAL_REACH: i32 = 16;
+const SIGNAL_UNDERFOOT: i32 = 12;
+
+/// The middle of the stones of a signal fire in the cell (world px): a
+/// little below the cell's middle, where the ring is drawn.
+fn signal_fire_middle((x, y): (i32, i32)) -> (i32, i32) {
+    (x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2 + 2)
+}
 
 /// Cooking over a fire (frames): kneeling with the food held over the
 /// flames (turned every `COOK_TURN`) until it's done on `COOK_DONE`.
@@ -773,19 +784,8 @@ impl Player {
             self.walk_timer = 0;
             return None;
         }
-        if let Some((ix, iy)) = item_in_reach.filter(|_| input.pressed(Buttons::A)) {
-            // Turn toward it unless it's (nearly) underfoot.
-            let (fx, fy) = self.body.feet();
-            let (dx, dy) = (ix - fx, iy - fy);
-            if dx.abs() > 4 || dy.abs() > 4 {
-                self.facing = if dx.abs() > dy.abs() {
-                    if dx < 0 { Dir::Left } else { Dir::Right }
-                } else if dy < 0 {
-                    Dir::Up
-                } else {
-                    Dir::Down
-                };
-            }
+        if let Some(item) = item_in_reach.filter(|_| input.pressed(Buttons::A)) {
+            self.turn_toward(item);
             self.action = Action::PickUp { t: 0 };
             self.moving = false;
             self.walk_timer = 0;
@@ -805,6 +805,7 @@ impl Player {
             // A signal fire not yet lit: kneel to drill a fire into it, or
             // without what that takes, stop and think.
             if let Some(cell) = self.cold_signal_fire_ahead(map) {
+                self.turn_toward(signal_fire_middle(cell));
                 if kindling {
                     self.action = Action::Drill { t: 0, signal: Some(cell) };
                     self.moving = false;
@@ -1164,13 +1165,35 @@ impl Player {
         (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
     }
 
-    /// The cell of a signal fire just ahead that isn't burning, if there
-    /// is one (within reach, or where a fire would be lit).
+    /// The cell of a signal fire close at hand that isn't burning, if there
+    /// is one: within reach of its stones as drawn (wider than its cell),
+    /// or underfoot (it can be walked over). The nearest, if more.
     fn cold_signal_fire_ahead(&self, map: &WorldMap) -> Option<(i32, i32)> {
-        [self.reach_point(), self.fire_spot()]
-            .into_iter()
-            .map(|(x, y)| (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)))
-            .find(|&(x, y)| map.feature(x, y) == crate::world::Feature::SignalFire(false))
+        let (reach, feet) = (self.reach_point(), self.body.feet());
+        let d2 = |(ax, ay): (i32, i32), (bx, by): (i32, i32)| (ax - bx).pow(2) + (ay - by).pow(2);
+        let (cx, cy) = self.feet_cell();
+        (cy - 2..=cy + 2)
+            .flat_map(|y| (cx - 2..=cx + 2).map(move |x| (x, y)))
+            .filter(|&(x, y)| map.feature(x, y) == crate::world::Feature::SignalFire(false))
+            .map(|cell| (cell, signal_fire_middle(cell)))
+            .filter(|&(_, m)| d2(reach, m) <= SIGNAL_REACH * SIGNAL_REACH || d2(feet, m) <= SIGNAL_UNDERFOOT * SIGNAL_UNDERFOOT)
+            .min_by_key(|&(_, m)| d2(reach, m))
+            .map(|(cell, _)| cell)
+    }
+
+    /// Turns to face the point (world px), unless it's (nearly) underfoot.
+    fn turn_toward(&mut self, (ix, iy): (i32, i32)) {
+        let (fx, fy) = self.body.feet();
+        let (dx, dy) = (ix - fx, iy - fy);
+        if dx.abs() > 4 || dy.abs() > 4 {
+            self.facing = if dx.abs() > dy.abs() {
+                if dx < 0 { Dir::Left } else { Dir::Right }
+            } else if dy < 0 {
+                Dir::Up
+            } else {
+                Dir::Down
+            };
+        }
     }
 
     /// The mill site, if a wood lathe held here would be set on the bank

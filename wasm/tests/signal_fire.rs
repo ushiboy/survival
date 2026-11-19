@@ -308,3 +308,56 @@ fn making_rescue_sure_counts_for_a_signal_fire_already_burning_unseen() {
     hours_go_by(&mut game, 2);
     assert!(game.is_rescued());
 }
+
+/// The middle of a signal fire's cell (world px).
+fn middle((x, y): (i32, i32)) -> (i32, i32) {
+    (x * 16 + 8, y * 16 + 8)
+}
+
+/// A signal fire set on open ground, the castaway moved below it, a
+/// little off to the left, facing it: by the edge of its stones.
+fn by_the_edge_of_it() -> Game {
+    let mut game = ready_to_light();
+    let fire = signal_fire(&game).expect("set down");
+    game.debug_place_player((fire.0, fire.1 + 1));
+    let (mx, _) = middle(fire);
+    while game.player_feet().0 > mx - 10 {
+        hold(&mut game, Buttons::LEFT, 1);
+    }
+    hold(&mut game, Buttons::UP, 1);
+    hold(&mut game, 0, 2);
+    game
+}
+
+#[test]
+fn a_signal_fire_is_lit_from_by_the_edge_of_its_stones() {
+    let mut game = by_the_edge_of_it();
+    let fire = signal_fire(&game).unwrap();
+    let off = game.player_feet().0 - middle(fire).0;
+    assert!((-14..=-8).contains(&off), "off to one side ({off} px)");
+    light(&mut game);
+    assert_eq!(game.burning_signal_fires(), 1);
+}
+
+#[test]
+fn a_signal_fire_is_lit_standing_over_it() {
+    let mut game = ready_to_light();
+    let fire = signal_fire(&game).unwrap();
+    game.debug_place_player(fire);
+    hold(&mut game, 0, 2);
+    light(&mut game);
+    assert_eq!(game.burning_signal_fires(), 1);
+}
+
+#[test]
+fn a_signal_fire_a_few_cells_off_is_out_of_reach() {
+    let mut game = ready_to_light();
+    let at = game.player_tile();
+    game.debug_place_player((at.0 - 2, at.1));
+    hold(&mut game, Buttons::RIGHT, 1);
+    hold(&mut game, 0, 2);
+    press(&mut game, Buttons::A);
+    assert!(!game.is_pondering());
+    hold(&mut game, 0, LIGHTING);
+    assert_eq!(game.burning_signal_fires(), 0);
+}
