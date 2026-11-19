@@ -69,6 +69,8 @@ On exit it prints the player's tile position and how many ground tiles are held 
 | `SNAP_HP=16` | with that much health (out of 64) |
 | `SNAP_FOOD=0`, `SNAP_WATER=0` | with that much food or water |
 | `SNAP_UPSET=1` | with an upset stomach |
+| `SNAP_LUCK=1` | with a signal fire's smoke always seen (lit, the castaway is rescued some time that day) |
+| `SNAP_RESCUED=1` | rescued straight away: the ending plays (the cuts from frame 120, 300 frames each, then the records from frame 1020) |
 | `SNAP_CRAB=24` | with a crab that far to the player's right |
 | `SNAP_FISH=10,40` | with a fish at that offset from the player's feet |
 | `SNAP_TITLE=1` | at the title screen |

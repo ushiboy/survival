@@ -128,6 +128,12 @@ impl GameHandle {
         self.game.debug_cure();
     }
 
+    /// Debug: makes a signal fire's smoke sure to be seen (see
+    /// `Game::debug_sure_rescue`).
+    pub fn debug_sure_rescue(&mut self) {
+        self.game.debug_sure_rescue();
+    }
+
     /// Debug: makes every recipe known.
     pub fn debug_learn_recipes(&mut self) {
         self.game.debug_learn_recipes();

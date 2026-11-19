@@ -23,7 +23,7 @@ use super::state::{GameClock, Gear, Vitals};
 use crate::assets::character::Outfit;
 use crate::common::math::Dir;
 use crate::crafting::RecipeBook;
-use crate::entity::Campfire;
+use crate::entity::{Campfire, SignalFire};
 use crate::items::ItemKind;
 use crate::world::Feature;
 use crate::world::harvest::HarvestState;
@@ -32,11 +32,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -51,6 +51,21 @@ fn v1_to_v2(save: &mut Value) {
     }
     if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
         island.insert("cart".into(), Value::Null);
+    }
+}
+
+/// Version 3 added signal fires (on the island, with the day the last was
+/// lit and when the castaway is to be rescued) and the recipes that have
+/// made something (for the kinds of things made the end shows): a version
+/// 2 save has no signal fire lit or set, and nothing counted as made.
+fn v2_to_v3(save: &mut Value) {
+    if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
+        island.insert("signal_fires".into(), serde_json::json!([]));
+        island.insert("signal_day".into(), Value::Null);
+        island.insert("rescue_at".into(), Value::Null);
+    }
+    if let Some(recipes) = save.pointer_mut("/inventory/recipes").and_then(Value::as_object_mut) {
+        recipes.insert("made".into(), serde_json::json!([]));
     }
 }
 
@@ -142,6 +157,14 @@ pub struct IslandState {
     pub harvest: HarvestState,
     pub items: Vec<Lying>,
     pub fires: Vec<Campfire>,
+    /// Signal fires set on the island (their cells are also among
+    /// `features`), and when each was lit while it burns.
+    pub signal_fires: Vec<SignalFire>,
+    /// The day a signal fire was last lit (the day's chance of its smoke
+    /// being seen was had), and when the castaway is to be rescued, if
+    /// the smoke is to be seen.
+    pub signal_day: Option<u32>,
+    pub rescue_at: Option<u32>,
     /// Crabs still about (their bodies' top-left, world px).
     pub crabs: Vec<(i32, i32)>,
     /// Fish in the water (world px), and when new ones come in for those
@@ -196,7 +219,7 @@ mod tests {
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json")];
+    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json"), include_str!("save_samples/v3.json")];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -243,6 +266,24 @@ mod tests {
     fn a_version_1_save_wears_nothing_at_the_waist() {
         let s = load(1);
         assert_eq!(s.gear_waist(), (None, [None, None]));
+    }
+
+    #[test]
+    fn a_version_2_save_has_no_signal_fire_and_nothing_made() {
+        let s = load(2);
+        assert!(s.island.signal_fires.is_empty());
+        assert_eq!((s.island.signal_day, s.island.rescue_at), (None, None));
+        assert_eq!(s.inventory.recipes.kinds_made(), 0);
+    }
+
+    #[test]
+    fn the_sample_keeps_a_burning_signal_fire_and_what_was_made() {
+        let s = load(SAVE_VERSION);
+        let fire = s.island.signal_fires.first().expect("the sample has a signal fire");
+        assert!(fire.lit_at.is_some(), "burning");
+        assert!(s.island.features.iter().any(|&(cell, f)| cell == fire.cell && f == Feature::SignalFire(true)));
+        assert!(s.island.signal_day.is_some(), "the day's chance was had");
+        assert!(s.inventory.recipes.kinds_made() > 0);
     }
 
     #[test]

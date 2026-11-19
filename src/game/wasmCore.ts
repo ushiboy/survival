@@ -69,6 +69,8 @@ export interface GameCore {
   debugUpsetStomach(): void;
   /** Debug: gets the castaway over whatever ails them. */
   debugCure(): void;
+  /** Debug: a signal fire's smoke is sure to be seen (an hour after it's lit; one already burning, an hour from now). */
+  debugSureRescue(): void;
   dispose(): void;
 }
 
@@ -166,6 +168,7 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     debugSetVitals: (hp, food, water) => handle.debug_set_vitals(hp, food, water),
     debugUpsetStomach: () => handle.debug_upset_stomach(),
     debugCure: () => handle.debug_cure(),
+    debugSureRescue: () => handle.debug_sure_rescue(),
     dispose: () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', keepNow);

@@ -17,6 +17,7 @@ function fakeCore() {
     debugSetVitals: vi.fn(),
     debugUpsetStomach: vi.fn(),
     debugCure: vi.fn(),
+    debugSureRescue: vi.fn(),
   };
 }
 
@@ -35,6 +36,16 @@ describe('DebugTools の体調', () => {
     await userEvent.click(screen.getByRole('button', { name: '治す' }));
     expect(core.debugCure).toHaveBeenCalled();
     expect(screen.getByText('体調を元に戻しました')).toBeInTheDocument();
+  });
+});
+
+describe('DebugTools の狼煙', () => {
+  it('狼煙が必ず見つかるようにできる', async () => {
+    const core = fakeCore();
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '必ず見つかる' }));
+    expect(core.debugSureRescue).toHaveBeenCalled();
+    expect(screen.getByText(/狼煙が必ず見つかるようにしました/)).toBeInTheDocument();
   });
 });
 

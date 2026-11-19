@@ -1615,3 +1615,106 @@ pub fn handcart_back() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// A signal fire's hearth, 32x32 (in the bag, and standing where it was
+/// set; effects palette): a mound of earth ringed with grey stones, timber
+/// stacked on it crosswise, log-cabin fashion, and a bundle of green palm
+/// fronds on top to make the smoke. `lit` chars the fronds where the fire
+/// has caught.
+pub fn signal_fire(lit: bool) -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(32, 32, 0);
+    // The earth the stones are bedded in, lit from the upper left.
+    fill_ellipse(&mut a, 16.0, 25.0, 13.5, 5.5, |x, y, nx, ny| {
+        let grit = (x * 13 + y * 7) % 11 == 0;
+        Some(if grit { i('c') } else { ramp(&[i('w'), i('W')], sphere_light(nx, ny) * 0.8, x, y, 0.5) })
+    });
+    // Stones round the rim, the far ones higher (drawn first, behind).
+    let stones = 11;
+    let mut ring: Vec<(f32, f32)> = (0..stones)
+        .map(|k| {
+            let ang = (k as f32 + 0.5) / stones as f32 * std::f32::consts::TAU;
+            (16.0 + ang.cos() * 12.0, 24.0 + ang.sin() * 4.8)
+        })
+        .collect();
+    ring.sort_by(|p, q| p.1.total_cmp(&q.1));
+    let stone = |a: &mut PixelArt, cx: f32, cy: f32| {
+        fill_ellipse(a, cx, cy, 2.7, 2.1, |x, y, nx, ny| Some(ramp(&[i('m'), i('M'), i('L')], sphere_light(nx, ny) * 0.7, x, y, 0.5)));
+    };
+    for &(cx, cy) in ring.iter().filter(|p| p.1 < 24.0) {
+        stone(&mut a, cx, cy);
+    }
+    // The stack: logs laid across, then two along on top of their ends,
+    // then across again, each course a little narrower.
+    let log_across = |a: &mut PixelArt, y: usize, x0: usize, x1: usize| {
+        for x in x0..=x1 {
+            for (dy, c) in [(0, 'W'), (1, 'W'), (2, 'w'), (3, 'o')] {
+                let c = if (x == x0 || x == x1) && dy < 3 { 'c' } else { c };
+                a.set(x, y + dy, i(c));
+            }
+        }
+        // Grain.
+        for x in (x0 + 3..x1 - 1).step_by(5) {
+            a.set(x, y + 1, i('w'));
+        }
+    };
+    let log_end = |a: &mut PixelArt, cx: f32, cy: f32| {
+        fill_ellipse(a, cx, cy, 2.3, 2.1, |_, _, nx, ny| Some(if nx * nx + ny * ny > 0.5 { i('W') } else { i('c') }));
+    };
+    log_across(&mut a, 20, 5, 26);
+    for x in 9..24 {
+        // The logs along, between their ends.
+        for (y, c) in [(17, 'W'), (18, 'w'), (19, 'o')] {
+            a.set(x, y, i(c));
+        }
+    }
+    log_end(&mut a, 8.5, 18.0);
+    log_end(&mut a, 23.5, 18.0);
+    log_across(&mut a, 13, 8, 23);
+    // A bundle of fronds on top, their tips drooping over the sides.
+    for k in 0..7 {
+        let lean = (k as f32 - 3.0) * 1.6;
+        for t in 0..9 {
+            let tf = t as f32 / 8.0;
+            let x = (16.0 + lean * tf * 2.2).round() as i32;
+            let y = (12.0 - (1.0 - (tf * 2.0 - 1.0).powi(2)) * 4.5 + tf * 1.5).round() as i32;
+            if (0..32).contains(&x) && (0..32).contains(&y) {
+                let c = if lit && (t + k) % 3 != 0 {
+                    'w'
+                } else if t % 3 == 0 {
+                    'h'
+                } else if k % 2 == 0 {
+                    'G'
+                } else {
+                    'g'
+                };
+                a.set(x as usize, y as usize, i(c));
+            }
+        }
+    }
+    // The near stones, in front of the stack.
+    for &(cx, cy) in ring.iter().filter(|p| p.1 >= 24.0) {
+        stone(&mut a, cx, cy);
+    }
+    a.outlined(i('o'))
+}
+
+/// A signal fire lying on the ground, packed up to carry, 16x16 (effects
+/// palette): two lengths of timber on a little heap of earth, stones round
+/// its foot.
+pub fn signal_fire_lying() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 16, 0);
+    fill_ellipse(&mut a, 8.0, 12.0, 6.5, 2.6, |x, y, nx, ny| Some(ramp(&[i('w'), i('W')], sphere_light(nx, ny) * 0.8, x, y, 0.5)));
+    for y in [6usize, 9] {
+        for x in 2..14 {
+            for (dy, c) in [(0, 'W'), (1, 'w'), (2, 'o')] {
+                a.set(x, y + dy, i(if (x == 2 || x == 13) && dy < 2 { 'c' } else { c }));
+            }
+        }
+    }
+    for (cx, cy) in [(3.0, 12.5), (8.0, 13.5), (13.0, 12.5)] {
+        fill_ellipse(&mut a, cx, cy, 1.9, 1.5, |x, y, nx, ny| Some(ramp(&[i('m'), i('M'), i('L')], sphere_light(nx, ny) * 0.7, x, y, 0.5)));
+    }
+    a.outlined(i('o'))
+}

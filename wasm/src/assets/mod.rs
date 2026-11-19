@@ -2,6 +2,7 @@
 //! Gameplay code refers to graphics only through these ids.
 
 pub mod character;
+pub mod ending_art;
 pub mod hud_art;
 pub mod item_art;
 pub mod paint;
@@ -240,6 +241,7 @@ pub struct BagSprites {
     pub bamboo_spade: [SpriteId; 2],
     pub clay: SpriteId,
     pub soil: SpriteId,
+    pub signal_fire: SpriteId,
     /// Stack-count digits 0-9 (effects palette).
     pub digits: [SpriteId; 10],
     /// "E" on the tool held in hand.
@@ -300,6 +302,7 @@ impl BagSprites {
             ItemKind::BambooSpade => (self.bamboo_spade[turned as usize], palettes::OBJ_FX),
             ItemKind::Clay => (self.clay, palettes::OBJ_FX),
             ItemKind::Soil => (self.soil, palettes::OBJ_CRAB),
+            ItemKind::SignalFire => (self.signal_fire, palettes::OBJ_FX),
         }
     }
 }
@@ -407,6 +410,7 @@ pub struct SpriteIds {
     /// The shelter pitched over a sleeper (who is hidden in it).
     pub lean_to: SpriteId,
     pub fire: FireSprites,
+    pub signal_fire: SignalFireSprites,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
     /// A puff of dust: whole, breaking up.
@@ -420,6 +424,17 @@ pub struct FireSprites {
     pub ring: SpriteId,
     pub flames: [SpriteId; 3],
     pub small: [SpriteId; 3],
+}
+
+/// A signal fire: its hearth standing (32x32) cold and lit, packed up
+/// lying on the ground (16x16), and the puffs of its smoke: new and
+/// growing (16x16), billowed out and thinning away (32x32).
+#[derive(Clone, Debug)]
+pub struct SignalFireSprites {
+    pub hearth: SpriteId,
+    pub lit: SpriteId,
+    pub lying: SpriteId,
+    pub smoke: [SpriteId; 4],
 }
 
 #[derive(Clone, Debug)]
@@ -663,6 +678,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         },
         clay: bank.add(&item_art::icon_clay()),
         soil: bank.add(&item_art::icon_soil()),
+        signal_fire: bank.add(&item_art::signal_fire(false)),
         torch: {
             let t = &torch_frames(false)[0];
             [bank.add(t), bank.add(&t.rotated_cw())]
@@ -754,6 +770,12 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         pine_cone: bank.add(&pine_cone()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
+        signal_fire: SignalFireSprites {
+            hearth: bank.add(&item_art::signal_fire(false)),
+            lit: bank.add(&item_art::signal_fire(true)),
+            lying: bank.add(&item_art::signal_fire_lying()),
+            smoke: smoke_frames().map(|a| bank.add(&a)),
+        },
         fire: FireSprites { ring: bank.add(&fire_ring()), flames: flames(12.0, 4.6).map(|a| bank.add(&a)), small: flames(6.0, 3.0).map(|a| bank.add(&a)) },
     }
 }

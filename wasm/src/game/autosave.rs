@@ -53,7 +53,9 @@ pub fn cue_of(deed: &Deed) -> Option<Cue> {
         | Deed::StandLadder(..)
         | Deed::LayBridge(_)
         | Deed::SetWheel(_)
-        | Deed::SetLathe(_) => Some(Cue::Changed),
+        | Deed::SetLathe(_)
+        | Deed::SetSignalFire(_)
+        | Deed::LightSignalFire(_) => Some(Cue::Changed),
         // Passing: nothing is kept of them.
         Deed::Smoulder(_) | Deed::KickDust(_) | Deed::Cast(_) | Deed::ReelIn => None,
     }

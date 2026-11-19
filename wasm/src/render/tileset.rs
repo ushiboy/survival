@@ -2462,7 +2462,8 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
             overhead = BgCell { tile: earth, hflip: false, high: false };
             grass
         }
-        Feature::None => match (&river, map.terrain(x, y)) {
+        // A signal fire is a sprite standing on the ground as it was.
+        Feature::None | Feature::SignalFire(_) => match (&river, map.terrain(x, y)) {
             (Some(r), Terrain::Cliff) => b.cliff_face(map, x, y, Some(r)),
             (Some(r), _) => {
                 let f = CellField::sample(map, x, y);

@@ -177,6 +177,14 @@ pub const RECIPES: &[Recipe] = &[
         at_fire: false,
         at_lathe: false,
     },
+    Recipe {
+        name: "SignalFire",
+        makes: ItemKind::SignalFire,
+        needs: &[(ItemKind::Stone, 4), (ItemKind::Timber, 2), (ItemKind::Soil, 2)],
+        tools: &[],
+        at_fire: false,
+        at_lathe: false,
+    },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the
@@ -194,37 +202,47 @@ pub struct RecipeBook {
     fresh: Vec<bool>,
     /// The way last made, for items made more than one way.
     chosen: Vec<bool>,
+    /// The ways that have made something at least once (what the end
+    /// counts as kinds of things made).
+    used: Vec<bool>,
 }
 
 impl Default for RecipeBook {
     fn default() -> Self {
         let none = vec![false; RECIPES.len()];
-        Self { known: none.clone(), fresh: none.clone(), chosen: none }
+        Self { known: none.clone(), fresh: none.clone(), chosen: none.clone(), used: none }
     }
 }
 
-/// How a recipe book is saved: the recipes known, those not yet looked at
-/// and the ways last made, by name (so adding recipes or reordering them
-/// leaves a save as it was).
+/// How many kinds of thing there are to make (an item made more than one
+/// way is one kind).
+pub fn makeable_kinds() -> usize {
+    RECIPES.iter().enumerate().filter(|&(i, r)| RECIPES[..i].iter().all(|q| q.makes != r.makes)).count()
+}
+
+/// How a recipe book is saved: the recipes known, those not yet looked at,
+/// the ways last made and the ways that have made something, by name (so
+/// adding recipes or reordering them leaves a save as it was).
 #[derive(serde::Serialize, serde::Deserialize)]
 struct KnownRecipes {
     known: Vec<String>,
     fresh: Vec<String>,
     #[serde(default)]
     chosen: Vec<String>,
+    made: Vec<String>,
 }
 
 impl From<RecipeBook> for KnownRecipes {
     fn from(b: RecipeBook) -> Self {
         let pick = |flags: &[bool]| RECIPES.iter().zip(flags).filter(|&(_, &on)| on).map(|(r, _)| r.name.to_string()).collect();
-        Self { known: pick(&b.known), fresh: pick(&b.fresh), chosen: pick(&b.chosen) }
+        Self { known: pick(&b.known), fresh: pick(&b.fresh), chosen: pick(&b.chosen), made: pick(&b.used) }
     }
 }
 
 impl From<KnownRecipes> for RecipeBook {
     fn from(k: KnownRecipes) -> Self {
         let flags = |names: &[String]| RECIPES.iter().map(|r| names.iter().any(|n| n == r.name)).collect();
-        Self { known: flags(&k.known), fresh: flags(&k.fresh), chosen: flags(&k.chosen) }
+        Self { known: flags(&k.known), fresh: flags(&k.fresh), chosen: flags(&k.chosen), used: flags(&k.made) }
     }
 }
 
@@ -283,9 +301,21 @@ impl RecipeBook {
         self.fresh[i] = false;
     }
 
+    /// How many kinds of thing have been made (an item made more than one
+    /// way is one kind).
+    pub fn kinds_made(&self) -> usize {
+        RECIPES.iter().enumerate().filter(|&(i, r)| self.used[i] && (0..i).all(|j| !self.used[j] || RECIPES[j].makes != r.makes)).count()
+    }
+
+    /// How many recipes have come to mind.
+    pub fn known_count(&self) -> usize {
+        self.known.iter().filter(|&&k| k).count()
+    }
+
     /// Something was made by recipe `i`: that way is shown for the item
-    /// from now on.
+    /// from now on, and the item counts as made.
     pub fn made(&mut self, i: usize) {
+        self.used[i] = true;
         let makes = RECIPES[i].makes;
         for (j, r) in RECIPES.iter().enumerate() {
             if r.makes == makes {
@@ -307,6 +337,60 @@ mod tests {
 
     fn index(makes: ItemKind) -> usize {
         RECIPES.iter().position(|r| r.makes == makes).unwrap()
+    }
+
+    #[test]
+    fn nothing_is_made_at_first() {
+        assert_eq!(RecipeBook::default().kinds_made(), 0);
+    }
+
+    #[test]
+    fn making_the_same_thing_again_counts_as_one_kind() {
+        let mut book = RecipeBook::default();
+        book.made(index(ItemKind::StoneKnife));
+        book.made(index(ItemKind::StoneKnife));
+        assert_eq!(book.kinds_made(), 1);
+        book.made(index(ItemKind::StoneAxe));
+        assert_eq!(book.kinds_made(), 2);
+    }
+
+    #[test]
+    fn rope_made_both_ways_is_one_kind() {
+        let mut book = RecipeBook::default();
+        for (i, r) in RECIPES.iter().enumerate().filter(|(_, r)| r.makes == ItemKind::Rope) {
+            book.made(i);
+            assert_eq!(book.kinds_made(), 1, "{}", r.name);
+        }
+    }
+
+    #[test]
+    fn the_kinds_there_are_to_make_count_each_item_once() {
+        assert!(makeable_kinds() < RECIPES.len(), "rope is made two ways");
+        let mut book = RecipeBook::default();
+        for i in 0..RECIPES.len() {
+            book.made(i);
+        }
+        assert_eq!(book.kinds_made(), makeable_kinds());
+    }
+
+    #[test]
+    fn the_recipes_known_are_counted() {
+        let mut book = RecipeBook::default();
+        assert_eq!(book.known_count(), 0);
+        book.notice(carrying(&[ItemKind::Stone]));
+        assert!(book.known_count() >= 1);
+        book.learn_all();
+        assert_eq!(book.known_count(), RECIPES.len());
+    }
+
+    #[test]
+    fn what_was_made_is_kept_in_a_save_by_recipe_name() {
+        let mut book = RecipeBook::default();
+        book.made(index(ItemKind::StoneKnife));
+        let json = serde_json::to_value(&book).unwrap();
+        assert_eq!(json["made"], serde_json::json!(["StoneKnife"]));
+        let again: RecipeBook = serde_json::from_value(json).unwrap();
+        assert_eq!(again.kinds_made(), 1);
     }
 
     fn carrying(kinds: &[ItemKind]) -> impl Fn(ItemKind) -> bool + '_ {
