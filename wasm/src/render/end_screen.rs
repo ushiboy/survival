@@ -37,14 +37,11 @@ pub fn draw(bg3: &mut Bg3Layer, tiles: &HudTiles, clock: &GameClock, lasted: u32
     }
 }
 
-/// Draws the end of an escape (for now, rescue by the signal fire's smoke,
-/// as a stand-in for its scene): the day it came, and the records every
-/// escape shows: the kinds of things made of all there are, and the
-/// recipes found of all there are.
+/// Draws the records every escape ends on: the day it came, the kinds of
+/// things made of all there are, and the recipes found of all there are.
 pub fn draw_escape(bg3: &mut Bg3Layer, tiles: &HudTiles, records: &Records, prompt: bool) {
     bg3.clear_rect(0, 0, HUD_COLS, ROWS);
-    centred(bg3, tiles, 7, "RESCUED", HUD_TEXT);
-    centred(bg3, tiles, 9, "THE SMOKE WAS SEEN", HUD_DIM);
+    centred(bg3, tiles, 8, "RESCUED", HUD_TEXT);
     centred(bg3, tiles, 12, &format!("ESCAPED ON DAY {}", records.day), HUD_TEXT);
     centred(bg3, tiles, 14, &format!("ITEMS MADE    {:>2} / {:>2}", records.made, records.makeable), HUD_TEXT);
     centred(bg3, tiles, 16, &format!("RECIPES FOUND {:>2} / {:>2}", records.recipes_known, records.recipes), HUD_TEXT);

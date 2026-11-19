@@ -1,7 +1,7 @@
 //! Signal fires: hearths of stones bedded in earth with timber stacked on
 //! them, set on open ground. Lit with the fire drill (a branch and a palm
 //! frond burnt on them), they send up a column of smoke for a day, for a
-//! passing plane or ship to see. Too smoky to cook over, and no light to
+//! passing plane to see. Too smoky to cook over, and no light to
 //! see by: they're for being seen.
 
 use crate::assets::SpriteIds;

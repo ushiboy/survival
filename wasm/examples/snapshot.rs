@@ -10,6 +10,7 @@
 //! `SNAP_HP=n` to start with `n` health (of 64), `SNAP_FOOD=n` and
 //! `SNAP_WATER=n` with that much food and water, `SNAP_UPSET=1` with an
 //! upset stomach, `SNAP_LUCK=1` with a signal fire's smoke always seen,
+//! `SNAP_RESCUED=1` rescued straight away (the ending plays),
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
@@ -115,6 +116,11 @@ fn main() {
     // SNAP_UPSET=1 starts with an upset stomach.
     if std::env::var("SNAP_UPSET").is_ok_and(|v| v == "1") {
         game.debug_upset_stomach();
+    }
+    // SNAP_RESCUED=1: the castaway is rescued straight away (the ending
+    // plays: the cuts from frame 120, 300 frames each, then the records).
+    if std::env::var("SNAP_RESCUED").is_ok_and(|v| v == "1") {
+        game.debug_rescue_now();
     }
     // SNAP_LUCK=1: a signal fire's smoke is always seen.
     if std::env::var("SNAP_LUCK").is_ok_and(|v| v == "1") {

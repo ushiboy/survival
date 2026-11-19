@@ -2,6 +2,7 @@
 //! Gameplay code refers to graphics only through these ids.
 
 pub mod character;
+pub mod ending_art;
 pub mod hud_art;
 pub mod item_art;
 pub mod paint;

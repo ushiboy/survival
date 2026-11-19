@@ -126,7 +126,7 @@ pub enum ItemKind {
     /// A hearth of stones bedded in earth with timber stacked on it: held
     /// in hand and set on open ground (B), where it stays. Lit with the
     /// fire drill, a branch and a palm frond burnt on it send up smoke for
-    /// a day, for a passing plane or ship to see.
+    /// a day, for a passing plane to see.
     SignalFire,
 }
 

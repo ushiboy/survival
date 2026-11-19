@@ -5,6 +5,7 @@
 pub mod autosave;
 pub mod bag;
 pub mod cart;
+pub mod ending;
 pub mod fishing;
 pub mod menu;
 pub mod regions;
@@ -14,7 +15,7 @@ pub mod state;
 use crate::assets::character::Outfit;
 use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
 use crate::assets::props::{PALM_W, coconut_spots};
-use crate::assets::{Assets, SpriteIds};
+use crate::assets::{Assets, SpriteIds, ending_art};
 use crate::common::input::{Buttons, InputState};
 use crate::common::math::{Dir, Rect};
 use crate::common::rng::Rng;
@@ -33,6 +34,7 @@ use crate::render::end_screen;
 use crate::render::hud::{self, HUD_LINES};
 use crate::render::light_canvas;
 use crate::render::lighting::{self, Lighting};
+use crate::render::scene::{NoLayer, Scene, SpriteSet};
 use crate::render::sprites::DrawList;
 use crate::render::tileset::{Tileset, VisualMap, sway_palm};
 use crate::render::title_screen::{self, TitleItem};
@@ -43,6 +45,7 @@ use crate::world::{ChunkId, Feature, TILE_SIZE, Terrain, WorldMap, driftwood, is
 use autosave::{AutoSave, Cue};
 use bag::Bag;
 use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
+pub use ending::EndingView;
 use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
 use regions::Regions;
@@ -71,8 +74,8 @@ const COLLAPSE_HOLD: u32 = 60;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
-/// The chance, once a day, that a signal fire's smoke is seen by a plane
-/// or ship passing the island.
+/// The chance, once a day, that a signal fire's smoke is seen by a small
+/// plane passing the island.
 const RESCUE_CHANCE: f32 = 1.0 / 128.0;
 /// How long after a signal fire is lit (in-game minutes) its smoke may be
 /// seen: some time in its day of burning, not the moment it's lit.
@@ -218,6 +221,11 @@ pub struct Game {
     /// How the game ended (the castaway collapsed, or was rescued), and
     /// frames since.
     end: Option<(Ending, u32)>,
+    /// The rescue's cut showing, fitted to the PPU (made when it first
+    /// shows, and put away for the next), and the plane drawn over the
+    /// last.
+    cut: Option<(usize, Scene)>,
+    plane: Option<SpriteSet>,
     gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
@@ -335,6 +343,8 @@ impl Game {
             bag_opened_with: None,
             saved_sign: 0,
             end: None,
+            cut: None,
+            plane: None,
             gulls,
             camera: Camera::new(0),
             clock,
@@ -546,12 +556,16 @@ impl Game {
             return;
         }
         if let Some((ending, t)) = self.end {
-            // The end: the screen fades, then START begins again.
+            // The end: the screen fades, then START begins again. Rescued,
+            // the cuts play first (START skips them to the records).
             self.frame_count = self.frame_count.wrapping_add(1);
             self.end = Some((ending, t + 1));
-            if t >= COLLAPSE_FADE + COLLAPSE_HOLD && self.input.pressed(Buttons::START) {
-                // Back to the title, to begin again.
-                self.start_over();
+            let start = self.input.pressed(Buttons::START);
+            match ending {
+                Ending::Collapsed if start && t >= COLLAPSE_FADE + COLLAPSE_HOLD => self.start_over(),
+                Ending::Rescued if start && ending::can_begin_again(t) => self.start_over(),
+                Ending::Rescued if start && ending::view_at(t) != EndingView::Records => self.end = Some((ending, ending::skip(t))),
+                _ => {}
             }
             return;
         }
@@ -1446,8 +1460,8 @@ impl Game {
         self.erase_save();
     }
 
-    /// The smoke was seen: a plane or ship comes for the castaway, and the
-    /// game ends. (For now the screen simply fades to the end.)
+    /// The smoke was seen: a passing plane turns for the island, and the
+    /// game ends: the world fades out, the cuts play, then the records.
     fn rescue(&mut self) {
         if let Some(line) = &mut self.line {
             line.let_go(&mut self.fish);
@@ -1627,6 +1641,12 @@ impl Game {
             camera.y += if self.camera_shake % 4 < 2 { 1 } else { -1 };
         }
         let records = self.records();
+        if let Some((Ending::Rescued, t)) = self.end
+            && ending::view_at(t) != EndingView::FadingOut
+        {
+            self.render_rescue(t, &records);
+            return;
+        }
         let f = &mut self.frame;
         f.clock = self.frame_count;
         f.scroll_x = camera.x;
@@ -1643,10 +1663,9 @@ impl Game {
                 f.main_layers = layer::BG3;
                 f.bg3_priority = false;
                 let prompt = t >= COLLAPSE_FADE + COLLAPSE_HOLD && (self.frame_count / 30).is_multiple_of(2);
-                match ending {
-                    Ending::Collapsed => end_screen::draw(&mut f.bg3, &self.assets.hud, &self.clock, records.lasted, prompt),
-                    Ending::Rescued => end_screen::draw_escape(&mut f.bg3, &self.assets.hud, &records, prompt),
-                }
+                // (Rescued, the cuts and records are drawn by `render_rescue`.)
+                debug_assert_eq!(ending, Ending::Collapsed);
+                end_screen::draw(&mut f.bg3, &self.assets.hud, &self.clock, records.lasted, prompt);
                 f.oam.clear();
                 self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
                 return;
@@ -1850,6 +1869,104 @@ impl Game {
     /// Dev tools: the game as it stands, as a save (JSON).
     pub fn debug_save_json(&self) -> String {
         self.save_data().to_json()
+    }
+
+    /// The rescue's ending, past the world fading out: a cut, letterboxed
+    /// in the middle of the screen and fading in and out; or the records
+    /// fading in.
+    fn render_rescue(&mut self, t: u32, records: &Records) {
+        let view = ending::view_at(t);
+        if let EndingView::Cut(i) = view {
+            self.load_cut(i);
+        }
+        let f = &mut self.frame;
+        f.clock = self.frame_count;
+        f.cgram.clone_from(&self.base_cgram);
+        f.cgram.colors[0] = crate::ppu::palette::Rgb555::BLACK;
+        f.lines.clear();
+        f.math = ColorMath::OFF;
+        f.bg3_priority = false;
+        f.oam.clear();
+        bag_screen::clear(&mut f.bg3);
+        match (view, &self.cut) {
+            (EndingView::Cut(_), Some((i, scene))) => {
+                let frame = ending::cut_frame(t).unwrap_or(0);
+                f.brightness = ending::cut_brightness(frame);
+                f.main_layers = layer::BG1 | layer::OBJ;
+                f.scroll_x = 0;
+                f.scroll_y = -CUT_TOP;
+                for (k, colors) in scene.palettes.iter().enumerate() {
+                    f.cgram.set_bg_palette(crate::render::scene::FIRST_PALETTE + k as u8, colors);
+                }
+                if *i == PLANE_CUT
+                    && let Some(plane) = &self.plane
+                {
+                    // Banking toward the island (held still: the picture
+                    // says it).
+                    f.cgram.set_obj_palette(OBJ_CRAB, &plane.palette);
+                    let (x, y) = PLANE_AT;
+                    let list = &mut self.draw_list;
+                    list.clear();
+                    for &(gfx, dx, dy) in &plane.pieces {
+                        list.actor(0, ObjEntry::new(x + dx, y + dy, gfx, OBJ_CRAB, 2));
+                    }
+                    list.flush(&mut f.oam);
+                }
+                self.ppu.render(&self.assets.vram, &self.frame, scene, &NoLayer);
+            }
+            (EndingView::Records, _) => {
+                let since = t - ending::RECORDS_AT;
+                f.brightness = (since / 2).min(15) as u8;
+                f.main_layers = layer::BG3;
+                let prompt = ending::can_begin_again(t) && (self.frame_count / 30).is_multiple_of(2);
+                end_screen::draw_escape(&mut f.bg3, &self.assets.hud, records, prompt);
+                self.ppu.render(&self.assets.vram, &self.frame, &NoLayer, &NoLayer);
+            }
+            _ => {
+                f.brightness = 0;
+                f.main_layers = 0;
+                self.ppu.render(&self.assets.vram, &self.frame, &NoLayer, &NoLayer);
+            }
+        }
+    }
+
+    /// Makes the rescue's cut `i` ready to show (the one before is put
+    /// away, as a new picture is loaded into VRAM in the dark between).
+    fn load_cut(&mut self, i: usize) {
+        if self.cut.as_ref().is_some_and(|(c, _)| *c == i) {
+            return;
+        }
+        let vram = &mut self.assets.vram;
+        if let Some((_, old)) = self.cut.take() {
+            old.unload(&mut vram.metatiles);
+        }
+        let picture = match i {
+            0 => ending_art::island_from_afar(),
+            1 => ending_art::cockpit_view(),
+            _ => ending_art::turning_for_the_island(),
+        };
+        self.cut = Some((i, Scene::load(&picture, &mut vram.metatiles)));
+        if i == PLANE_CUT && self.plane.is_none() {
+            self.plane = Some(SpriteSet::load(&ending_art::plane(), &mut vram.sprites));
+        }
+    }
+
+    /// What the rescue's ending shows, once rescued.
+    pub fn ending_view(&self) -> Option<EndingView> {
+        match self.end {
+            Some((Ending::Rescued, t)) => Some(ending::view_at(t)),
+            _ => None,
+        }
+    }
+
+    /// Whether the title screen shows.
+    pub fn is_at_title(&self) -> bool {
+        self.title.is_some()
+    }
+
+    /// Dev tools: the smoke is seen this moment: the castaway is rescued.
+    pub fn debug_rescue_now(&mut self) {
+        self.rescue();
     }
 
     /// Dev tools: a game carried on from a save (JSON), past the title.
@@ -2216,6 +2333,14 @@ impl Game {
         ids.len() * METATILE_BYTES + vram.hud_tiles.vram_bytes() + vram.sprites.vram_bytes()
     }
 }
+
+/// Where the rescue's cuts show: a 256x128 band in the middle of the
+/// screen, black above and below.
+const CUT_TOP: i32 = (SCREEN_H as i32 - ending_art::CUT_H as i32) / 2;
+/// The cut with the plane in it, and where its picture's top-left is on
+/// the screen (its middle a little left of the cut's, over the sea).
+const PLANE_CUT: usize = 2;
+const PLANE_AT: (i32, i32) = (98 - ending_art::PLANE_MIDDLE.0 as i32, CUT_TOP + 50 - ending_art::PLANE_MIDDLE.1 as i32);
 
 /// How a game ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
