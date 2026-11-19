@@ -235,9 +235,11 @@ pub enum Action {
         t: u32,
         food: ItemKind,
     },
-    /// Kneeling to drill a fire.
+    /// Kneeling to drill a fire: on the ground ahead, or (`signal`, its
+    /// cell) in the signal fire there.
     Drill {
         t: u32,
+        signal: Option<(i32, i32)>,
     },
     /// Kneeling by the fire at `fire` (ground px), holding `food` over it
     /// until it becomes `dish`.
@@ -314,6 +316,11 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
+    /// Setting a signal fire down on the ground ahead (its cell).
+    Build {
+        t: u32,
+        cell: (i32, i32),
+    },
     /// Come upon a place by the river (the mill site, the narrow): struck
     /// by an idea, then walking straight over to its bank (`to`,
     /// a cell) and turning `across` the river; then, if `think`, stopping
@@ -353,6 +360,9 @@ pub struct Situation {
     /// A goes to the handcart (it's being pulled, or set down just ahead):
     /// a hint about the place doesn't take it.
     pub cart_ahead: bool,
+    /// Carrying what it takes to light a signal fire: the fire drill, a
+    /// branch and a palm frond.
+    pub kindling: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -403,6 +413,10 @@ pub enum Deed {
     /// The wood lathe was set on the bank beside the water wheel off the
     /// mill site's bank (the cell).
     SetLathe((i32, i32)),
+    /// A signal fire was set down in the cell.
+    SetSignalFire((i32, i32)),
+    /// The signal fire in the cell caught.
+    LightSignalFire((i32, i32)),
 }
 
 #[derive(Clone, Debug)]
@@ -480,7 +494,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead, kindling } = situation;
         self.eureka = self.eureka.saturating_sub(1);
         if self.action == Action::Collapsed {
             return None;
@@ -574,12 +588,16 @@ impl Player {
             self.action = if t >= EAT_TOTAL { Action::Idle } else { Action::Eat { t, food } };
             return (t == EAT_BITE).then_some(Deed::Eat(food));
         }
-        if let Action::Drill { t } = self.action {
+        if let Action::Drill { t, signal } = self.action {
             let t = t + 1;
-            self.action = if t >= DRILL_TOTAL { Action::Idle } else { Action::Drill { t } };
-            let spot = self.fire_spot();
+            self.action = if t >= DRILL_TOTAL { Action::Idle } else { Action::Drill { t, signal } };
+            let spot = match signal {
+                // On top of the signal fire's stack.
+                Some((x, y)) => (x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE - 4),
+                None => self.fire_spot(),
+            };
             if t == DRILL_CATCH {
-                return Some(Deed::LightFire(spot));
+                return Some(signal.map_or(Deed::LightFire(spot), Deed::LightSignalFire));
             }
             return ((DRILL_SMOKE..DRILL_CATCH).contains(&t) && t % 8 == 0).then_some(Deed::Smoulder(spot));
         }
@@ -670,6 +688,11 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Install { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetLathe(site));
         }
+        if let Action::Build { t, cell } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Build { t, cell } };
+            return (t == PITCH_SET).then_some(Deed::SetSignalFire(cell));
+        }
         if let Action::Survey { t, to, across, think } = self.action {
             self.survey_step(t + 1, to, across, think, map);
             return None;
@@ -720,6 +743,15 @@ impl Player {
                 // A wood lathe goes on the bank beside the turning wheel:
                 // held anywhere near, the castaway walks over to set it.
                 ItemKind::WoodLathe => Action::ToLathe { t: 0, site: self.lathe_near(map)? },
+                // A signal fire goes down on open ground just ahead.
+                ItemKind::SignalFire => {
+                    let (x, y) = self.fire_spot();
+                    let cell = (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE));
+                    if cell == self.feet_cell() || !map.signal_fire_spot(cell.0, cell.1) {
+                        return None;
+                    }
+                    Action::Build { t: 0, cell }
+                }
                 // A digging stick loosens hard earth but won't lift sticky
                 // clay; a bamboo spade lifts clay but would crack on hard
                 // earth. The wrong one gives pause.
@@ -768,6 +800,18 @@ impl Player {
                 self.action = Action::Shake { t: 0 };
                 self.moving = false;
                 self.walk_timer = 0;
+                return None;
+            }
+            // A signal fire not yet lit: kneel to drill a fire into it, or
+            // without what that takes, stop and think.
+            if let Some(cell) = self.cold_signal_fire_ahead(map) {
+                if kindling {
+                    self.action = Action::Drill { t: 0, signal: Some(cell) };
+                    self.moving = false;
+                    self.walk_timer = 0;
+                } else {
+                    self.ponder();
+                }
                 return None;
             }
             let reach = self.reach_point();
@@ -1114,6 +1158,21 @@ impl Player {
         map.wheel_spot(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE))
     }
 
+    /// The cell the feet are in.
+    fn feet_cell(&self) -> (i32, i32) {
+        let (fx, fy) = self.body.feet();
+        (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
+    }
+
+    /// The cell of a signal fire just ahead that isn't burning, if there
+    /// is one (within reach, or where a fire would be lit).
+    fn cold_signal_fire_ahead(&self, map: &WorldMap) -> Option<(i32, i32)> {
+        [self.reach_point(), self.fire_spot()]
+            .into_iter()
+            .map(|(x, y)| (x.div_euclid(TILE_SIZE), y.div_euclid(TILE_SIZE)))
+            .find(|&(x, y)| map.feature(x, y) == crate::world::Feature::SignalFire(false))
+    }
+
     /// The mill site, if a wood lathe held here would be set on the bank
     /// beside the turning water wheel (the castaway is near enough).
     fn lathe_near(&self, map: &WorldMap) -> Option<(i32, i32)> {
@@ -1285,7 +1344,7 @@ impl Player {
         self.action = match kind.usage() {
             Some(Use::Eat) => Action::Eat { t: 0, food: kind },
             Some(Use::Drink) => Action::Drink { t: 0, water: kind },
-            Some(Use::Light) => Action::Drill { t: 0 },
+            Some(Use::Light) => Action::Drill { t: 0, signal: None },
             None => return,
         };
         self.moving = false;
@@ -1494,7 +1553,7 @@ impl Player {
             return;
         }
 
-        if let Action::Drill { t } = self.action {
+        if let Action::Drill { t, .. } = self.action {
             // Kneeling over the drill, sawing its bow from side to side;
             // it's behind the body when facing away.
             let body = ObjEntry::new(cx, cy, sprites.player.crouch[view], OBJ_PLAYER, prio).flipped(flip);
@@ -1572,7 +1631,7 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } | Action::Install { t, .. } = self.action {
+        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } | Action::Install { t, .. } | Action::Build { t, .. } = self.action {
             // Lifting the ladder (or bridge), then leaning in to set it
             // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;

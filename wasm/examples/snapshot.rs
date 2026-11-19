@@ -9,7 +9,8 @@
 //! `SNAP_CRAB=dx` to set a crab down that far right of the castaway, and
 //! `SNAP_HP=n` to start with `n` health (of 64), `SNAP_FOOD=n` and
 //! `SNAP_WATER=n` with that much food and water, `SNAP_UPSET=1` with an
-//! upset stomach, and `SNAP_HOURS=n` to start `n`
+//! upset stomach, `SNAP_LUCK=1` with a signal fire's smoke always seen,
+//! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
 //! draws every frame as the browser does; `SNAP_RELOAD=1` saves the game at
@@ -102,6 +103,7 @@ fn main() {
                 "bamboo spade" | "spade" => ItemKind::BambooSpade,
                 "clay" => ItemKind::Clay,
                 "soil" => ItemKind::Soil,
+                "signal fire" | "signal" => ItemKind::SignalFire,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
@@ -113,6 +115,10 @@ fn main() {
     // SNAP_UPSET=1 starts with an upset stomach.
     if std::env::var("SNAP_UPSET").is_ok_and(|v| v == "1") {
         game.debug_upset_stomach();
+    }
+    // SNAP_LUCK=1: a signal fire's smoke is always seen.
+    if std::env::var("SNAP_LUCK").is_ok_and(|v| v == "1") {
+        game.debug_rescue_luck(Some(true));
     }
     // SNAP_CRAB=dx sets a crab down that far to the right of the feet.
     if let Ok(dx) = std::env::var("SNAP_CRAB") {

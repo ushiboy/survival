@@ -123,6 +123,11 @@ pub enum ItemKind {
     /// once made it follows the castaway, pulled behind, carrying a load of
     /// its own.
     Handcart,
+    /// A hearth of stones bedded in earth with timber stacked on it: held
+    /// in hand and set on open ground (B), where it stays. Lit with the
+    /// fire drill, a branch and a palm frond burnt on it send up smoke for
+    /// a day, for a passing plane or ship to see.
+    SignalFire,
 }
 
 /// Where a piece of gear goes.
@@ -168,7 +173,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, in the order the debug tools list them (add new kinds
     /// here too).
-    pub const ALL: [ItemKind; 44] = [
+    pub const ALL: [ItemKind; 45] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -213,6 +218,7 @@ impl ItemKind {
         ItemKind::WoodLathe,
         ItemKind::SpokedWheel,
         ItemKind::Handcart,
+        ItemKind::SignalFire,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -251,7 +257,13 @@ impl ItemKind {
             ItemKind::WaterWheel => (3, 3),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade => (1, 3),
             ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
-            ItemKind::Timber | ItemKind::LauanTimber | ItemKind::PineTimber | ItemKind::Shelter | ItemKind::SpokedWheel | ItemKind::Handcart => (2, 2),
+            ItemKind::Timber
+            | ItemKind::LauanTimber
+            | ItemKind::PineTimber
+            | ItemKind::Shelter
+            | ItemKind::SpokedWheel
+            | ItemKind::Handcart
+            | ItemKind::SignalFire => (2, 2),
             ItemKind::WoodLathe => (2, 3),
         }
     }
@@ -302,6 +314,7 @@ impl ItemKind {
             ItemKind::WoodLathe => "WOOD LATHE",
             ItemKind::SpokedWheel => "SPOKED WHEEL",
             ItemKind::Handcart => "HANDCART",
+            ItemKind::SignalFire => "SIGNAL FIRE",
         }
     }
 
@@ -353,6 +366,7 @@ impl ItemKind {
             ItemKind::WoodLathe => "A LAUAN BED AND SPINDLE WITH A ROPE DRIVE. SOMETHING TURNING COULD SPIN IT.",
             ItemKind::SpokedWheel => "A HUB, SPOKES AND RIM, ALL TURNED ROUND. IT ROLLS UNDER A LOAD.",
             ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
+            ItemKind::SignalFire => "STONES IN EARTH, WOOD STACKED ON. LIGHT A BRANCH AND A PALM FROND ON IT TO SEND UP SMOKE.",
         }
     }
 
@@ -435,7 +449,8 @@ impl ItemKind {
             | ItemKind::WaterWheel
             | ItemKind::DiggingStick
             | ItemKind::BambooSpade
-            | ItemKind::WoodLathe => Some(Slot::Hand),
+            | ItemKind::WoodLathe
+            | ItemKind::SignalFire => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             ItemKind::ToolBelt => Some(Slot::Waist),
             _ => None,

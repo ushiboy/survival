@@ -1,9 +1,11 @@
-//! The end: the castaway has collapsed. On a black screen, BG3 tells the
-//! day it happened and how long they lasted, then asks for START to begin
+//! The end: the castaway has collapsed, or escaped the island. On a black
+//! screen, BG3 tells the day it happened and how long they lasted (and,
+//! escaped, what they made and found), then asks for START to begin
 //! again.
 
 use crate::assets::HudTiles;
 use crate::assets::palettes::{HUD_DIM, HUD_TEXT};
+use crate::game::Records;
 use crate::game::state::GameClock;
 use crate::ppu::Bg3Layer;
 use crate::render::hud::HUD_COLS;
@@ -30,6 +32,22 @@ pub fn draw(bg3: &mut Bg3Layer, tiles: &HudTiles, clock: &GameClock, lasted: u32
     let (days, hours) = (lasted / (24 * 60), lasted / 60 % 24);
     let plural = |n: u32, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "S" });
     centred(bg3, tiles, 15, &format!("LASTED {} {}", plural(days, "DAY"), plural(hours, "HOUR")), HUD_TEXT);
+    if prompt {
+        centred(bg3, tiles, 20, "PRESS START", HUD_TEXT);
+    }
+}
+
+/// Draws the end of an escape (for now, rescue by the signal fire's smoke,
+/// as a stand-in for its scene): the day it came, and the records every
+/// escape shows: the kinds of things made of all there are, and the
+/// recipes found of all there are.
+pub fn draw_escape(bg3: &mut Bg3Layer, tiles: &HudTiles, records: &Records, prompt: bool) {
+    bg3.clear_rect(0, 0, HUD_COLS, ROWS);
+    centred(bg3, tiles, 7, "RESCUED", HUD_TEXT);
+    centred(bg3, tiles, 9, "THE SMOKE WAS SEEN", HUD_DIM);
+    centred(bg3, tiles, 12, &format!("ESCAPED ON DAY {}", records.day), HUD_TEXT);
+    centred(bg3, tiles, 14, &format!("ITEMS MADE    {:>2} / {:>2}", records.made, records.makeable), HUD_TEXT);
+    centred(bg3, tiles, 16, &format!("RECIPES FOUND {:>2} / {:>2}", records.recipes_known, records.recipes), HUD_TEXT);
     if prompt {
         centred(bg3, tiles, 20, "PRESS START", HUD_TEXT);
     }

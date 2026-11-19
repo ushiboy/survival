@@ -157,6 +157,7 @@ impl Item {
             ItemKind::BambooSpade => (32, [sprites.bamboo_spade; 2], sprites.shadow_lying),
             ItemKind::Clay => (8, [sprites.clay; 2], sprites.shadow_coconut),
             ItemKind::Soil => (8, [sprites.soil; 2], sprites.shadow_coconut),
+            ItemKind::SignalFire => (16, [sprites.signal_fire.lying; 2], sprites.shadow_player),
             ItemKind::Fish => (16, [sprites.fish; 2], sprites.shadow_crab),
             ItemKind::GrilledFish => (16, [sprites.grilled_fish; 2], sprites.shadow_crab),
             // Water and a burning torch never lie on the ground.
@@ -191,7 +192,8 @@ impl Item {
             | ItemKind::WoodLathe
             | ItemKind::SpokedWheel
             | ItemKind::BambooSpade
-            | ItemKind::Clay => OBJ_FX,
+            | ItemKind::Clay
+            | ItemKind::SignalFire => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,

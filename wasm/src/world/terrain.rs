@@ -251,6 +251,13 @@ pub enum Feature {
     /// Bare earth showing through the grass, two cells by two (`dx + 2 *
     /// dy` from its top-left cell); a digging stick loosens soil out of it.
     BareEarth(u8),
+    /// A signal fire set on open ground: a hearth of stones bedded in
+    /// earth with timber stacked on it, one cell. `true` while it burns,
+    /// sending up smoke (see `Game`'s signal fires for when it was lit).
+    /// Drawn as a sprite over the ground, which shows as if the cell were
+    /// bare. It can be walked over, like a campfire (set down anywhere, it
+    /// never blocks the way).
+    SignalFire(bool),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

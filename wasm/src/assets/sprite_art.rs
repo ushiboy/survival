@@ -1,7 +1,7 @@
 //! Sprite artwork. Hand-drawn sprites use text with a per-palette legend
 //! (see `palettes::*_LEGEND`); `.` is transparent.
 
-use super::paint::{bayer, fill_ellipse};
+use super::paint::{bayer, fill_ellipse, sphere_light};
 use super::palettes::{CRAB_LEGEND, FX_LEGEND, GULL_LEGEND, ITEM_LEGEND, LAUAN_LEGEND};
 use crate::ppu::pattern::PixelArt;
 
@@ -935,4 +935,36 @@ pub fn bamboo_lying() -> PixelArt {
         ],
         FX_LEGEND,
     )
+}
+
+/// Puffs of smoke rising from a signal fire (the water effects palette's
+/// greys, drawn half see-through by day): new and small, then growing
+/// (16x16), then billowed out and thinning away (32x32).
+pub fn smoke_frames() -> [PixelArt; 4] {
+    use super::palettes::smoke;
+    let puff = |size: usize, lumps: &[(f32, f32, f32)], thin: bool| {
+        let mut a = PixelArt::filled(size, size, 0);
+        for &(cx, cy, r) in lumps {
+            fill_ellipse(&mut a, cx, cy, r, r * 0.85, |x, y, nx, ny| {
+                if thin && bayer(x, y) < 0.45 {
+                    return None;
+                }
+                let light = sphere_light(nx, ny);
+                Some(if light > 0.62 {
+                    smoke::LIGHT
+                } else if light > 0.32 || bayer(x, y) < light {
+                    smoke::MID
+                } else {
+                    smoke::SHADE
+                })
+            });
+        }
+        a
+    };
+    [
+        puff(16, &[(8.0, 9.0, 3.2), (6.5, 7.5, 2.2), (9.8, 7.0, 2.0)], false),
+        puff(16, &[(8.0, 9.5, 5.4), (5.0, 7.0, 3.8), (10.8, 6.0, 3.9), (8.0, 4.3, 3.2)], false),
+        puff(32, &[(16.0, 19.0, 9.5), (9.5, 15.0, 6.8), (22.5, 14.0, 7.2), (15.5, 9.0, 6.6), (24.0, 21.0, 5.5), (8.0, 21.5, 5.0)], false),
+        puff(32, &[(16.0, 18.0, 11.0), (8.5, 13.0, 7.0), (23.5, 12.5, 7.5)], true),
+    ]
 }

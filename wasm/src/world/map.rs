@@ -454,6 +454,17 @@ impl WorldMap {
         cells.to_vec()
     }
 
+    /// Whether a signal fire could be set in the cell: dry ground (sand
+    /// or grass, below or on the high ground) with nothing on it.
+    pub fn signal_fire_spot(&self, x: i32, y: i32) -> bool {
+        self.in_bounds(x, y) && self.terrain(x, y).is_land() && self.feature(x, y) == Feature::None
+    }
+
+    /// Sets a signal fire in the cell, unlit.
+    pub fn set_signal_fire(&mut self, (x, y): (i32, i32)) {
+        self.set_feature(x, y, Feature::SignalFire(false));
+    }
+
     /// The middle of the wood lathe (world px), if one stands by the wheel.
     pub fn lathe_middle(&self) -> Option<(i32, i32)> {
         let site = self.spots.mill?;

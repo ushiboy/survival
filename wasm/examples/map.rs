@@ -435,7 +435,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::PineCone => [170, 100, 40],
         Feature::ClayBed(_) => [150, 160, 175],
         Feature::BareEarth(_) => [150, 110, 70],
-        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) => [200, 150, 90],
+        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) => [200, 150, 90],
         Feature::None => c,
     }
 }
@@ -602,6 +602,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::Bridge(_) => '=',
                 Feature::WaterWheel(_) => 'w',
                 Feature::Lathe(_) => 'T',
+                Feature::SignalFire(_) => 'F',
                 Feature::Pine(_) => 'n',
                 Feature::PineStump(_) => 'N',
                 Feature::PineCone => 'k',

@@ -21,7 +21,7 @@ use crate::common::rng::Rng;
 use crate::crafting::{RECIPES, Recipe};
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
-use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, Situation};
+use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, SignalFire, Situation, signal_fire};
 use crate::items::{ItemKind, Use};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::oam::ObjEntry;
@@ -71,6 +71,13 @@ const COLLAPSE_HOLD: u32 = 60;
 /// Chance a shake brings a frond down, and fronds a felled palm sheds.
 const FROND_CHANCE: f32 = 0.15;
 const FELLED_FRONDS: u32 = 3;
+/// The chance, once a day, that a signal fire's smoke is seen by a plane
+/// or ship passing the island.
+const RESCUE_CHANCE: f32 = 1.0 / 128.0;
+/// How long after a signal fire is lit (in-game minutes) its smoke may be
+/// seen: some time in its day of burning, not the moment it's lit.
+const SEEN_FROM: u32 = 60;
+const SEEN_UNTIL: u32 = signal_fire::BURN_MINUTES - 60;
 /// How near the mill site (cells) the castaway comes upon it.
 const MILL_NOTICE_CELLS: i32 = 4;
 /// How close (cells) to the bank at the river's narrow coming near it
@@ -165,6 +172,16 @@ pub struct Game {
     line: Option<Line>,
     fish_due: Vec<u32>,
     fires: Vec<Campfire>,
+    /// Signal fires set on the island, burning or not.
+    signal_fires: Vec<SignalFire>,
+    /// The day a signal fire was last lit (it has its chance of being seen
+    /// once a day, however many are lit), and when (game minutes) its
+    /// smoke is to be seen and the castaway rescued, if it is to be.
+    signal_day: Option<u32>,
+    rescue_at: Option<u32>,
+    /// Dev tools: whether smoke is always (`Some(true)`) or never
+    /// (`Some(false)`) seen, instead of by chance.
+    rescue_luck: Option<bool>,
     /// The day shells last washed up, and the most the beach holds (as
     /// many as it started with).
     shell_day: u32,
@@ -198,8 +215,9 @@ pub struct Game {
     bag_opened_with: Option<String>,
     /// Frames left of the sign that the game was saved.
     saved_sign: u32,
-    /// Frames since the castaway collapsed, once they have.
-    collapsed: Option<u32>,
+    /// How the game ended (the castaway collapsed, or was rescued), and
+    /// frames since.
+    end: Option<(Ending, u32)>,
     gulls: Vec<Gull>,
     camera: Camera,
     clock: GameClock,
@@ -298,6 +316,10 @@ impl Game {
             line: None,
             fish_due: save.map_or_else(Vec::new, |s| s.island.fish_due.clone()),
             fires: save.map_or_else(Vec::new, |s| s.island.fires.clone()),
+            signal_fires: save.map_or_else(Vec::new, |s| s.island.signal_fires.clone()),
+            signal_day: save.and_then(|s| s.island.signal_day),
+            rescue_at: save.and_then(|s| s.island.rescue_at),
+            rescue_luck: None,
             shell_day: 0,
             shell_cap: 0,
             driftwood_cap,
@@ -312,7 +334,7 @@ impl Game {
             autosave: AutoSave::new(),
             bag_opened_with: None,
             saved_sign: 0,
-            collapsed: None,
+            end: None,
             gulls,
             camera: Camera::new(0),
             clock,
@@ -399,6 +421,9 @@ impl Game {
                 harvest: self.harvest.state(),
                 items: self.items.iter().map(|i| save::Lying { kind: i.kind, count: i.count, at: i.ground() }).collect(),
                 fires: self.fires.clone(),
+                signal_fires: self.signal_fires.clone(),
+                signal_day: self.signal_day,
+                rescue_at: self.rescue_at,
                 crabs: self.crabs.iter().map(|c| c.body.px()).collect(),
                 fish: self.fish.iter().map(|f| f.pos()).collect(),
                 fish_due: self.fish_due.clone(),
@@ -432,9 +457,9 @@ impl Game {
     }
 
     /// Saves straight away whatever waits to be saved (the page is being
-    /// left). Not at the title, nor once the castaway has collapsed.
+    /// left). Not at the title, nor once the game has ended.
     pub fn flush_save(&mut self) {
-        if self.title.is_some() || self.collapsed.is_some() {
+        if self.title.is_some() || self.end.is_some() {
             return;
         }
         let bag_changed = self.bag_opened_with.as_ref().is_some_and(|before| *before != self.carried_json());
@@ -443,7 +468,7 @@ impl Game {
         }
     }
 
-    /// Erases the saved game (the castaway has collapsed).
+    /// Erases the saved game (the game has ended).
     fn erase_save(&mut self) {
         self.saved = None;
         self.save_kept = false;
@@ -520,10 +545,10 @@ impl Game {
             self.title_step(title);
             return;
         }
-        if let Some(t) = self.collapsed {
+        if let Some((ending, t)) = self.end {
             // The end: the screen fades, then START begins again.
             self.frame_count = self.frame_count.wrapping_add(1);
-            self.collapsed = Some(t + 1);
+            self.end = Some((ending, t + 1));
             if t >= COLLAPSE_FADE + COLLAPSE_HOLD && self.input.pressed(Buttons::START) {
                 // Back to the title, to begin again.
                 self.start_over();
@@ -589,6 +614,10 @@ impl Game {
             self.collapse();
             return;
         }
+        if self.rescue_at.is_some_and(|at| self.clock.total_minutes() >= at) {
+            self.rescue();
+            return;
+        }
         self.player.weak = self.vitals.starving();
         self.player.can_run = self.vitals.can_run();
         let queasy = self.vitals.has(Ailment::UpsetStomach);
@@ -627,6 +656,7 @@ impl Game {
             has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
             fish_near: !self.inventory.carries(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
+            kindling: self.inventory.carries(ItemKind::FireDrill) && self.inventory.bag.has(ItemKind::Branch) && self.inventory.bag.has(ItemKind::PalmFrond),
             cart_ahead: self
                 .cart
                 .as_ref()
@@ -665,6 +695,8 @@ impl Game {
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
             Some(Deed::SetLathe(site)) => self.set_lathe(site),
+            Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
+            Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
                 // A with nothing else to do: set the cart down, or take
                 // up the one set down just ahead.
@@ -690,6 +722,7 @@ impl Game {
         self.tend_line();
         let now = self.clock.total_minutes();
         self.fires.retain(|f| !f.burnt_out(now));
+        self.tend_signal_fires(now);
         for fire in &self.fires {
             if self.rng.range(EMBER_EVERY) == 0 {
                 self.particles.ember(fire.flame_point());
@@ -900,6 +933,55 @@ impl Game {
         let changed = self.map.set_lathe(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
         self.step_clear();
+    }
+
+    /// The signal fire in hand is set down in the cell ahead: it leaves the
+    /// bag and stays there (not on a campfire).
+    fn set_signal_fire(&mut self, cell: (i32, i32)) {
+        let middle = (cell.0 * TILE_SIZE + TILE_SIZE / 2, cell.1 * TILE_SIZE + TILE_SIZE / 2);
+        if !self.map.signal_fire_spot(cell.0, cell.1) || self.fires.iter().any(|f| f.within(middle, FIRE_SPACING)) {
+            return;
+        }
+        if !self.inventory.bag.take_kind(ItemKind::SignalFire) {
+            return;
+        }
+        self.inventory.settle_hand();
+        self.map.set_signal_fire(cell);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &[cell]);
+        self.signal_fires.push(SignalFire::new(cell));
+    }
+
+    /// The drill has caught in the signal fire in the cell: a branch and a
+    /// palm frond burn on it, sending up smoke for a day. The first lit
+    /// each day has its chance of being seen.
+    fn light_signal_fire(&mut self, cell: (i32, i32)) {
+        let now = self.clock.total_minutes();
+        let Some(i) = self.signal_fires.iter().position(|f| f.cell == cell && !f.burning()) else { return };
+        let bag = &mut self.inventory.bag;
+        if !(self.inventory.gear.on_belt(ItemKind::FireDrill) || bag.has(ItemKind::FireDrill)) || !bag.has(ItemKind::Branch) || !bag.has(ItemKind::PalmFrond) {
+            return;
+        }
+        bag.take_kind(ItemKind::Branch);
+        bag.take_kind(ItemKind::PalmFrond);
+        self.signal_fires[i].lit_at = Some(now);
+        self.map.set_feature(cell.0, cell.1, Feature::SignalFire(true));
+        self.particles.sparks((cell.0 * TILE_SIZE + TILE_SIZE / 2, cell.1 * TILE_SIZE - 4), 3);
+        if self.signal_day != Some(self.clock.day) {
+            self.signal_day = Some(self.clock.day);
+            let seen = self.rescue_luck.unwrap_or_else(|| self.rng.chance(RESCUE_CHANCE));
+            if seen {
+                self.rescue_at = Some(now + self.rng.between(SEEN_FROM as i32, SEEN_UNTIL as i32) as u32);
+            }
+        }
+    }
+
+    /// Signal fires that have had their day of burning go out (the hearth
+    /// stays, to be lit again).
+    fn tend_signal_fires(&mut self, now: u32) {
+        for fire in self.signal_fires.iter_mut().filter(|f| f.burnt_out(now)) {
+            fire.lit_at = None;
+            self.map.set_feature(fire.cell.0, fire.cell.1, Feature::SignalFire(false));
+        }
     }
 
     /// Steps the castaway out of anything just set down where they stand
@@ -1356,10 +1438,37 @@ impl Game {
         }
         self.line = None;
         self.player.collapse();
-        self.collapsed = Some(0);
+        self.end = Some((Ending::Collapsed, 0));
         // There's no going back: the saved game goes with them.
         self.autosave.forget();
         self.erase_save();
+    }
+
+    /// The smoke was seen: a plane or ship comes for the castaway, and the
+    /// game ends. (For now the screen simply fades to the end.)
+    fn rescue(&mut self) {
+        if let Some(line) = &mut self.line {
+            line.let_go(&mut self.fish);
+        }
+        self.line = None;
+        self.end = Some((Ending::Rescued, 0));
+        // It's over: the saved game goes, as when collapsing.
+        self.autosave.forget();
+        self.erase_save();
+    }
+
+    /// What the end tells of the game: the day it ended, how long the
+    /// castaway lasted, the kinds of things made and the recipes found.
+    pub fn records(&self) -> Records {
+        let book = &self.inventory.recipes;
+        Records {
+            day: self.clock.day,
+            lasted: self.clock.total_minutes() - GameClock::new(1, START_HOUR).total_minutes(),
+            made: book.kinds_made(),
+            makeable: crate::crafting::makeable_kinds(),
+            recipes_known: book.known_count(),
+            recipes: RECIPES.len(),
+        }
     }
 
     /// Starts a new game on the same island.
@@ -1515,12 +1624,13 @@ impl Game {
         if self.camera_shake > 0 {
             camera.y += if self.camera_shake % 4 < 2 { 1 } else { -1 };
         }
+        let records = self.records();
         let f = &mut self.frame;
         f.clock = self.frame_count;
         f.scroll_x = camera.x;
         f.scroll_y = camera.y;
         f.brightness = 15;
-        if let Some(t) = self.collapsed {
+        if let Some((ending, t)) = self.end {
             if t >= COLLAPSE_FADE {
                 // The end screen, fading in on black.
                 f.cgram.clone_from(&self.base_cgram);
@@ -1530,15 +1640,16 @@ impl Game {
                 f.math = ColorMath::OFF;
                 f.main_layers = layer::BG3;
                 f.bg3_priority = false;
-                let start = GameClock::new(1, START_HOUR).total_minutes();
-                let lasted = self.clock.total_minutes() - start;
                 let prompt = t >= COLLAPSE_FADE + COLLAPSE_HOLD && (self.frame_count / 30).is_multiple_of(2);
-                end_screen::draw(&mut f.bg3, &self.assets.hud, &self.clock, lasted, prompt);
+                match ending {
+                    Ending::Collapsed => end_screen::draw(&mut f.bg3, &self.assets.hud, &self.clock, records.lasted, prompt),
+                    Ending::Rescued => end_screen::draw_escape(&mut f.bg3, &self.assets.hud, &records, prompt),
+                }
                 f.oam.clear();
                 self.ppu.render(&self.assets.vram, &self.frame, &self.visual.ground, &self.visual.overhead);
                 return;
             }
-            // The world fades out around the fallen castaway.
+            // The world fades out (around the fallen castaway).
             f.brightness = (15 - 15 * t / COLLAPSE_FADE) as u8;
         }
 
@@ -1602,6 +1713,9 @@ impl Game {
         let now = self.clock.total_minutes();
         for fire in &self.fires {
             fire.draw(list, &camera, sprites, self.frame_count, now);
+        }
+        for fire in &self.signal_fires {
+            fire.draw(list, &camera, sprites, self.frame_count);
         }
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
@@ -1860,6 +1974,27 @@ impl Game {
         self.stomach_luck = lucky;
     }
 
+    /// Dev tools: makes a signal fire's smoke always (`Some(true)`) or
+    /// never (`Some(false)`) seen; `None` leaves it to chance.
+    pub fn debug_rescue_luck(&mut self, lucky: Option<bool>) {
+        self.rescue_luck = lucky;
+    }
+
+    /// How many signal fires are burning.
+    pub fn burning_signal_fires(&self) -> usize {
+        self.signal_fires.iter().filter(|f| f.burning()).count()
+    }
+
+    /// Whether the castaway has been rescued (the game has ended so).
+    pub fn is_rescued(&self) -> bool {
+        matches!(self.end, Some((Ending::Rescued, _)))
+    }
+
+    /// Whether the castaway stands by a campfire (things can be cooked).
+    pub fn is_by_a_fire(&self) -> bool {
+        self.near_fire()
+    }
+
     /// Dev tools: upsets the castaway's stomach, as if from something raw.
     pub fn debug_upset_stomach(&mut self) {
         self.vitals.catch(Ailment::UpsetStomach);
@@ -1927,6 +2062,16 @@ impl Game {
     pub fn debug_hang(&mut self, kind: ItemKind) -> bool {
         let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
         self.inventory.hang(i).is_ok()
+    }
+
+    /// Debug: takes the tool of `kind` carried in hand (as HOLD would);
+    /// false if it isn't carried or isn't held in hand.
+    pub fn debug_hold(&mut self, kind: ItemKind) -> bool {
+        let ok = self.inventory.carries(kind) && kind.slot() == Some(crate::items::Slot::Hand);
+        if ok {
+            self.inventory.gear.hand = Some(kind);
+        }
+        ok
     }
 
     pub fn debug_give(&mut self, kind: ItemKind) {
@@ -2057,6 +2202,29 @@ impl Game {
         let vram = &self.assets.vram;
         ids.len() * METATILE_BYTES + vram.hud_tiles.vram_bytes() + vram.sprites.vram_bytes()
     }
+}
+
+/// How a game ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ending {
+    /// Health spent.
+    Collapsed,
+    /// The signal fire's smoke was seen.
+    Rescued,
+}
+
+/// What the end tells of the game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Records {
+    /// The day it ended on, and the game minutes the castaway lasted.
+    pub day: u32,
+    pub lasted: u32,
+    /// Kinds of things made, of all the kinds there are to make.
+    pub made: usize,
+    pub makeable: usize,
+    /// Recipes thought of, of all there are.
+    pub recipes_known: usize,
+    pub recipes: usize,
 }
 
 /// The title's items: START, and CONTINUE below it when there is a saved

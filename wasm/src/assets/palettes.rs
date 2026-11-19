@@ -45,6 +45,14 @@ pub const HUD_MENU: u8 = 6;
 /// Darkness levels of the light mask (written each frame).
 pub const HUD_LIGHT_MASK: u8 = 7;
 
+/// Smoke rising from a signal fire, in the water effects palette (drawn
+/// half see-through by day).
+pub mod smoke {
+    pub const LIGHT: u8 = 4;
+    pub const MID: u8 = 5;
+    pub const SHADE: u8 = 6;
+}
+
 /// Shallows and surf (shared water/sand so the shoreline fits one palette).
 pub mod shore {
     /// Water, deep → light.
@@ -328,7 +336,18 @@ pub fn base_cgram() -> Cgram {
         ],
     );
     cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
-    cg.set_obj_palette(OBJ_WATER_FX, &[c(176, 232, 244), c(250, 255, 255), c(110, 190, 222)]);
+    cg.set_obj_palette(
+        OBJ_WATER_FX,
+        &[
+            c(176, 232, 244),
+            c(250, 255, 255),
+            c(110, 190, 222),
+            // Signal fire smoke (`smoke`): lit, mid, shaded.
+            c(240, 240, 234),
+            c(196, 196, 190),
+            c(146, 146, 144),
+        ],
+    );
     cg
 }
 
