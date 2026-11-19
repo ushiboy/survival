@@ -67,6 +67,11 @@ const ja = {
     condition: '体調',
     upsetStomach: { label: 'お腹を壊す', done: 'お腹を壊した状態にしました' },
     cure: { label: '治す', done: '体調を元に戻しました' },
+    signalFire: '狼煙',
+    sureRescue: {
+      label: '必ず見つかる',
+      done: '狼煙が必ず見つかるようにしました（火を付けて1時間後に救助。燃えている狼煙は今から1時間後）',
+    },
     here: 'いまの場所',
     hereCell: 'マス ({x}, {y}) · 足元 ({px}, {py}) · 向き {facing}',
     hereFrame: '処理 {avg} ms（平均）／ {max} ms（最大）· {fps} fps',

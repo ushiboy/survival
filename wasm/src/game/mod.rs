@@ -970,7 +970,9 @@ impl Game {
             self.signal_day = Some(self.clock.day);
             let seen = self.rescue_luck.unwrap_or_else(|| self.rng.chance(RESCUE_CHANCE));
             if seen {
-                self.rescue_at = Some(now + self.rng.between(SEEN_FROM as i32, SEEN_UNTIL as i32) as u32);
+                // Made sure of (dev tools), it's seen as soon as it can be.
+                let after = if self.rescue_luck == Some(true) { SEEN_FROM } else { self.rng.between(SEEN_FROM as i32, SEEN_UNTIL as i32) as u32 };
+                self.rescue_at = Some(now + after);
             }
         }
     }
@@ -1978,6 +1980,17 @@ impl Game {
     /// never (`Some(false)`) seen; `None` leaves it to chance.
     pub fn debug_rescue_luck(&mut self, lucky: Option<bool>) {
         self.rescue_luck = lucky;
+    }
+
+    /// Dev tools: makes rescue sure. A signal fire lit from now on is seen,
+    /// an hour after it's lit, even if today's chance has been had; one
+    /// already burning unseen is seen an hour from now.
+    pub fn debug_sure_rescue(&mut self) {
+        self.rescue_luck = Some(true);
+        self.signal_day = None;
+        if self.rescue_at.is_none() && self.signal_fires.iter().any(|f| f.burning()) {
+            self.rescue_at = Some(self.clock.total_minutes() + SEEN_FROM);
+        }
     }
 
     /// How many signal fires are burning.

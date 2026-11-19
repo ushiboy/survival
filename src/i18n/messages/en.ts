@@ -66,6 +66,11 @@ const en: typeof ja = {
     condition: 'Condition',
     upsetStomach: { label: 'Upset stomach', done: 'Upset the stomach' },
     cure: { label: 'Cure', done: 'Back to good health' },
+    signalFire: 'Signal fire',
+    sureRescue: {
+      label: 'Always seen',
+      done: 'Signal fire smoke is now always seen (rescue an hour after lighting; one already burning, an hour from now)',
+    },
     here: 'Where you are',
     hereCell: 'Cell ({x}, {y}) · feet ({px}, {py}) · facing {facing}',
     hereFrame: 'Frame {avg} ms (avg) / {max} ms (max) · {fps} fps',

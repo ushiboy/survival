@@ -339,6 +339,18 @@ export function DebugTools({ core, status }: Props) {
           {t('cure.label')}
         </button>
       </div>
+      <div className="row">
+        <span>{t('signalFire')}</span>
+        <button
+          onClick={(e) => {
+            core.debugSureRescue();
+            setMessage(t('sureRescue.done'));
+            release(e);
+          }}
+        >
+          {t('sureRescue.label')}
+        </button>
+      </div>
       {message && <p className="note">{message}</p>}
       <p className="note">{t('keys')}</p>
     </>

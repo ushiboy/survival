@@ -280,3 +280,31 @@ fn the_end_shows_the_days_it_took_and_what_was_found_and_made() {
     assert_eq!(r.day, game.clock().day);
     assert!(r.recipes_known <= r.recipes && r.made <= r.makeable);
 }
+
+/// Lets `hours` go by, an hour at a time.
+fn hours_go_by(game: &mut Game, hours: u32) {
+    for _ in 0..hours {
+        game.debug_advance_hours(1);
+        hold(game, 0, 1);
+    }
+}
+
+#[test]
+fn with_rescue_made_sure_a_signal_fire_lit_brings_rescue_within_hours() {
+    let mut game = ready_to_light();
+    game.debug_sure_rescue();
+    light(&mut game);
+    assert!(!game.is_rescued());
+    hours_go_by(&mut game, 2);
+    assert!(game.is_rescued());
+}
+
+#[test]
+fn making_rescue_sure_counts_for_a_signal_fire_already_burning_unseen() {
+    let mut game = ready_to_light();
+    game.debug_rescue_luck(Some(false));
+    light(&mut game);
+    game.debug_sure_rescue();
+    hours_go_by(&mut game, 2);
+    assert!(game.is_rescued());
+}
