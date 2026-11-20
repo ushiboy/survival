@@ -32,11 +32,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -66,6 +66,14 @@ fn v2_to_v3(save: &mut Value) {
     }
     if let Some(recipes) = save.pointer_mut("/inventory/recipes").and_then(Value::as_object_mut) {
         recipes.insert("made".into(), serde_json::json!([]));
+    }
+}
+
+/// Version 4 added the order the CRAFT list is sorted in: a version 3 save
+/// lists the recipes A to Z.
+fn v3_to_v4(save: &mut Value) {
+    if let Some(recipes) = save.pointer_mut("/inventory/recipes").and_then(Value::as_object_mut) {
+        recipes.insert("sort".into(), Value::from("AToZ"));
     }
 }
 
@@ -215,11 +223,17 @@ impl SaveData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crafting::RecipeOrder;
 
     /// A save of each version, from the first to the current one (see
     /// docs/save.md: a sample of the new version is added whenever the
     /// version goes up).
-    const SAMPLES: &[&str] = &[include_str!("save_samples/v1.json"), include_str!("save_samples/v2.json"), include_str!("save_samples/v3.json")];
+    const SAMPLES: &[&str] = &[
+        include_str!("save_samples/v1.json"),
+        include_str!("save_samples/v2.json"),
+        include_str!("save_samples/v3.json"),
+        include_str!("save_samples/v4.json"),
+    ];
 
     fn load(version: u32) -> SaveData {
         SaveData::from_json(SAMPLES[version as usize - 1]).expect("the sample loads")
@@ -284,6 +298,16 @@ mod tests {
         assert!(s.island.features.iter().any(|&(cell, f)| cell == fire.cell && f == Feature::SignalFire(true)));
         assert!(s.island.signal_day.is_some(), "the day's chance was had");
         assert!(s.inventory.recipes.kinds_made() > 0);
+    }
+
+    #[test]
+    fn a_version_3_save_lists_recipes_a_to_z() {
+        assert_eq!(load(3).inventory.recipes.order(), RecipeOrder::AToZ);
+    }
+
+    #[test]
+    fn the_sample_keeps_the_order_the_recipes_were_sorted_in() {
+        assert_eq!(load(SAVE_VERSION).inventory.recipes.order(), RecipeOrder::CanMake);
     }
 
     #[test]

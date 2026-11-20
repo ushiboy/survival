@@ -171,8 +171,8 @@ impl Use {
 }
 
 impl ItemKind {
-    /// Every kind, in the order the debug tools list them (add new kinds
-    /// here too).
+    /// Every kind, numbered as the debug tools give them (add new kinds
+    /// here too; the page lists them by its own names for them).
     pub const ALL: [ItemKind; 45] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,

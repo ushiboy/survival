@@ -205,12 +205,42 @@ pub struct RecipeBook {
     /// The ways that have made something at least once (what the end
     /// counts as kinds of things made).
     used: Vec<bool>,
+    /// How the CRAFT list is sorted (the last order chosen).
+    order: RecipeOrder,
+}
+
+/// The orders the CRAFT list can be sorted in. Each but A to Z puts some
+/// recipes first; both parts are A to Z by the name of what's made.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RecipeOrder {
+    #[default]
+    AToZ,
+    /// What can be made here and now first (the lit rows).
+    CanMake,
+    /// What hasn't been looked at yet first (the rows marked "!").
+    New,
+    /// What has never been made first.
+    NotMade,
+}
+
+impl RecipeOrder {
+    /// In the order the sort menu offers them.
+    pub const ALL: [Self; 4] = [Self::AToZ, Self::CanMake, Self::New, Self::NotMade];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::AToZ => "A TO Z",
+            Self::CanMake => "CAN MAKE",
+            Self::New => "NEW",
+            Self::NotMade => "NOT MADE",
+        }
+    }
 }
 
 impl Default for RecipeBook {
     fn default() -> Self {
         let none = vec![false; RECIPES.len()];
-        Self { known: none.clone(), fresh: none.clone(), chosen: none.clone(), used: none }
+        Self { known: none.clone(), fresh: none.clone(), chosen: none.clone(), used: none, order: RecipeOrder::AToZ }
     }
 }
 
@@ -222,7 +252,8 @@ pub fn makeable_kinds() -> usize {
 
 /// How a recipe book is saved: the recipes known, those not yet looked at,
 /// the ways last made and the ways that have made something, by name (so
-/// adding recipes or reordering them leaves a save as it was).
+/// adding recipes or reordering them leaves a save as it was), and the
+/// order the list is sorted in.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct KnownRecipes {
     known: Vec<String>,
@@ -230,19 +261,20 @@ struct KnownRecipes {
     #[serde(default)]
     chosen: Vec<String>,
     made: Vec<String>,
+    sort: RecipeOrder,
 }
 
 impl From<RecipeBook> for KnownRecipes {
     fn from(b: RecipeBook) -> Self {
         let pick = |flags: &[bool]| RECIPES.iter().zip(flags).filter(|&(_, &on)| on).map(|(r, _)| r.name.to_string()).collect();
-        Self { known: pick(&b.known), fresh: pick(&b.fresh), chosen: pick(&b.chosen), made: pick(&b.used) }
+        Self { known: pick(&b.known), fresh: pick(&b.fresh), chosen: pick(&b.chosen), made: pick(&b.used), sort: b.order }
     }
 }
 
 impl From<KnownRecipes> for RecipeBook {
     fn from(k: KnownRecipes) -> Self {
         let flags = |names: &[String]| RECIPES.iter().map(|r| names.iter().any(|n| n == r.name)).collect();
-        Self { known: flags(&k.known), fresh: flags(&k.fresh), chosen: flags(&k.chosen), used: flags(&k.made) }
+        Self { known: flags(&k.known), fresh: flags(&k.fresh), chosen: flags(&k.chosen), used: flags(&k.made), order: k.sort }
     }
 }
 
@@ -273,6 +305,29 @@ impl RecipeBook {
             }
         }
         out
+    }
+
+    /// The list as the CRAFT page shows it: `listed`, sorted in the book's
+    /// order. `ready` says whether a recipe (a way) can be made now; an
+    /// item can if any of its ways can.
+    pub fn sorted(&self, ready: impl Fn(usize) -> bool) -> Vec<usize> {
+        let mut out = self.listed();
+        let first = |i: usize| match self.order {
+            RecipeOrder::AToZ => true,
+            RecipeOrder::CanMake => self.ways(i).into_iter().any(&ready),
+            RecipeOrder::New => self.item_fresh(i),
+            RecipeOrder::NotMade => !self.ways(i).iter().any(|&j| self.used[j]),
+        };
+        out.sort_by_cached_key(|&i| (!first(i), RECIPES[i].makes.name()));
+        out
+    }
+
+    pub fn order(&self) -> RecipeOrder {
+        self.order
+    }
+
+    pub fn set_order(&mut self, order: RecipeOrder) {
+        self.order = order;
     }
 
     /// The known ways of making what recipe `i` makes, in recipe order.
@@ -661,6 +716,82 @@ mod tests {
         for (i, r) in RECIPES.iter().enumerate() {
             assert_eq!(named(r.name), i, "{} names two recipes", r.name);
         }
+    }
+
+    /// The names on the list, top to bottom, in the book's order, with
+    /// `ready` saying which recipes can be made now.
+    fn shown(book: &RecipeBook, ready: impl Fn(usize) -> bool) -> Vec<&'static str> {
+        book.sorted(ready).iter().map(|&i| RECIPES[i].makes.name()).collect()
+    }
+
+    fn a_to_z(names: &[&'static str]) -> bool {
+        names.is_sorted()
+    }
+
+    #[test]
+    fn the_list_is_a_to_z_at_first() {
+        let mut book = RecipeBook::default();
+        book.learn_all();
+        assert_eq!(book.order(), RecipeOrder::AToZ);
+        let names = shown(&book, |_| false);
+        assert!(a_to_z(&names), "{names:?}");
+        assert_eq!(names.len(), book.listed().len(), "one row per item");
+    }
+
+    #[test]
+    fn can_make_lists_what_can_be_made_now_first_each_part_a_to_z() {
+        let mut book = RecipeBook::default();
+        book.learn_all();
+        book.set_order(RecipeOrder::CanMake);
+        let ready = |i: usize| matches!(RECIPES[i].makes, ItemKind::WoodSpear | ItemKind::Torch);
+        let names = shown(&book, ready);
+        assert_eq!(names[..2], ["TORCH", "WOOD SPEAR"]);
+        assert!(a_to_z(&names[2..]), "{names:?}");
+    }
+
+    #[test]
+    fn can_make_puts_an_item_first_if_any_of_its_ways_can_be_made() {
+        let mut book = RecipeBook::default();
+        book.learn_all();
+        book.set_order(RecipeOrder::CanMake);
+        assert_eq!(shown(&book, |i| RECIPES[i].name == "RopeFromBark")[0], "ROPE");
+    }
+
+    #[test]
+    fn new_lists_recipes_not_yet_looked_at_first_each_part_a_to_z() {
+        let mut book = RecipeBook::default();
+        book.notice(|_| true);
+        for (i, r) in RECIPES.iter().enumerate() {
+            if !matches!(r.makes, ItemKind::Thatch | ItemKind::FireDrill) {
+                book.looked_at(i);
+            }
+        }
+        book.set_order(RecipeOrder::New);
+        let names = shown(&book, |_| false);
+        assert_eq!(names[..2], ["FIRE DRILL", "THATCH"]);
+        assert!(a_to_z(&names[2..]), "{names:?}");
+    }
+
+    #[test]
+    fn not_made_lists_what_has_never_been_made_first_each_part_a_to_z() {
+        let mut book = RecipeBook::default();
+        book.learn_all();
+        book.made(index(ItemKind::StoneKnife));
+        book.made(named("RopeFromBark"));
+        book.set_order(RecipeOrder::NotMade);
+        let names = shown(&book, |_| false);
+        let n = names.len();
+        assert_eq!(names[n - 2..], ["ROPE", "STONE KNIFE"], "rope made either way counts as made");
+        assert!(a_to_z(&names[..n - 2]), "{names:?}");
+    }
+
+    #[test]
+    fn a_saved_book_keeps_its_order() {
+        let mut book = RecipeBook::default();
+        book.set_order(RecipeOrder::NotMade);
+        let json = serde_json::to_value(&book).unwrap();
+        assert_eq!(json["sort"], serde_json::json!("NotMade"));
+        assert_eq!(serde_json::from_value::<RecipeBook>(json).unwrap(), book);
     }
 
     #[test]

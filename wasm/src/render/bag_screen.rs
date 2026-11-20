@@ -5,7 +5,7 @@
 
 use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_HEART, HUD_MENU, HUD_TEXT, OBJ_FX};
 use crate::assets::{HudTiles, SpriteIds};
-use crate::crafting::RECIPES;
+use crate::crafting::{RECIPES, RecipeOrder};
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::game::menu::{BagMenu, GearRow, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows, need_lines};
 use crate::game::state::Inventory;
@@ -214,6 +214,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Tabs(_) => "A OPEN   B CLOSE",
         Mode::Browse => "A CHOOSE   B CLOSE",
         Mode::Crafting { .. } => "A CHOOSE   B BACK",
+        Mode::Sorting { .. } => "A OK   B BACK",
         Mode::Recipe { confirming: true, .. } => "A YES   B NO",
         Mode::Recipe { .. } => "A MAKE   B BACK",
         Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
@@ -222,6 +223,15 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
+    // The list can be sorted: said at the right end, out of the way.
+    if let Mode::Crafting { .. } = menu.mode {
+        right_text(bg3, tiles, LAST_ROW - 1, "Y SORT");
+    }
+}
+
+/// `s` on `row`, ending in the rightmost column used (the R of the tabs).
+fn right_text(bg3: &mut Bg3Layer, tiles: &HudTiles, row: usize, s: &str) {
+    text(bg3, tiles, TAB_R_COL + 1 - s.len(), row, s);
 }
 
 /// The number in a stack, over the bottom right of its icon (whose top
@@ -328,7 +338,7 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
                 text(bg3, tiles, GRID_COL, NOTICE_ROW, &fit(&format!("MAKE {}?", RECIPES[recipe].makes.name()), HUD_COLS - GRID_COL));
             }
         }
-        Mode::Crafting { choice } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, Some(choice)),
+        Mode::Crafting { choice } | Mode::Sorting { choice, .. } => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, Some(choice)),
         _ => draw_recipe_list(bg3, tiles, list, sprites, inventory, menu, None),
     }
     if let Some(n) = menu.notice {
@@ -344,11 +354,13 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
     }
 }
 
-/// A page of the recipes thought of so far: those that can be made now
+/// A page of the recipes thought of so far, in the order chosen (said
+/// under the list, beside the page number): those that can be made now
 /// lit, the rest greyed, a flame by those made at a fire, a "!" by those
-/// not yet looked at; and a picture of the chosen one's result. `choice`
-/// (a place in the list) is None while only previewing from the tab row.
-/// Recipes not yet thought of aren't shown at all, not even as a count.
+/// not yet looked at; and a picture of the chosen one's result, or while
+/// choosing an order, the orders to choose from. `choice` (a place in the
+/// list) is None while only previewing from the tab row. Recipes not yet
+/// thought of aren't shown at all, not even as a count.
 #[allow(clippy::too_many_arguments)]
 fn draw_recipe_list(
     bg3: &mut Bg3Layer,
@@ -361,7 +373,11 @@ fn draw_recipe_list(
 ) {
     let near_fire = menu.near_fire;
     let book = &inventory.recipes;
-    let listed = book.listed();
+    let listed = menu.recipe_list(inventory);
+    let sorting = match menu.mode {
+        Mode::Sorting { pick, .. } => Some(pick),
+        _ => None,
+    };
     let at = choice.unwrap_or(0);
     let page = at / RECIPES_PER_PAGE;
     let pages = listed.len().div_ceil(RECIPES_PER_PAGE);
@@ -369,7 +385,7 @@ fn draw_recipe_list(
     for (place, &i) in listed.iter().enumerate().skip(first).take(RECIPES_PER_PAGE) {
         let r = &RECIPES[i];
         let row = GRID_ROW + (place - first) * 2;
-        if choice == Some(place) {
+        if choice == Some(place) && sorting.is_none() {
             text(bg3, tiles, GRID_COL, row, ">");
         }
         // Bright if it can be made now, whichever way.
@@ -386,12 +402,23 @@ fn draw_recipe_list(
             text_in(bg3, tiles, GRID_COL + 4 + name.len(), row, "!", HUD_FOOD);
         }
     }
+    let row = GRID_ROW + RECIPES_PER_PAGE * 2;
+    right_text(bg3, tiles, row, &format!("SORT: {}", book.order().label()));
     if pages > 1 {
-        let row = GRID_ROW + RECIPES_PER_PAGE * 2;
         let label = format!("{}/{}", page + 1, pages);
         text_in(bg3, tiles, GRID_COL + 1, row, "<", if page > 0 { HUD_TEXT } else { HUD_DIM });
         text(bg3, tiles, GRID_COL + 3, row, &label);
         text_in(bg3, tiles, GRID_COL + 4 + label.len(), row, ">", if page + 1 < pages { HUD_TEXT } else { HUD_DIM });
+    }
+    if let Some(pick) = sorting {
+        text(bg3, tiles, PREVIEW_COL + 1, GRID_ROW, "SORT");
+        for (i, order) in RecipeOrder::ALL.iter().enumerate() {
+            if i == pick {
+                text(bg3, tiles, PREVIEW_COL, GRID_ROW + 2 + i, ">");
+            }
+            text(bg3, tiles, PREVIEW_COL + 1, GRID_ROW + 2 + i, order.label());
+        }
+        return;
     }
     if let Some(&i) = listed.get(at).filter(|_| choice.is_some()) {
         let makes = RECIPES[i].makes;

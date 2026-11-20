@@ -29,6 +29,13 @@ pub fn debug_item_names() -> Vec<String> {
     items::ItemKind::ALL.iter().map(|k| k.name().to_string()).collect()
 }
 
+/// Debug: every item's key, as saves name the kinds (`StoneKnife`): the
+/// page looks its names up by it. Indexed as `debug_item_names`.
+#[wasm_bindgen]
+pub fn debug_item_keys() -> Vec<String> {
+    items::ItemKind::ALL.iter().map(|k| serde_json::to_value(k).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()).collect()
+}
+
 /// Debug: how many of the item at that index fit in one stack.
 #[wasm_bindgen]
 pub fn debug_item_max_stack(index: usize) -> u32 {

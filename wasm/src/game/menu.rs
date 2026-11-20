@@ -22,7 +22,7 @@
 use super::bag::{BAG_W, Bag, Placed, footprint};
 use super::state::{Gear, Inventory};
 use crate::common::input::{Buttons, InputState};
-use crate::crafting::RECIPES;
+use crate::crafting::{RECIPES, RecipeOrder};
 use crate::items::{ItemKind, Slot, Use};
 
 /// Frames a direction is held before the cursor repeats, and between
@@ -172,6 +172,12 @@ pub enum Mode {
     Crafting {
         choice: usize,
     },
+    /// Choosing the order the recipe list is sorted in: `pick` is a place
+    /// in `RecipeOrder::ALL`, `choice` the list's cursor to go back to.
+    Sorting {
+        choice: usize,
+        pick: usize,
+    },
     /// Looking over one recipe (index into `RECIPES`), what it needs
     /// scrolled down `scroll` lines; `confirming` while asking whether to
     /// make it. Left and right change to another way of making the same
@@ -308,6 +314,12 @@ impl BagMenu {
         (!recipe.at_fire || self.near_fire) && (!recipe.at_lathe || self.near_lathe)
     }
 
+    /// The recipes on the CRAFT list, top to bottom, sorted in the order
+    /// chosen (what can be made counts the fire and the lathe).
+    pub fn recipe_list(&self, inv: &Inventory) -> Vec<usize> {
+        inv.recipes.sorted(|w| inv.can_make(&RECIPES[w]) && self.in_place_for(&RECIPES[w]))
+    }
+
     /// The pages to choose from: the cart's only with it at hand.
     pub fn pages(&self) -> Vec<Page> {
         Page::ALL.into_iter().filter(|&p| p != Page::Cart || self.cart_at_hand).collect()
@@ -344,7 +356,7 @@ impl BagMenu {
     pub fn page(&self) -> Page {
         match self.mode {
             Mode::Tabs(page) => page,
-            Mode::Crafting { .. } | Mode::Recipe { .. } => Page::Craft,
+            Mode::Crafting { .. } | Mode::Sorting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             Mode::Cart { .. } => Page::Cart,
             _ => Page::Items,
@@ -497,6 +509,21 @@ impl BagMenu {
             Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
             Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
+            Mode::Sorting { choice, pick } => {
+                let orders = RecipeOrder::ALL;
+                let mut pick = pick;
+                if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+                    pick = (pick as i32 + dy).rem_euclid(orders.len() as i32) as usize;
+                }
+                self.mode = Mode::Sorting { choice, pick };
+                if input.pressed(Buttons::B) || input.pressed(Buttons::Y) {
+                    self.mode = Mode::Crafting { choice };
+                } else if input.pressed(Buttons::A) {
+                    inv.recipes.set_order(orders[pick]);
+                    self.mode = Mode::Crafting { choice: 0 };
+                }
+                Outcome::Stay
+            }
             Mode::Recipe { recipe, scroll, confirming } => self.update_recipe(input, inv, recipe, scroll, confirming, step),
             Mode::Gear { slot } => {
                 let rows = gear_rows(&inv.gear);
@@ -560,9 +587,10 @@ impl BagMenu {
 
     /// The list of recipes thought of so far (`choice` is a place in it):
     /// up and down through it, left and right a page at a time; A opens the
-    /// recipe, which is then no longer fresh.
+    /// recipe, which is then no longer fresh; Y opens the menu of orders to
+    /// sort it in.
     fn update_crafting(&mut self, input: &InputState, inv: &mut Inventory, mut choice: usize, step: Option<(i32, i32)>) -> Outcome {
-        let listed = inv.recipes.listed();
+        let listed = self.recipe_list(inv);
         let last = listed.len() as i32 - 1;
         match step {
             Some((0, dy)) if dy < 0 && choice == 0 => {
@@ -581,6 +609,10 @@ impl BagMenu {
         self.mode = Mode::Crafting { choice };
         if input.pressed(Buttons::B) {
             self.mode = Mode::Tabs(Page::Craft);
+            self.notice = None;
+        } else if input.pressed(Buttons::Y) {
+            let pick = RecipeOrder::ALL.iter().position(|&o| o == inv.recipes.order()).unwrap_or(0);
+            self.mode = Mode::Sorting { choice, pick };
             self.notice = None;
         } else if let Some(&recipe) = listed.get(choice).filter(|_| input.pressed(Buttons::A)) {
             inv.recipes.looked_at(recipe);
@@ -636,7 +668,7 @@ impl BagMenu {
         self.mode = Mode::Recipe { recipe: index, scroll, confirming: false };
         if input.pressed(Buttons::B) {
             let makes = RECIPES[index].makes;
-            let place = inv.recipes.listed().iter().position(|&i| RECIPES[i].makes == makes).unwrap_or(0);
+            let place = self.recipe_list(inv).iter().position(|&i| RECIPES[i].makes == makes).unwrap_or(0);
             self.mode = Mode::Crafting { choice: place };
             self.notice = None;
         } else if input.pressed(Buttons::A) {
@@ -1146,5 +1178,64 @@ mod tests {
         let mut menu = BagMenu { mode: Mode::Gear { slot: 0 }, ..BagMenu::browse() };
         press(&mut menu, &mut inv, Buttons::R);
         assert_eq!(menu.mode, Mode::Gear { slot: 0 });
+    }
+
+    /// Every recipe known, the list open with the cursor at `choice`.
+    fn on_the_list(choice: usize) -> (BagMenu, Inventory) {
+        let mut inv = Inventory::default();
+        inv.recipes.learn_all();
+        (BagMenu { mode: Mode::Crafting { choice }, ..BagMenu::browse() }, inv)
+    }
+
+    #[test]
+    fn y_on_the_recipe_list_opens_the_sort_menu_at_the_order_in_use() {
+        let (mut menu, mut inv) = on_the_list(3);
+        inv.recipes.set_order(RecipeOrder::New);
+        press(&mut menu, &mut inv, Buttons::Y);
+        let pick = RecipeOrder::ALL.iter().position(|&o| o == RecipeOrder::New).unwrap();
+        assert_eq!(menu.mode, Mode::Sorting { choice: 3, pick });
+    }
+
+    #[test]
+    fn choosing_an_order_sorts_the_list_and_goes_to_its_top() {
+        let (mut menu, mut inv) = on_the_list(3);
+        press(&mut menu, &mut inv, Buttons::Y);
+        press(&mut menu, &mut inv, Buttons::DOWN);
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.recipes.order(), RecipeOrder::ALL[1]);
+        assert_eq!(menu.mode, Mode::Crafting { choice: 0 });
+    }
+
+    #[test]
+    fn b_on_the_sort_menu_leaves_the_order_as_it_was() {
+        let (mut menu, mut inv) = on_the_list(3);
+        press(&mut menu, &mut inv, Buttons::Y);
+        press(&mut menu, &mut inv, Buttons::DOWN);
+        press(&mut menu, &mut inv, Buttons::B);
+        assert_eq!(inv.recipes.order(), RecipeOrder::AToZ);
+        assert_eq!(menu.mode, Mode::Crafting { choice: 3 });
+    }
+
+    #[test]
+    fn the_list_opens_the_recipe_shown_at_the_cursor() {
+        let (mut menu, mut inv) = on_the_list(0);
+        press(&mut menu, &mut inv, Buttons::A);
+        let Mode::Recipe { recipe, .. } = menu.mode else { panic!("{:?}", menu.mode) };
+        assert_eq!(recipe, menu.recipe_list(&inv)[0]);
+        assert_ne!(recipe, 0, "the first in A to Z isn't the first recipe");
+    }
+
+    #[test]
+    fn going_back_from_a_recipe_puts_the_cursor_on_it_in_the_list() {
+        let (mut menu, mut inv) = on_the_list(0);
+        inv.recipes.set_order(RecipeOrder::CanMake);
+        inv.bag.stow(ItemKind::Stone, 2);
+        let knife = RECIPES.iter().position(|r| r.makes == ItemKind::StoneKnife).unwrap();
+        menu.mode = Mode::Recipe { recipe: knife, scroll: 0, confirming: false };
+        press(&mut menu, &mut inv, Buttons::A);
+        press(&mut menu, &mut inv, Buttons::A);
+        press(&mut menu, &mut inv, Buttons::B);
+        let Mode::Crafting { choice } = menu.mode else { panic!("{:?}", menu.mode) };
+        assert_eq!(menu.recipe_list(&inv)[choice], knife, "the stones are used up, so the knife has moved down");
     }
 }

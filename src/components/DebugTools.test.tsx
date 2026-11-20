@@ -1,15 +1,15 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DebugTools } from './DebugTools';
 import type { GameStatus } from '../game/status';
-import type { GameCore } from '../game/wasmCore';
+import type { DebugItem, GameCore } from '../game/wasmCore';
 import { renderIn } from '../test/intl';
 
 /** A stand-in for the game with just what the debug tools call. */
 function fakeCore() {
   return {
-    debugItems: () => [],
+    debugItems: (): DebugItem[] => [],
     debugPlaces: () => [],
     debugGive: vi.fn(),
     debugLearnRecipes: vi.fn(),
@@ -20,6 +20,48 @@ function fakeCore() {
     debugSureRescue: vi.fn(),
   };
 }
+
+describe('DebugTools のアイテム', () => {
+  /** Three items, numbered as the core numbers them (not in the order shown). */
+  function withItems() {
+    const core = fakeCore();
+    core.debugItems = () => [
+      { index: 0, key: 'StoneKnife', name: 'STONE KNIFE', maxStack: 1 },
+      { index: 1, key: 'Coconut', name: 'COCONUT', maxStack: 1 },
+      { index: 2, key: 'Bark', name: 'BARK', maxStack: 5 },
+    ];
+    return core;
+  }
+
+  const shown = (label = 'アイテム') =>
+    within(screen.getByRole('combobox', { name: label }))
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+
+  it('日本語の名前で、読みの五十音順に並ぶ', () => {
+    renderIn(<DebugTools core={withItems() as unknown as GameCore} status={null} />);
+    expect(shown()).toEqual(['樹皮', '石器ナイフ', '椰子の実']);
+  });
+
+  it('英語ではアルファベット順に並ぶ', () => {
+    renderIn(<DebugTools core={withItems() as unknown as GameCore} status={null} />, 'en');
+    expect(shown('Item')).toEqual(['Bark', 'Coconut', 'Stone knife']);
+  });
+
+  it('最初は一覧の先頭のアイテムを選んでいる', async () => {
+    const core = withItems();
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '持たせる' }));
+    expect(core.debugGive).toHaveBeenCalledWith(2, 1);
+  });
+
+  it('訳のないアイテムはゲームの中の名前で出す', () => {
+    const core = fakeCore();
+    core.debugItems = () => [{ index: 0, key: 'Unknown', name: 'SOMETHING NEW', maxStack: 1 }];
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    expect(shown()).toEqual(['SOMETHING NEW']);
+  });
+});
 
 describe('DebugTools の体調', () => {
   it('お腹を壊した状態にできる', async () => {
