@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useTranslations } from 'use-intl';
+import { useLocale, useMessages, useTranslations } from 'use-intl';
 import { locationLine, overBudget, snapshotCommand, type GameStatus } from '../game/status';
 import { loadNotes, notesReport, saveNotes, SPOT_KINDS, type SpotKind, type SpotNote } from '../game/spotNotes';
-import type { GameCore } from '../game/wasmCore';
+import type { DebugItem, GameCore } from '../game/wasmCore';
 
 interface Props {
   core: GameCore;
@@ -21,19 +21,38 @@ const VITALS: Array<['full' | 'hungry' | 'thirsty' | 'dying', number, number, nu
   ['dying', 1, -1, -1],
 ];
 
+/** What the page calls an item, and how that reads (what the list is sorted by). */
+type ItemName = { name: string; reading: string };
+
+/**
+ * The items with the page's names for them, in order of how the names read
+ * (A to Z, or the Japanese syllabary). A kind with no name here keeps the
+ * game's.
+ */
+function namedItems(items: DebugItem[], names: Partial<Record<string, ItemName>>, locale: string) {
+  const named = items.map((it) => {
+    const own = names[it.key];
+    return own ? { ...it, ...own } : { ...it, reading: it.name };
+  });
+  const collator = new Intl.Collator(locale);
+  return named.sort((a, b) => collator.compare(a.reading, b.reading));
+}
+
 /** Debug tools, shown with `?debug=true`: note where you are, put any item in the bag, move anywhere. */
 export function DebugTools({ core, status }: Props) {
   const t = useTranslations('debug');
-  const items = useMemo(() => core.debugItems(), [core]);
+  const names: Partial<Record<string, ItemName>> = useMessages().items;
+  const locale = useLocale();
+  const items = useMemo(() => namedItems(core.debugItems(), names, locale), [core, names, locale]);
   const places = useMemo(() => core.debugPlaces(), [core]);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => items[0]?.index ?? 0);
   const [cell, setCell] = useState({ x: 0, y: 0 });
   const [count, setCount] = useState(1);
   const [message, setMessage] = useState<string | null>(null);
   const [kind, setKind] = useState<SpotKind>('heavy');
   const [memo, setMemo] = useState('');
   const [notes, setNotes] = useState<SpotNote[]>(loadNotes);
-  const item = items[index];
+  const item = items.find((it) => it.index === index);
 
   const copy = (text: string, done: string) => {
     navigator.clipboard.writeText(text).then(
@@ -208,6 +227,7 @@ export function DebugTools({ core, status }: Props) {
       <div className="row">
         <span>{t('item')}</span>
         <select
+          aria-label={t('item')}
           value={index}
           onChange={(e) => {
             setIndex(Number(e.target.value));

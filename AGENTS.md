@@ -51,6 +51,7 @@
 - アイテムを追加したとき:
   - `wasm/src/items.rs` の `ItemKind::ALL`（デバッグのダイアログの一覧。追加しないとデバッグのダイアログに出ない）
   - `wasm/examples/snapshot.rs` の `SNAP_GIVE` の名前
+  - `src/i18n/messages/ja.ts` と `en.ts` の `items`（デバッグのダイアログに出す名前と読み。足さないと `pnpm test:web` が落ちる）
   - `wasm/src/assets/mod.rs` のバッグのアイコン、`wasm/src/entity/item.rs` の地面に落ちたときの絵（`pnpm art` で並べて確かめる）
 - ページ（`src/`）の文言を足す・変えるとき: 画面に直接書かず、`src/i18n/messages/ja.ts` と `en.ts` の両方に書いて `useTranslations` で出す（`en.ts` は `ja.ts` と同じ項目をそろえないと型チェックとテストで落ちる）。
 - 操作を変えたとき: `src/components/controls.ts` の操作の一覧（役割の言葉は `src/i18n/messages/` の `controls`）（操作説明のダイアログ `ControlsHelp.tsx` に出る。PC ではキーボードのキーも、タッチ端末では画面のボタンの名前だけ）。ボタンと大まかな役割だけを最小限に書き、詳しい操作は docs に書く。条件付きで解放される行動のやり方は書かない（下の「設計の方針」を参照）。デバッグ用のキーは `src/components/DebugTools.tsx`（`?debug=true` のときだけ出る）に書く。

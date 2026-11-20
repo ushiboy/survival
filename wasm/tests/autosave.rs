@@ -86,6 +86,22 @@ fn something_made_in_the_bag_is_saved_when_the_bag_is_closed() {
 }
 
 #[test]
+fn the_recipe_order_chosen_in_the_bag_is_saved_when_the_bag_is_closed() {
+    let mut game = settled();
+    game.debug_give_n(ItemKind::Stone, 1);
+    // On the CRAFT list, choose the second order from the sort menu.
+    press(&mut game, Buttons::X);
+    press(&mut game, Buttons::R);
+    press(&mut game, Buttons::Y);
+    press(&mut game, Buttons::DOWN);
+    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::X);
+    let saves = saves_while(&mut game, 0, 10);
+    assert_eq!(saves.len(), 1);
+    assert_eq!(saves[0]["inventory"]["recipes"]["sort"], "CanMake");
+}
+
+#[test]
 fn opening_and_closing_the_bag_without_changing_anything_is_not_saved() {
     let mut game = settled();
     press(&mut game, Buttons::X);

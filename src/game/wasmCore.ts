@@ -1,5 +1,6 @@
 import init, {
   GameHandle,
+  debug_item_keys,
   debug_item_max_stack,
   debug_item_names,
   screen_height,
@@ -30,6 +31,9 @@ const FACINGS: Facing[] = ['up', 'down', 'left', 'right'];
 export interface DebugItem {
   /** Index to pass to `GameCore.debugGive`. */
   index: number;
+  /** The kind as the core names it (`StoneKnife`), to look its name up by. */
+  key: string;
+  /** The name in the game (`STONE KNIFE`), for a kind the page has no name for. */
   name: string;
   maxStack: number;
 }
@@ -154,7 +158,10 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     },
     setSpriteLimit: (on) => handle.set_sprite_limit(on),
     cycleOutfit: () => handle.debug_cycle_outfit(),
-    debugItems: () => debug_item_names().map((name, index) => ({ index, name, maxStack: debug_item_max_stack(index) })),
+    debugItems: () => {
+      const keys = debug_item_keys();
+      return debug_item_names().map((name, index) => ({ index, key: keys[index], name, maxStack: debug_item_max_stack(index) }));
+    },
     debugGive: (index, count) => handle.debug_give(index, count),
     debugLearnRecipes: () => handle.debug_learn_recipes(),
     debugMoveTo: (x, y) => {
