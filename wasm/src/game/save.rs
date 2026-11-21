@@ -19,11 +19,11 @@ use serde_json::Value;
 
 use super::bag::Bag;
 use super::cart::Cart;
-use super::mill::MillWorks;
+use super::mill::{MILL_STAGES, MillWorks};
 use super::state::{GameClock, Gear, Vitals};
 use crate::assets::character::Outfit;
 use crate::common::math::Dir;
-use crate::crafting::RecipeBook;
+use crate::crafting::{RECIPES, RecipeBook};
 use crate::entity::{Campfire, SignalFire};
 use crate::items::ItemKind;
 use crate::world::Feature;
@@ -33,11 +33,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 5;
+pub const SAVE_VERSION: u32 = 6;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -84,6 +84,47 @@ fn v4_to_v5(save: &mut Value) {
     if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
         island.insert("mill".into(), serde_json::json!({ "built": 0, "delivered": [] }));
     }
+}
+
+/// Version 6 added every kind of thing that has been in the bag (recipes
+/// come to mind from it, not from what's carried at once). A version 5
+/// save doesn't know it, so it's taken to have had what it carries (in
+/// the bag, worn, on the belt, in the cart), the materials of the recipes
+/// it has thought of, what its recipes have made, and what has gone into
+/// the water mill.
+fn v5_to_v6(save: &mut Value) {
+    let had = had_by_a_version_5_save(save);
+    if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
+        inventory.insert("had".into(), serde_json::to_value(had).unwrap_or_else(|_| serde_json::json!([])));
+    }
+}
+
+fn had_by_a_version_5_save(save: &Value) -> Vec<ItemKind> {
+    fn read<T: serde::de::DeserializeOwned>(save: &Value, at: &str) -> Option<T> {
+        save.pointer(at).and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+    let mut kinds: Vec<ItemKind> = Vec::new();
+    let bags: [Option<Bag>; 2] = [read(save, "/inventory/bag"), read(save, "/inventory/cart")];
+    kinds.extend(bags.iter().flatten().flat_map(|b| b.items().iter().map(|p| p.kind)));
+    if let Some(gear) = read::<Gear>(save, "/inventory/gear") {
+        kinds.extend([gear.hand, gear.back, gear.waist].into_iter().chain(gear.belt).flatten());
+    }
+    let names = |field: &str| read::<Vec<String>>(save, &format!("/inventory/recipes/{field}")).unwrap_or_default();
+    let named = |n: &String| RECIPES.iter().find(|r| r.name == n);
+    kinds.extend(names("known").iter().filter_map(named).flat_map(|r| r.needs.iter().map(|&(k, _)| k)));
+    kinds.extend(names("made").iter().filter_map(named).map(|r| r.makes));
+    if let Some(mill) = read::<MillWorks>(save, "/island/mill") {
+        let built = MILL_STAGES.iter().take(mill.built).flat_map(|s| s.needs.iter().map(|&(k, _)| k));
+        let left = MILL_STAGES.get(mill.built).into_iter().flat_map(|s| s.needs.iter().zip(&mill.delivered).filter(|&(_, &n)| n > 0).map(|(&(k, _), _)| k));
+        kinds.extend(built.chain(left));
+    }
+    let mut had = Vec::new();
+    for k in kinds {
+        if !had.contains(&k) {
+            had.push(k);
+        }
+    }
+    had
 }
 
 const _: () = assert!(MIGRATIONS.len() as u32 == SAVE_VERSION - 1, "one migration for each version before the current one");
@@ -160,6 +201,8 @@ pub struct Carried {
     pub gear: Gear,
     /// The handcart's load, once one has been made.
     pub cart: Option<Bag>,
+    /// Every kind of thing that has been in the bag.
+    pub had: Vec<ItemKind>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -246,6 +289,7 @@ mod tests {
         include_str!("save_samples/v3.json"),
         include_str!("save_samples/v4.json"),
         include_str!("save_samples/v5.json"),
+        include_str!("save_samples/v6.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -335,6 +379,27 @@ mod tests {
         assert_eq!(s.island.mill.built, 0);
         assert_eq!(s.island.mill.delivered(ItemKind::Stone), 6);
         assert_eq!(s.island.mill.delivered(ItemKind::Soil), 2);
+    }
+
+    #[test]
+    fn a_version_5_save_has_had_what_it_carries_what_its_recipes_take_and_what_it_left_at_the_mill() {
+        let had = load(5).inventory.had;
+        let has = |kind| had.contains(&kind);
+        assert!(has(ItemKind::Husk) && has(ItemKind::Clay), "in the bag");
+        assert!(has(ItemKind::ToolBelt) && has(ItemKind::StoneAxe), "worn and hung on the belt");
+        assert!(has(ItemKind::LauanTimber), "in the cart");
+        assert!(has(ItemKind::Branch) && has(ItemKind::Bamboo), "materials of recipes thought of");
+        assert!(has(ItemKind::Soil), "left at the mill's site");
+        assert!(!has(ItemKind::Crab), "nothing the save gives no sign of");
+        let mut once = had.clone();
+        once.dedup();
+        assert_eq!(once.len(), had.len(), "each kind once");
+    }
+
+    #[test]
+    fn the_sample_keeps_what_has_been_had() {
+        let had = load(SAVE_VERSION).inventory.had;
+        assert!(had.contains(&ItemKind::Crab), "had before, though no longer carried");
     }
 
     #[test]

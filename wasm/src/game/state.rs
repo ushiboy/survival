@@ -367,6 +367,11 @@ pub struct Inventory {
     /// What the handcart is loaded with, once one has been made (its grid
     /// is its own size, `cart::CART_W` by `cart::CART_ROWS`).
     pub cart: Option<Bag>,
+    /// Every kind of thing that has ever been in the bag, in the order
+    /// first had. Whatever is picked up, gathered or made goes in the bag
+    /// first (gear, the belt and the cart are filled from it), so this is
+    /// all the castaway has had. Recipes come to mind from it.
+    pub had: Vec<ItemKind>,
 }
 
 /// What's held and worn. The tool in hand is one carried in the bag or
@@ -434,11 +439,21 @@ impl Inventory {
         }
     }
 
-    /// Thinks of any recipe whose materials are now all carried; whether
-    /// one came to mind.
+    /// Remembers what's in the bag as had, then thinks of any recipe whose
+    /// materials have all been had; whether one came to mind.
     pub fn think(&mut self) -> bool {
-        let bag = &self.bag;
-        self.recipes.notice(|kind| bag.has(kind))
+        for p in self.bag.items() {
+            if !self.had.contains(&p.kind) {
+                self.had.push(p.kind);
+            }
+        }
+        let had = &self.had;
+        self.recipes.notice(|kind| had.contains(&kind))
+    }
+
+    /// Whether a kind has ever been in the bag.
+    pub fn has_had(&self, kind: ItemKind) -> bool {
+        self.had.contains(&kind)
     }
 
     /// Whether a kind is carried: in the bag or hung on the belt.
@@ -621,7 +636,7 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default(), cart: None }
+        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default(), cart: None, had: Vec::new() }
     }
 }
 
@@ -1315,5 +1330,62 @@ mod tests {
         let mut starving = Vitals::new();
         starving.food = 0;
         assert!(!starving.can_run());
+    }
+
+    /// Whether the recipe making `kind` has come to mind.
+    fn thought_of(inv: &Inventory, kind: ItemKind) -> bool {
+        inv.recipes.listed().iter().any(|&i| crate::crafting::RECIPES[i].makes == kind)
+    }
+
+    /// Puts one of `kind` in the bag and lets the castaway think.
+    fn get_one(inv: &mut Inventory, kind: ItemKind) -> bool {
+        inv.bag.stow_one(kind);
+        inv.think()
+    }
+
+    /// Takes every `kind` out of the bag (used up, burnt, left behind).
+    fn part_with(inv: &mut Inventory, kind: ItemKind) {
+        while let Some(i) = inv.bag.items().iter().position(|p| p.kind == kind) {
+            inv.bag.remove(i);
+        }
+    }
+
+    #[test]
+    fn a_recipe_comes_to_mind_from_materials_once_had_though_not_carried_at_once() {
+        // A stone axe takes a stone, a rope and a branch.
+        let mut inv = Inventory::default();
+        get_one(&mut inv, ItemKind::Stone);
+        get_one(&mut inv, ItemKind::Branch);
+        part_with(&mut inv, ItemKind::Stone);
+        part_with(&mut inv, ItemKind::Branch);
+        assert!(!thought_of(&inv, ItemKind::StoneAxe), "the rope is still missing");
+        assert!(get_one(&mut inv, ItemKind::Rope), "the last material missing brings it to mind");
+        assert!(thought_of(&inv, ItemKind::StoneAxe));
+    }
+
+    #[test]
+    fn a_recipe_does_not_come_to_mind_until_every_material_has_been_had() {
+        let mut inv = Inventory::default();
+        get_one(&mut inv, ItemKind::Stone);
+        get_one(&mut inv, ItemKind::Branch);
+        assert!(!thought_of(&inv, ItemKind::StoneAxe));
+    }
+
+    #[test]
+    fn what_has_been_had_is_remembered_once_it_leaves_the_bag() {
+        let mut inv = Inventory::default();
+        get_one(&mut inv, ItemKind::Husk);
+        part_with(&mut inv, ItemKind::Husk);
+        inv.think();
+        assert!(inv.has_had(ItemKind::Husk));
+        assert!(!inv.has_had(ItemKind::Bark));
+    }
+
+    #[test]
+    fn having_something_again_brings_nothing_new_to_mind() {
+        let mut inv = Inventory::default();
+        assert!(get_one(&mut inv, ItemKind::Stone));
+        part_with(&mut inv, ItemKind::Stone);
+        assert!(!get_one(&mut inv, ItemKind::Stone));
     }
 }
