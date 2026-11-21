@@ -513,6 +513,40 @@ pub fn timber() -> PixelArt {
     PixelArt::parse(&rows, ITEM_LEGEND)
 }
 
+/// A post of the mill's frame, rising `rise` px above the middle of its
+/// stone's cell and standing `foot` px into it (item colours): a squared
+/// lauan post, lit on its left, shaded on its right, its sawn top pale.
+/// Eight pixels wide; tall enough for the post and its outline, the post
+/// against the bottom (its foot one pixel above the bottom edge).
+pub fn mill_post(rise: i32, foot: i32) -> PixelArt {
+    let tall = (rise + foot) as usize;
+    let h = (tall + 2).div_ceil(8) * 8;
+    let top = h - 1 - tall;
+    let ix = |c: char| ITEM_LEGEND.iter().find(|&&(k, _)| k == c).map_or(0, |&(_, i)| i);
+    let mut a = PixelArt::filled(8, h, 0);
+    for y in top..h - 1 {
+        for (x, c) in [(2, 'W'), (3, 'w'), (4, 'w'), (5, 'd')] {
+            a.set(x, y, ix(if y == top { 'h' } else { c }));
+        }
+    }
+    a.outlined(ix('o'))
+}
+
+/// A beam of the mill's frame, `len` px from the north plate to the south
+/// one (item colours): a squared pine beam, pale, lit on its left. Eight
+/// pixels wide, the beam against the top (a pixel below the top edge).
+pub fn mill_beam(len: i32) -> PixelArt {
+    let h = (len as usize + 2).div_ceil(8) * 8;
+    let ix = |c: char| ITEM_LEGEND.iter().find(|&&(k, _)| k == c).map_or(0, |&(_, i)| i);
+    let mut a = PixelArt::filled(8, h, 0);
+    for y in 1..=len as usize {
+        for (x, c) in [(2, 'f'), (3, 'h'), (4, 'h'), (5, 'W')] {
+            a.set(x, y, ix(c));
+        }
+    }
+    a.outlined(ix('o'))
+}
+
 /// Wood art in the item colours redone in lauan's (gull palette).
 pub fn as_lauan(art: &PixelArt) -> PixelArt {
     art.map(|v| {
@@ -901,6 +935,24 @@ pub fn bamboo_spade() -> PixelArt {
             "oGGGGGGgGGGGGGGGGGGoWwWWWWWWWWgo",
             "ogggggggggggggggggggwWgggggggggo",
             "oooooooooooooooooooooooooooooo..",
+            "................................",
+        ],
+        FX_LEGEND,
+    )
+}
+
+/// Marking stakes lying on the ground, 32x8: the bundle of split bamboo
+/// stakes on its side, points to the right, the hank of rope round it.
+pub fn marking_stakes() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            ".ooooooooooooooooooooooooooooo..",
+            "ocGGGGGGgGGGGWwWwWwGGGGGGGGGhhoo",
+            "ochhhhhhhhhhhwWwWwWhhhhhhhhhhhho",
+            "occccccgcccccWwWwWwccccccccccoo.",
+            ".oooooooooooooooooooooooooooo...",
+            "................................",
             "................................",
         ],
         FX_LEGEND,

@@ -55,6 +55,7 @@
 | [掘り棒（DIGGING STICK）](digging-stick.md) | 道具（手） | 1×2 | クラフト |
 | [竹のスコップ（BAMBOO SPADE）](bamboo-spade.md) | 道具（手） | 1×3 | クラフト |
 | [狼煙台（SIGNAL FIRE）](signal-fire.md) | 道具（手） | 2×2 | クラフト |
+| [縄張りの杭（MARKING STAKES）](marking-stakes.md) | 道具（手） | 1×3 | クラフト |
 
 ## 食べ物・飲み物
 

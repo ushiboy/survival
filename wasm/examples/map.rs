@@ -12,6 +12,12 @@
 //! - `--wheel`: a water wheel is set in the river at the mill site first.
 //! - `--lathe`: a water wheel and the wood lathe beside it are set at the
 //!   mill site first.
+//! - `--stakes`: the water wheel, the wood lathe and the marking stakes
+//!   round the mill's ground are set first.
+//! - `--foundation`: all that, and the mill's foundation laid.
+//! - `--frame`: and its frame raised on it too.
+//! - `--walls`: and its walls put up round the frame.
+//! - `--roof`: and its roof put on, its door hung (the bench cleared).
 //! - `--set-base`: keeps this run as the base later runs are compared
 //!   with; `--clear-base` goes back to comparing with the run before.
 //! - `--out DIR`: where to write (default `wasm/target/map`).
@@ -72,6 +78,9 @@ struct Options {
     bridge: bool,
     wheel: bool,
     lathe: bool,
+    stakes: bool,
+    /// How many of the mill's stages are built first.
+    stages: usize,
 }
 
 fn options() -> Options {
@@ -86,6 +95,8 @@ fn options() -> Options {
         bridge: false,
         wheel: false,
         lathe: false,
+        stakes: false,
+        stages: 0,
     };
     let mut args = std::env::args().skip(1);
     let number = |v: Option<String>, what: &str| -> i32 { v.and_then(|v| v.parse().ok()).unwrap_or_else(|| panic!("{what} needs a number")) };
@@ -97,6 +108,35 @@ fn options() -> Options {
             "--lathe" => {
                 o.wheel = true;
                 o.lathe = true;
+            }
+            "--stakes" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+            }
+            "--foundation" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 1;
+            }
+            "--frame" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 2;
+            }
+            "--walls" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 3;
+            }
+            "--roof" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 4;
             }
             "--set-base" => o.set_base = true,
             "--clear-base" => o.clear_base = true,
@@ -166,6 +206,12 @@ fn main() {
     if o.lathe && !game.debug_set_lathe() {
         println!("no wood lathe goes in beside the water wheel");
     }
+    if o.stakes && !game.debug_set_stakes() {
+        println!("the mill's ground isn't marked out");
+    }
+    if o.stages > 0 && !game.debug_build_mill(o.stages) {
+        println!("the mill's stages aren't built");
+    }
     if o.bridge && !game.debug_lay_bridge() {
         println!("no bridge goes across the narrow");
     }
@@ -185,7 +231,7 @@ fn main() {
     let plan_diff = o.out.join("plan-diff.png");
     let diff = old_cells.as_deref().map(|old| diff_cells(old, &cells));
     if let Some(d) = &diff {
-        if d.old_size != (map.width(), map.height()) {
+        if d.old_size != (map.width(), map.island_size().1) {
             println!(
                 "plan: the island was {}x{} cells in {against_name}; its cells are compared {},{} cells over ({} new, {} gone)",
                 d.old_size.0,
@@ -202,7 +248,7 @@ fn main() {
         } else {
             describe("plan", &d.changed, against_name);
             let s = o.scale;
-            let size = (map.width() * s, map.height() * s);
+            let size = (map.width() * s, map.island_size().1 * s);
             // The earlier plan, moved to where its cells are now.
             match old_plan.filter(|p| p.w == d.old_size.0 * s + MARGIN_LEFT) {
                 Some(old) => {
@@ -219,8 +265,8 @@ fn main() {
     if !o.quick {
         // The view drawn by the game, and a screen of each special place.
         let t = Instant::now();
-        let area = o.area.unwrap_or((0, 0, map.width() - 1, map.height() - 1));
-        let area = (area.0.max(0), area.1.max(0), area.2.min(map.width() - 1), area.3.min(map.height() - 1));
+        let area = o.area.unwrap_or((0, 0, map.width() - 1, map.island_size().1 - 1));
+        let area = (area.0.max(0), area.1.max(0), area.2.min(map.width() - 1), area.3.min(map.island_size().1 - 1));
         let meta = format!("area {},{},{},{} shrink {}\n", area.0, area.1, area.2, area.3, o.shrink);
         let old_meta = std::fs::read_to_string(against.join("view.txt")).ok();
         let old_view = old_meta
@@ -305,7 +351,7 @@ fn report_counts(game: &Game) {
     };
     let len = |key: &str| island[key].as_array().map_or(0, |v| v.len());
     let vines = |high: bool| {
-        (0..game.map().height())
+        (0..game.map().island_size().1)
             .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
             .filter(|&(x, y)| game.map().is_high(x, y) == high && game.map().feature(x, y) == Feature::Vine)
             .count()
@@ -324,7 +370,7 @@ fn report_counts(game: &Game) {
     println!("on the high ground: {} branches, {} stones, {} vines, {} fish in the lake", lying("Branch", true), lying("Stone", true), vines(true), fish(true));
     println!(
         "on the island ({} cells of dry land): {} branches, {} stones, {} vines, {} crabs, {} fish, {} shells on the beach (up to {} more each morning, to {})",
-        (0..game.map().height())
+        (0..game.map().island_size().1)
             .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
             .filter(|&(x, y)| !game.map().is_high(x, y) && matches!(game.map().terrain(x, y), Terrain::Sand | Terrain::Grass))
             .count(),
@@ -339,7 +385,7 @@ fn report_counts(game: &Game) {
     );
     // Patches, counted by their top-left cells.
     let patches = |is: &dyn Fn(Feature) -> bool, high: bool| {
-        (0..game.map().height())
+        (0..game.map().island_size().1)
             .flat_map(|y| (0..game.map().width()).map(move |x| (x, y)))
             .filter(|&(x, y)| game.map().is_high(x, y) == high && is(game.map().feature(x, y)))
             .count()
@@ -355,7 +401,7 @@ fn report_counts(game: &Game) {
 }
 
 fn count_shells(map: &WorldMap) -> usize {
-    (0..map.height()).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| map.feature(x, y) == Feature::Shell).count()
+    (0..map.island_size().1).flat_map(|y| (0..map.width()).map(move |x| (x, y))).filter(|&(x, y)| map.feature(x, y) == Feature::Shell).count()
 }
 
 // --- What can be reached --------------------------------------------------
@@ -363,7 +409,7 @@ fn count_shells(map: &WorldMap) -> usize {
 /// Cells the castaway can walk to from `start` (moving cell to cell through
 /// ground that isn't solid; diagonal steps need both sides open).
 fn reachable(map: &WorldMap, start: (i32, i32)) -> Vec<bool> {
-    let (w, h) = (map.width(), map.height());
+    let (w, h) = (map.width(), map.island_size().1);
     let open = |x: i32, y: i32| map.in_bounds(x, y) && !map.props(x, y).solid;
     let mut seen = vec![false; (w * h) as usize];
     let mut queue = VecDeque::from([start]);
@@ -385,10 +431,10 @@ fn report_reach(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32,
     let w = map.width();
     let can = |c: (i32, i32)| map.in_bounds(c.0, c.1) && reach[(c.1 * w + c.0) as usize];
     let near = |c: (i32, i32)| (-1..=1).any(|dy| (-1..=1).any(|dx| can((c.0 + dx, c.1 + dy))));
-    let cells: Vec<(i32, i32)> = (0..map.height()).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&c| can(c)).collect();
+    let cells: Vec<(i32, i32)> = (0..map.island_size().1).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&c| can(c)).collect();
     let span = |f: fn(&(i32, i32)) -> i32| (cells.iter().map(f).min().unwrap_or(0), cells.iter().map(f).max().unwrap_or(0));
     let ((x0, x1), (y0, y1)) = (span(|c| c.0), span(|c| c.1));
-    println!("island {}x{} cells; walkable from the landing: {} cells, x {x0}..={x1}, y {y0}..={y1}", w, map.height(), cells.len());
+    println!("island {}x{} cells; walkable from the landing: {} cells, x {x0}..={x1}, y {y0}..={y1}", w, map.island_size().1, cells.len());
     println!("  high ground reached: {}", cells.iter().any(|&(x, y)| map.terrain(x, y) == Terrain::Highland));
     // The falls pool is water: it's seen, not walked to.
     for (name, letter, _, at) in spots.iter().filter(|s| s.1 != 'F') {
@@ -418,6 +464,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Terrain::Cliff => [130, 126, 130],
         Terrain::Crag => [96, 92, 104],
         Terrain::Slope => [190, 150, 100],
+        Terrain::Indoors => [0, 0, 0],
     };
     // The lake's wet soil.
     let c = if map.terrain(x, y) == Terrain::Sand && map.soil(x, y) == Soil::Mud { [120, 90, 60] } else { c };
@@ -435,7 +482,19 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::PineCone => [170, 100, 40],
         Feature::ClayBed(_) => [150, 160, 175],
         Feature::BareEarth(_) => [150, 110, 70],
-        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) => [200, 150, 90],
+        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) | Feature::Marking(_) => [200, 150, 90],
+        Feature::Foundation(_) => [170, 130, 90],
+        Feature::Framed(post) => {
+            if post {
+                [120, 80, 50]
+            } else {
+                [170, 130, 90]
+            }
+        }
+        Feature::SiteBench => [200, 150, 90],
+        Feature::MillWall => [215, 190, 140],
+        Feature::MillDoor => [120, 85, 55],
+        Feature::MillRoomWall => [215, 190, 140],
         Feature::None => c,
     }
 }
@@ -464,7 +523,7 @@ const LEGEND: [(&str, Rgb); 20] = [
 ];
 
 fn plan_map(map: &WorldMap, reach: &[bool], spots: &[(&str, char, Rgb, (i32, i32))], s: i32, area: Option<(i32, i32, i32, i32)>) -> Image {
-    let (w, h) = (map.width(), map.height());
+    let (w, h) = (map.width(), map.island_size().1);
     let mut img = Image::new(w * s, h * s, [0; 3]);
     for y in 0..h {
         for x in 0..w {
@@ -571,7 +630,7 @@ fn label_step(cell_px: f32) -> i32 {
 /// stands there), so runs can be compared (and read).
 fn cell_signature(map: &WorldMap) -> String {
     let mut s = String::new();
-    for y in 0..map.height() {
+    for y in 0..map.island_size().1 {
         for x in 0..map.width() {
             s.push(match map.terrain(x, y) {
                 Terrain::DeepWater => '~',
@@ -584,6 +643,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Terrain::Cliff => '|',
                 Terrain::Crag => 'A',
                 Terrain::Slope => '/',
+                Terrain::Indoors => 'I',
             });
             s.push(match map.feature(x, y) {
                 Feature::None => ' ',
@@ -602,6 +662,31 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::Bridge(_) => '=',
                 Feature::WaterWheel(_) => 'w',
                 Feature::Lathe(_) => 'T',
+                Feature::SiteBench => 'B',
+                Feature::MillWall => '#',
+                Feature::MillDoor => 'D',
+                Feature::MillRoomWall => 'H',
+                Feature::Framed(post) => {
+                    if post {
+                        'P'
+                    } else {
+                        '_'
+                    }
+                }
+                Feature::Foundation(stone) => {
+                    if stone {
+                        'Q'
+                    } else {
+                        '_'
+                    }
+                }
+                Feature::Marking(m) => {
+                    if m.stake {
+                        'X'
+                    } else {
+                        '+'
+                    }
+                }
                 Feature::SignalFire(_) => 'F',
                 Feature::Pine(_) => 'n',
                 Feature::PineStump(_) => 'N',

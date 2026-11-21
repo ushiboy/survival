@@ -185,6 +185,14 @@ pub const RECIPES: &[Recipe] = &[
         at_fire: false,
         at_lathe: false,
     },
+    Recipe {
+        name: "MarkingStakes",
+        makes: ItemKind::MarkingStakes,
+        needs: &[(ItemKind::Bamboo, 2), (ItemKind::Rope, 2)],
+        tools: &[ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind the

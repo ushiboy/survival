@@ -19,6 +19,10 @@ pub enum Terrain {
     /// An earthen slope cut through the cliff, climbing up onto the high
     /// ground from the land below.
     Slope,
+    /// Inside the mill, in its room kept off the island's south edge (out
+    /// of sight of it): its tamped earth floor, its walls and the dark
+    /// round them (`Feature::MillRoomWall`).
+    Indoors,
 }
 
 impl Terrain {
@@ -194,6 +198,25 @@ pub fn patch_anchor(x: i32, y: i32, part: u8) -> (i32, i32) {
     (x - (part % 2) as i32, y - (part / 2) as i32)
 }
 
+/// Where the mill is marked out: a stake at a corner of the ground, and
+/// the rope run from it (or past it, between the stakes) along the edges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Marking {
+    /// A stake driven in here (a corner): it stands in the way.
+    pub stake: bool,
+    /// Which way rope runs out of the cell's middle (`Marking::NORTH` and
+    /// so on, or'd together); the rope lies on the ground and is stepped
+    /// over.
+    pub ropes: u8,
+}
+
+impl Marking {
+    pub const NORTH: u8 = 1;
+    pub const EAST: u8 = 2;
+    pub const SOUTH: u8 = 4;
+    pub const WEST: u8 = 8;
+}
+
 /// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct StumpPart {
@@ -258,6 +281,32 @@ pub enum Feature {
     /// bare. It can be walked over, like a campfire (set down anywhere, it
     /// never blocks the way).
     SignalFire(bool),
+    /// The ground for the mill marked out: stakes at its corners with
+    /// rope between them.
+    Marking(Marking),
+    /// The bench set up beside the mill's marked-out ground while it's
+    /// built: a plank on two stones, the plan and the line on it. A at it
+    /// opens the BUILD screen. It stands in the way.
+    SiteBench,
+    /// The mill's foundation: the ground tamped down hard, and (`true`) a
+    /// flat stone bedded in it where a post will stand. Walked over.
+    Foundation(bool),
+    /// The mill's frame raised on its foundation: the tamped ground, and
+    /// (`true`) a post stood on the stone there, which stands in the way.
+    /// The plates and beams between the posts' heads are drawn over the
+    /// ground round it (`render::tileset`).
+    Framed(bool),
+    /// A stretch of the mill's walls between its posts: bamboo lath
+    /// plastered with clay and soil. It stands in the way. The faces of
+    /// the walls are drawn over the ground round it (`render::tileset`).
+    MillWall,
+    /// The mill's doorway once the roof is on: a sliding plank door hung
+    /// in it, that slides open into the wall as someone comes up to it
+    /// (`WorldMap::mill_door`). It doesn't stand in the way.
+    MillDoor,
+    /// A wall of the mill's room (`Terrain::Indoors`), or the dark round
+    /// it: in the way.
+    MillRoomWall,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -286,7 +335,12 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Driftwood(_)
         | Feature::Vine
         | Feature::VineStake
-        | Feature::Lathe(_) => true,
+        | Feature::Lathe(_)
+        | Feature::SiteBench
+        | Feature::MillWall
+        | Feature::MillRoomWall => true,
+        Feature::Marking(m) => m.stake,
+        Feature::Framed(post) => post,
         _ => false,
     };
     TileProps {

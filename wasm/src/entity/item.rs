@@ -155,6 +155,7 @@ impl Item {
             ItemKind::SpokedWheel => (16, [sprites.spoked_wheel_lying; 2], sprites.shadow_player),
             ItemKind::DiggingStick => (16, [sprites.digging_stick; 2], sprites.shadow_player),
             ItemKind::BambooSpade => (32, [sprites.bamboo_spade; 2], sprites.shadow_lying),
+            ItemKind::MarkingStakes => (32, [sprites.marking_stakes; 2], sprites.shadow_lying),
             ItemKind::Clay => (8, [sprites.clay; 2], sprites.shadow_coconut),
             ItemKind::Soil => (8, [sprites.soil; 2], sprites.shadow_coconut),
             ItemKind::SignalFire => (16, [sprites.signal_fire.lying; 2], sprites.shadow_player),
@@ -192,6 +193,7 @@ impl Item {
             | ItemKind::WoodLathe
             | ItemKind::SpokedWheel
             | ItemKind::BambooSpade
+            | ItemKind::MarkingStakes
             | ItemKind::Clay
             | ItemKind::SignalFire => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,

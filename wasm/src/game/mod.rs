@@ -8,12 +8,13 @@ pub mod cart;
 pub mod ending;
 pub mod fishing;
 pub mod menu;
+pub mod mill;
 pub mod regions;
 pub mod save;
 pub mod state;
 
 use crate::assets::character::Outfit;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::assets::{Assets, SpriteIds, ending_art};
 use crate::common::input::{Buttons, InputState};
@@ -48,6 +49,7 @@ use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
 pub use ending::EndingView;
 use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
+use mill::MillWorks;
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
 use state::{Ailment, GameClock, Inventory, Rest, Vitals};
@@ -144,6 +146,20 @@ const MATH_NIGHT: ColorMath = ColorMath {
     sub_layers: layer::BG3,
 };
 
+/// Going through the mill's door, in or out: the screen fades out, the
+/// castaway is set down on the other side (`to`, their feet, facing
+/// `facing`), and it fades back in (`PASSAGE_FADE` frames each way).
+#[derive(Clone, Copy, Debug)]
+struct Passage {
+    t: u32,
+    to: (i32, i32),
+    facing: Dir,
+}
+
+/// Frames the screen takes to fade out, or back in, going through the
+/// mill's door.
+const PASSAGE_FADE: u32 = 10;
+
 /// A palm canopy wobbling after a hit: world-space rows and frames left.
 #[derive(Clone, Copy, Debug)]
 struct TreeShake {
@@ -197,6 +213,8 @@ pub struct Game {
     mill_noticed: bool,
     /// Has come upon the river's narrow (which happens once).
     bridge_noticed: bool,
+    /// How far the water mill has got.
+    works: MillWorks,
     /// In-game minutes the castaway has been asleep.
     /// Which chunks of the island are awake (creatures move only there).
     regions: Regions,
@@ -216,6 +234,12 @@ pub struct Game {
     /// What was carried when the bag was opened (as saved), while it's
     /// open: closing it saves if that changed.
     bag_opened_with: Option<String>,
+    /// Where the castaway stood (feet, world px) before climbing up onto
+    /// the mill's roof to build it, while they're up there: they come back
+    /// down there once it's done.
+    roofing_from: Option<(i32, i32)>,
+    /// Going through the mill's door, while the screen fades.
+    passage: Option<Passage>,
     /// Frames left of the sign that the game was saved.
     saved_sign: u32,
     /// How the game ended (the castaway collapsed, or was rescued), and
@@ -332,6 +356,7 @@ impl Game {
             shell_cap: 0,
             driftwood_cap,
             mill_noticed: save.is_some_and(|s| s.castaway.mill_noticed),
+            works: save.map_or_else(MillWorks::default, |s| s.island.mill.clone()),
             bridge_noticed: save.is_some_and(|s| s.castaway.bridge_noticed),
             regions,
             seed,
@@ -341,6 +366,8 @@ impl Game {
             save_kept: false,
             autosave: AutoSave::new(),
             bag_opened_with: None,
+            roofing_from: None,
+            passage: None,
             saved_sign: 0,
             end: None,
             cut: None,
@@ -391,7 +418,8 @@ impl Game {
                 game.shell_cap = game.shells_on_beach().len();
             }
         }
-        game.camera.follow(game.player.center(), game.map.pixel_size());
+        let bounds = game.view_bounds();
+        game.camera.follow_within(game.player.center(), bounds);
         game.stream_ground();
         game.wake_regions();
         game
@@ -441,6 +469,7 @@ impl Game {
                 shell_cap: self.shell_cap,
                 asleep_since: self.regions.asleep_since(),
                 cart: self.cart.clone(),
+                mill: self.works.clone(),
             },
         }
     }
@@ -582,6 +611,11 @@ impl Game {
 
         self.frame_count = self.frame_count.wrapping_add(1);
         self.saved_sign = self.saved_sign.saturating_sub(1);
+        if let Some(passage) = self.passage {
+            // The world waits while the screen fades.
+            self.pass(passage);
+            return;
+        }
         let (near_fire, near_lathe, cart_at_hand) = (self.near_fire(), self.is_near_lathe(), self.cart_at_hand());
         if self.menu.is_some() && self.bag_opened_with.is_none() {
             self.bag_opened_with = Some(self.carried_json());
@@ -590,6 +624,13 @@ impl Game {
             menu.near_fire = near_fire;
             menu.near_lathe = near_lathe;
             menu.cart_at_hand = cart_at_hand;
+            // Only at the bench (the BUILD screen), where it's asked.
+            if menu.works.is_some() {
+                menu.fit_to_build = self.works.next().is_none_or(|s| self.vitals.fit_to_work(s.hours * 60));
+            }
+            if menu.works.is_some() {
+                menu.works = Some(self.works.clone());
+            }
             let outcome = menu.update(&self.input, &mut self.inventory);
             // A tool lifted out to be moved is still in hand.
             let moving = menu.held_placement().map(|p| p.kind);
@@ -612,9 +653,12 @@ impl Game {
             return;
         }
         if self.player.is_asleep() {
-            self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
+            // No shelter's pitched under the mill's roof (its roof's as good).
+            self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter) && !self.is_in_mill_room();
             self.sleep_on();
             self.autosave.slept(SLEEP_MINUTES_PER_FRAME);
+        } else if self.player.is_working() {
+            self.work_on();
         } else {
             if self.player.running {
                 self.ran_frames += 1;
@@ -663,6 +707,7 @@ impl Game {
             return;
         }
         self.player.pulling = self.cart.as_ref().is_some_and(|c| c.pulled);
+        self.tend_mill_door();
         let idle_before = self.player.is_idle();
         let situation = Situation {
             tool: self.inventory.gear.hand,
@@ -709,6 +754,16 @@ impl Game {
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
             Some(Deed::SetLathe(site)) => self.set_lathe(site),
+            Some(Deed::SetStakes(site)) => self.set_stakes(site),
+            Some(Deed::Built(site)) => self.built(site),
+            // At the bench beside the mill's ground, with a stage of it
+            // left to build: the BUILD screen opens.
+            Some(Deed::AtBench) => {
+                if self.works.next().is_some() {
+                    self.menu = Some(BagMenu::building(self.works.clone()));
+                    return;
+                }
+            }
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
@@ -724,6 +779,7 @@ impl Game {
         if let Some(cart) = &mut self.cart {
             cart.hitch(feet, facing);
         }
+        self.go_through_mill_door();
         self.come_upon_the_mill_site();
         self.come_upon_the_narrow();
         if was_asleep && !self.player.is_asleep() {
@@ -768,7 +824,7 @@ impl Game {
             let lake = self.fish_in_lake() < LAKE_FISH;
             self.spawn_fish(true, lake);
         }
-        self.camera.follow(pc, self.map.pixel_size());
+        self.camera.follow_within(pc, self.view_bounds());
         // Saved when something worth keeping happened and the castaway is
         // calm (see `AutoSave`).
         let calm = self.player.is_idle() && !self.player.moving;
@@ -1000,6 +1056,19 @@ impl Game {
         }
     }
 
+    /// The marking stakes in hand are driven in round the mill's ground off
+    /// the mill site's bank `site`, rope run between them: they leave the
+    /// bag, and the ground is marked out for the mill.
+    fn set_stakes(&mut self, site: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::MarkingStakes) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.set_stakes(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
+    }
+
     /// Steps the castaway out of anything just set down where they stand
     /// (the lathe takes cells they may be at the edge of): the shortest way
     /// out, west, south, east or north.
@@ -1133,7 +1202,7 @@ impl Game {
     /// Puts a fish somewhere it can swim, in the lake or else in the sea
     /// and the river; `unseen` keeps it off screen.
     fn spawn_fish(&mut self, unseen: bool, lake: bool) {
-        let (w, h) = self.map.pixel_size();
+        let (w, h) = self.map.island_pixel_size();
         for _ in 0..4000 {
             let p = (self.rng.between(0, w - 1), self.rng.between(0, h - 1));
             if fish::swimmable(&self.map, p) && self.in_lake(p) == lake && !(unseen && self.camera.sees(p.0 - 16, p.1 - 16, 32, 32)) {
@@ -1430,14 +1499,187 @@ impl Game {
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
             Outcome::Made(kind) => self.carry_off(kind),
+            Outcome::Deliver(kind) => self.deliver(kind),
+            Outcome::Build => {
+                let Some(site) = self.map.spots.mill else { return };
+                let Some(stage) = self.works.next() else { return };
+                self.menu = None;
+                let frames = stage.hours * 60 / SLEEP_MINUTES_PER_FRAME;
+                // Once the walls are up, the middle of the ground can't be
+                // walked to from the bench: the roof's left, built up on
+                // it (from the scaffold). It's drawn from the start, the
+                // castaway at work up on it over the middle of the ground.
+                if self.map.has_mill_walls() {
+                    let changed = self.map.start_roofing(site);
+                    self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+                    self.roofing_from = Some(self.player.body.feet());
+                    let (x, y) = crate::world::map::stakes_stand(site);
+                    self.player.body.set_feet((x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
+                    self.player.start_work_here(site, frames);
+                } else {
+                    self.player.start_work(site, frames);
+                }
+            }
         }
+    }
+
+    /// Leaves as many of `kind` as the mill's next stage still takes at
+    /// its site: from the bag first, then the cart (while it's at hand).
+    fn deliver(&mut self, kind: ItemKind) {
+        let want = self.works.still_needs(kind);
+        let mut left = 0;
+        while left < want && self.inventory.bag.take_kind(kind) {
+            left += 1;
+        }
+        if self.cart_at_hand()
+            && let Some(cart) = &mut self.inventory.cart
+        {
+            while left < want && cart.take_kind(kind) {
+                left += 1;
+            }
+        }
+        self.works.deliver(kind, left);
+        if let Some(menu) = &mut self.menu {
+            menu.works = Some(self.works.clone());
+            menu.notice = Some(match (want, left) {
+                (0, _) => "THAT'S ALL IT TAKES",
+                (_, 0) => "NONE AT HAND",
+                _ => "PUT IN AT THE SITE",
+            });
+        }
+    }
+
+    /// One frame of building the mill: time hurries on as in sleep, but
+    /// the work wears the castaway as hours awake do.
+    fn work_on(&mut self) {
+        for _ in 0..SLEEP_MINUTES_PER_FRAME {
+            self.clock.advance_minutes(1);
+            self.vitals.on_minute(Rest::Awake { ran: 0 });
+            if self.vitals.collapsed() {
+                return;
+            }
+        }
+    }
+
+    /// The mill's door slides a step open while the castaway (or the cart)
+    /// is by the doorway, outside or in, and a step shut while not, every
+    /// few frames.
+    fn tend_mill_door(&mut self) {
+        if !self.frame_count.is_multiple_of(MILL_DOOR_FRAMES) {
+            return;
+        }
+        let Some(site) = self.map.spots.mill.filter(|_| self.map.has_mill_roof()) else { return };
+        let room_door = self.map.mill_room_door();
+        let near = |(fx, fy): (i32, i32)| {
+            let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+            crate::world::map::mill_doorway(site).iter().any(|&(dx, dy)| dx == x && (dy - 1..=dy + 1).contains(&y))
+                || room_door.iter().any(|&(dx, dy)| dx == x && (dy - 2..=dy).contains(&y))
+        };
+        let cart = self.cart.as_ref().is_some_and(|c| {
+            let r = c.rect();
+            near((r.x, r.y + r.h - 1)) || near((r.x + r.w - 1, r.y + r.h - 1)) || near((r.x, r.y)) || near((r.x + r.w - 1, r.y))
+        });
+        let changed = self.map.slide_mill_door(near(self.player.body.feet()) || cart);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+    }
+
+    /// The castaway walking into the mill's door (once the roof is on), in
+    /// from outside or out from the room: the screen starts to fade, to
+    /// put them on the other side. In, they stand two rows in from the
+    /// room's door (room for a cart pulled behind them), facing in; out,
+    /// just outside the hut's, facing away from it.
+    fn go_through_mill_door(&mut self) {
+        let Some(site) = self.map.spots.mill.filter(|_| self.map.has_mill_roof() && self.player.moving) else { return };
+        let (fx, fy) = self.player.body.feet();
+        let cell = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+        let doorway = crate::world::map::mill_doorway(site);
+        let room_door = self.map.mill_room_door();
+        let between = |cells: [(i32, i32); 2]| (cells[1].0 * TILE_SIZE, cells[0].1);
+        let to = if doorway.contains(&cell) {
+            let (x, y) = between(room_door);
+            ((x, (y - 2) * TILE_SIZE + TILE_SIZE / 2), Dir::Up)
+        } else if room_door.contains(&cell) {
+            let (x, y) = between(doorway);
+            ((x, (y + 1) * TILE_SIZE + TILE_SIZE / 2), Dir::Down)
+        } else {
+            return;
+        };
+        self.passage = Some(Passage { t: 0, to: to.0, facing: to.1 });
+    }
+
+    /// A frame of going through the mill's door: halfway, with the screen
+    /// dark, the castaway (and a cart pulled behind them) is set down on
+    /// the other side and the camera with them.
+    fn pass(&mut self, passage: Passage) {
+        let t = passage.t + 1;
+        if t == PASSAGE_FADE {
+            self.player.body.set_feet(passage.to);
+            self.player.facing = passage.facing;
+            self.player.moving = false;
+            if let Some(cart) = &mut self.cart {
+                cart.hitch(passage.to, passage.facing);
+            }
+            self.camera.follow_within(self.player.center(), self.view_bounds());
+            self.autosave.note(Cue::Moved);
+        }
+        self.passage = (t < 2 * PASSAGE_FADE).then_some(Passage { t, ..passage });
+    }
+
+    /// How bright the world is drawn (0 dark to 15): it fades out and back
+    /// in going through the mill's door.
+    pub fn brightness(&self) -> u8 {
+        match self.passage {
+            Some(Passage { t, .. }) if t < PASSAGE_FADE => (15 - 15 * t / PASSAGE_FADE) as u8,
+            Some(Passage { t, .. }) => (15 * (t - PASSAGE_FADE) / PASSAGE_FADE) as u8,
+            None => 15,
+        }
+    }
+
+    /// Whether the castaway is in the mill's room.
+    pub fn is_in_mill_room(&self) -> bool {
+        self.map.in_mill_room(self.player.body.feet())
+    }
+
+    /// Where the camera keeps to (world px): the mill's room while inside,
+    /// else the island.
+    fn view_bounds(&self) -> Rect {
+        if self.is_in_mill_room() {
+            // The dark above the room too, for the HUD over the top.
+            let (x0, y0, x1, y1) = self.map.mill_room();
+            let top = y0 - crate::world::map::MILL_ROOM_ABOVE;
+            Rect::new(x0 * TILE_SIZE, top * TILE_SIZE, (x1 - x0 + 1) * TILE_SIZE, (y1 - top + 1) * TILE_SIZE)
+        } else {
+            let (w, h) = self.map.island_pixel_size();
+            Rect::new(0, 0, w, h)
+        }
+    }
+
+    /// The mill's next stage is up, off the mill site's bank `site`.
+    fn built(&mut self, site: (i32, i32)) {
+        // Down off the roof, to where they stood.
+        if let Some(feet) = self.roofing_from.take() {
+            self.player.body.set_feet(feet);
+        }
+        if !self.works.all_in() {
+            return;
+        }
+        let stage = self.works.built;
+        self.works.finish();
+        let changed = match stage {
+            0 => self.map.lay_foundation(site),
+            1 => self.map.raise_frame(site),
+            2 => self.map.raise_walls(site),
+            3 => self.map.put_on_roof(site),
+            _ => Vec::new(),
+        };
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
     /// One frame of sleep: time hurries on (hunger and thirst with it, if
     /// more slowly) and sleep mends health (faster under a shelter; see
     /// `Vitals`). The castaway sleeps on until woken with a button.
     fn sleep_on(&mut self) {
-        let rest = if self.player.sheltered { Rest::Sheltered } else { Rest::Asleep };
+        let rest = if self.player.sheltered || self.is_in_mill_room() { Rest::Sheltered } else { Rest::Asleep };
         for _ in 0..SLEEP_MINUTES_PER_FRAME {
             self.clock.advance_minutes(1);
             self.vitals.on_minute(rest);
@@ -1647,11 +1889,12 @@ impl Game {
             self.render_rescue(t, &records);
             return;
         }
+        let brightness = self.brightness();
         let f = &mut self.frame;
         f.clock = self.frame_count;
         f.scroll_x = camera.x;
         f.scroll_y = camera.y;
-        f.brightness = 15;
+        f.brightness = brightness;
         if let Some((ending, t)) = self.end {
             if t >= COLLAPSE_FADE {
                 // The end screen, fading in on black.
@@ -1678,6 +1921,11 @@ impl Game {
         f.cgram.clone_from(&self.base_cgram);
         lighting::cycle_water(&mut f.cgram, self.frame_count);
         lighting.apply(&mut f.cgram);
+        let inside = self.map.in_mill_room(self.player.body.feet());
+        if inside {
+            // The dark round the mill's room.
+            f.cgram.colors[0] = crate::ppu::palette::Rgb555::BLACK;
+        }
 
         if let Some(menu) = &self.menu {
             // The bag screen: world layers off, BG3 behind the icon sprites.
@@ -1729,8 +1977,13 @@ impl Game {
         let list = &mut self.draw_list;
         list.clear();
         let sprites = &self.assets.sprites;
-        let in_front = player_in_front_of_canopy(&self.map, &self.player);
-        self.player.draw(list, &camera, sprites, self.frame_count, shadows, in_front);
+        // Up on the mill's roof, they're over everything.
+        let in_front =
+            player_in_front_of_canopy(&self.map, &self.player) || feet_before_mill_wall(&self.map, self.player.body.feet()) || self.roofing_from.is_some();
+        // Feet hidden behind a wall of the mill cast no shadow over it.
+        let feet = self.player.body.feet();
+        let player_shadow = shadows && !feet_behind_mill_wall(&self.map, feet) && !feet_under_mill_roof(&self.map, feet);
+        self.player.draw(list, &camera, sprites, self.frame_count, player_shadow, in_front);
         let now = self.clock.total_minutes();
         for fire in &self.fires {
             fire.draw(list, &camera, sprites, self.frame_count, now);
@@ -1738,6 +1991,7 @@ impl Game {
         for fire in &self.signal_fires {
             fire.draw(list, &camera, sprites, self.frame_count);
         }
+        draw_mill_posts(list, &camera, sprites, &self.map, night);
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }
@@ -1756,7 +2010,7 @@ impl Game {
             draw_cart(list, &camera, sprites, cart, night, handle_depth);
         }
         self.particles.draw(list, &camera, sprites, self.frame_count);
-        if !night {
+        if !night && !inside {
             for gull in &self.gulls {
                 gull.draw(list, &camera, sprites, shadows);
             }
@@ -1832,6 +2086,86 @@ impl Game {
         let changed = self.map.set_lathe(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
         true
+    }
+
+    /// Dev tools: marks out the mill's ground beside the wood lathe (no
+    /// stakes needed in the bag; the lathe must be in). Returns whether it
+    /// was marked out.
+    pub fn debug_set_stakes(&mut self) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|&(x, y)| self.map.stakes_spot(x, y).is_some()) else {
+            return false;
+        };
+        let changed = self.map.set_stakes(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
+        true
+    }
+
+    /// Dev tools: builds the mill's stages until `stages` are up (nothing
+    /// needed at the site or in the bag; its ground must be marked out).
+    /// Returns whether as many are up.
+    pub fn debug_build_mill(&mut self, stages: usize) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|_| self.map.is_staked() || self.works.built > 0) else { return false };
+        while self.works.built < stages {
+            let Some(stage) = self.works.next() else { return false };
+            for &(kind, n) in stage.needs {
+                self.works.deliver(kind, n);
+            }
+            self.built(site);
+        }
+        true
+    }
+
+    /// Dev tools: the steps the mill goes up in, as the debug tools set it
+    /// up one at a time: the wheel, the lathe, the stakes, then each stage
+    /// (by its name).
+    pub fn debug_mill_steps(&self) -> Vec<&'static str> {
+        ["WHEEL", "LATHE", "STAKES"].into_iter().chain(mill::MILL_STAGES.iter().map(|s| s.name)).collect()
+    }
+
+    /// Dev tools: how many of `debug_mill_steps` are done.
+    pub fn debug_mill_progress(&self) -> usize {
+        if !self.map.has_wheel() {
+            0
+        } else if self.map.lathe_middle().is_none() {
+            1
+        } else if !(self.map.is_staked() || self.works.built > 0) {
+            2
+        } else {
+            3 + self.works.built
+        }
+    }
+
+    /// Dev tools: sets the mill up one step further (`debug_mill_steps`).
+    /// Returns whether there was a step left to take.
+    pub fn debug_mill_advance(&mut self) -> bool {
+        match self.debug_mill_progress() {
+            0 => self.debug_set_wheel(),
+            1 => self.debug_set_lathe(),
+            2 => self.debug_set_stakes(),
+            n if n - 3 < mill::MILL_STAGES.len() => self.debug_build_mill(n - 2),
+            _ => false,
+        }
+    }
+
+    /// Dev tools: hands over everything the mill's next stage takes (its
+    /// materials, less what's been left at the site, and the tools not
+    /// carried): into the bag, and what doesn't fit into the cart, if
+    /// there is one. Returns how many didn't fit anywhere.
+    pub fn debug_give_mill_stage(&mut self) -> u32 {
+        let Some(stage) = self.works.next() else { return 0 };
+        let tools = stage.tools.iter().filter(|&&t| !self.inventory.carries(t)).map(|&t| (t, 1));
+        let wanted: Vec<(ItemKind, u32)> = tools.chain(stage.needs.iter().map(|&(k, _)| (k, self.works.still_needs(k)))).collect();
+        let mut left = 0;
+        for (kind, n) in wanted {
+            let rest = n - self.debug_give_n(kind, n);
+            let rest = match &mut self.inventory.cart {
+                Some(cart) => cart.stow(kind, rest),
+                None => rest,
+            };
+            left += rest;
+        }
+        left
     }
 
     /// Dev tools: the most shells the tide leaves each morning (it grows
@@ -1986,7 +2320,7 @@ impl Game {
     pub fn debug_place_player(&mut self, (x, y): (i32, i32)) {
         self.skip_title();
         self.player = Player::at_feet(x * TILE_SIZE, y * TILE_SIZE);
-        self.camera.follow(self.player.center(), self.map.pixel_size());
+        self.camera.follow_within(self.player.center(), self.view_bounds());
     }
 
     /// Whether the castaway can stand on the cell.
@@ -2011,7 +2345,7 @@ impl Game {
         self.player = Player::at_feet(to.0 * TILE_SIZE, to.1 * TILE_SIZE);
         self.player.facing = facing;
         self.player.torch = torch;
-        self.camera.follow(self.player.center(), self.map.pixel_size());
+        self.camera.follow_within(self.player.center(), self.view_bounds());
         Some(to)
     }
 
@@ -2037,6 +2371,8 @@ impl Game {
         }
         if let Some(m) = map.spots.mill {
             v.push(("水車小屋の予定地", m));
+            let (bx, by) = crate::world::map::site_bench(m);
+            v.push(("水車小屋の普請台", (bx - 1, by)));
         }
         if let Some(l) = map.spots.ladder {
             v.push(("崖のくぼみ（ハシゴ）", l));
@@ -2253,6 +2589,27 @@ impl Game {
         &self.clock
     }
 
+    /// The page the bag is open at, if it's open.
+    pub fn bag_page(&self) -> Option<menu::Page> {
+        self.menu.as_ref().map(BagMenu::page)
+    }
+
+    /// The pages the open bag has (none if it's shut).
+    pub fn bag_pages(&self) -> Vec<menu::Page> {
+        self.menu.as_ref().map_or_else(Vec::new, BagMenu::pages)
+    }
+
+    /// How many of `kind` have been left at the mill's site for its next
+    /// stage.
+    pub fn mill_delivered(&self, kind: ItemKind) -> u32 {
+        self.works.delivered(kind)
+    }
+
+    /// How many stages of the mill have been built.
+    pub fn mill_stages_built(&self) -> usize {
+        self.works.built
+    }
+
     /// Whether any of `kind` is carried (in the bag or on the belt).
     pub fn carries(&self, kind: ItemKind) -> bool {
         self.inventory.carries(kind)
@@ -2444,6 +2801,41 @@ fn palm_flip(map: &WorldMap, anchor: (i32, i32)) -> bool {
 
 /// Whether the castaway stands in front of (south of) a palm or broadleaf
 /// tree whose canopy or upper trunk tiles overlap their sprite, so they must be drawn above BG2.
+/// Whether feet at `(fx, fy)` (world px) are behind one of the mill's
+/// walls, whose face is drawn over them: just north of the north wall
+/// (outside), or inside just north of the south wall (not in the
+/// doorway).
+fn feet_behind_mill_wall(map: &WorldMap, (fx, fy): (i32, i32)) -> bool {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_walls()) else { return false };
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(site);
+    let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+    let in_door = crate::world::map::mill_doorway(site).iter().any(|&(dx, _)| dx == x);
+    (x0..=x1).contains(&x) && (y == y0 - 1 || (y1 - 2..y1).contains(&y) && !in_door)
+}
+
+/// Whether feet at world pixel `(fx, fy)` stand just in front of one of
+/// the mill's walls, so close that the head reaches up into the rows where
+/// the face is drawn on BG2 (over someone behind it): just south of the
+/// south wall (outside), or inside just south of the north wall. The
+/// castaway is then raised over BG2, as in front of a tree's canopy.
+fn feet_before_mill_wall(map: &WorldMap, (fx, fy): (i32, i32)) -> bool {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_walls()) else { return false };
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(site);
+    let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+    // Under the roof, inside, no one is raised over it.
+    (x0 - 1..=x1 + 1).contains(&x) && (y == y1 + 1 || y == y0 + 1 && !map.has_mill_roof())
+}
+
+/// Whether feet at world pixel `(fx, fy)` are inside the mill once its
+/// roof is on (or in its doorway), hidden under the roof, casting no
+/// shadow over it.
+fn feet_under_mill_roof(map: &WorldMap, (fx, fy): (i32, i32)) -> bool {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_roof()) else { return false };
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(site);
+    let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+    (x0..=x1).contains(&x) && (y0..=y1).contains(&y)
+}
+
 fn player_in_front_of_canopy(map: &WorldMap, player: &Player) -> bool {
     use crate::assets::character::{CHAR_H, CHAR_ORIGIN, CHAR_W};
     use crate::world::terrain::{BroadleafPart, PalmPart};
@@ -2516,6 +2908,53 @@ fn cart_reach(cart: &Cart) -> Rect {
 /// step (a sixth of the way round between spokes over `CART_WHEEL_STEPS`
 /// pictures, on a wheel 11px across).
 const CART_WHEEL_STEP_PX: i32 = 2;
+
+/// How many frames the mill's door takes to slide a step.
+const MILL_DOOR_FRAMES: u32 = 3;
+
+/// The posts of the mill's frame, once it's up: sprites, sorted with the
+/// castaway by their feet, so they stand in front of someone behind them
+/// and behind someone in front (what spans between their heads is BG2, in
+/// front of everyone). Once the walls are up, the south ones are hidden in
+/// the south wall's face (it's drawn over them, so they're left out). At
+/// night in the dark palette, as things on the ground are.
+fn draw_mill_posts(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, map: &WorldMap, night: bool) {
+    // Under the roof (on or being built), the posts and beams are hidden;
+    // they're left out.
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_frame() && !map.shows_mill_roof()) else { return };
+    let (_, _, _, y1) = crate::world::map::mill_plot(site);
+    let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
+    for stone in crate::world::map::foundation_stones(site) {
+        let front = stone.1 == y1;
+        if front && map.has_mill_walls() {
+            continue;
+        }
+        let gfx = sprites.mill_post[front as usize];
+        let rise = mill::post_rise(stone.1, y1);
+        let (fx, fy) = mill::post_foot(stone);
+        let tall = rise + mill::POST_FOOT;
+        let h = (tall + 2 + 7) / 8 * 8;
+        // The art's post stands against its bottom, a pixel above it.
+        let (wx, wy) = (fx - 4, fy + 1 - h);
+        if camera.sees(wx, wy, 8, h) {
+            let (sx, sy) = camera.to_screen(wx, wy);
+            list.actor(fy, ObjEntry::new(sx, sy, gfx, palette, 2));
+        }
+    }
+    // The beams across between the plates, higher than anyone's head: in
+    // front of everyone (over BG2 too, so over someone raised over BG2 in
+    // front of the north wall's face).
+    let (x0, y0, x1, _) = crate::world::map::mill_plot(site);
+    let top = mill::post_head(y0, y1) - 1;
+    let h = (mill::beam_len() + 2 + 7) / 8 * 8;
+    for cx in [x0, (x0 + x1) / 2, x1] {
+        let wx = cx * 16 + 8 - 4;
+        if camera.sees(wx, top, 8, h) {
+            let (sx, sy) = camera.to_screen(wx, top);
+            list.sky(ObjEntry::new(sx, sy, sprites.mill_beam, palette, 3));
+        }
+    }
+}
 
 /// Draws the handcart where it stands, its poles pointing the way it was
 /// last pulled (at night in the dark palette, as things on the ground are).

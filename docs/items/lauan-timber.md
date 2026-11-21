@@ -18,3 +18,4 @@
 ## 使い道
 
 - レシピの材料: [ハシゴ](../recipes/ladder.md)、[水車](../recipes/water-wheel.md)（軸・腕・輪と、支えの柱）、[木工旋盤](../recipes/wood-lathe.md)（台と主軸台・心押し台）、[スポーク車輪](../recipes/spoked-wheel.md)（こしきと輪）、[リアカー](../recipes/handcart.md)（荷台と車軸）
+- 水車小屋の骨組みの材料（×8。柱と桁）と、屋根と戸の段階の材料（×2。戸板と敷居）: メインドキュメントの「[水車小屋](../README.md#水車小屋)」

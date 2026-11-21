@@ -19,6 +19,7 @@
 ## 使い道
 
 - レシピの材料: [樹皮の鍋](../recipes/bark-container.md)、[茅葺き](../recipes/thatch.md)、[火起こし器](../recipes/fire-drill.md)
+- 水車小屋の壁の材料（×4。竹小舞を縛る）: メインドキュメントの「[水車小屋](../README.md#水車小屋)」
 
 ## メモ
 

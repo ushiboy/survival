@@ -72,6 +72,17 @@ const ja = {
       label: '必ず見つかる',
       done: '狼煙が必ず見つかるようにしました（火を付けて1時間後に救助。燃えている狼煙は今から1時間後）',
     },
+    mill: '水車小屋',
+    millSteps: { WHEEL: '水車', LATHE: '木工旋盤', STAKES: '縄張り', FOUNDATION: '土台', FRAME: '骨組み', WALLS: '壁', ROOF: '屋根と戸' },
+    millNone: 'まだ何もない（次は{next}）',
+    millDone: '{step}まで済み（次は{next}）',
+    millNoNext: 'ない',
+    millAdvance: { label: '次へ進める', done: '{step}まで進めました', none: 'もう進める段階はありません' },
+    millGive: {
+      label: '次の段階の物を持たせる',
+      done: '{step}に要る材料と道具を持たせました',
+      some: '{step}に要る材料と道具を持たせました（{left} 個は入りきりません）',
+    },
     here: 'いまの場所',
     hereCell: 'マス ({x}, {y}) · 足元 ({px}, {py}) · 向き {facing}',
     hereFrame: '処理 {avg} ms（平均）／ {max} ms（最大）· {fps} fps',
@@ -140,6 +151,7 @@ const ja = {
     SpokedWheel: { name: 'スポーク車輪', reading: 'すぽーくしゃりん' },
     Handcart: { name: 'リアカー', reading: 'りあかー' },
     SignalFire: { name: '狼煙台', reading: 'のろしだい' },
+    MarkingStakes: { name: '縄張りの杭', reading: 'なわばりのくい' },
   },
 };
 

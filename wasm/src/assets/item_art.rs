@@ -1083,6 +1083,54 @@ pub fn icon_bamboo_spade() -> PixelArt {
     a.outlined(i('o'))
 }
 
+/// Marking stakes, 16x48: three stakes split from bamboo, bundled side by
+/// side (green rind on one edge, pale inside on the other), their feet cut
+/// to points, with a hank of rope wound round the middle for the line.
+pub fn icon_marking_stakes() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let mut a = PixelArt::filled(16, 48, 0);
+    // Left to right, each a little higher or lower than the next.
+    for (x0, top) in [(3, 4), (7, 2), (11, 5)] {
+        let foot = top + 38;
+        for y in top..=foot {
+            // Tapering to a point over the last few pixels.
+            let point = foot - y;
+            for (k, x) in (x0..x0 + 3).enumerate() {
+                if point < 3 && k != 1 && !(point == 2 && k == 0) {
+                    continue;
+                }
+                let c = match k {
+                    0 => i('h'),
+                    1 => {
+                        if (y - top) % 13 == 6 {
+                            i('g')
+                        } else {
+                            i('G')
+                        }
+                    }
+                    _ => i('c'),
+                };
+                a.set(x, y, c);
+            }
+        }
+        // The cut top: pale.
+        for x in x0..x0 + 3 {
+            a.set(x, top, i('c'));
+        }
+    }
+    // The hank of rope, wound round the bundle.
+    for y in 17..27 {
+        for x in 2..15 {
+            if (y - 17) % 3 == 2 {
+                a.set(x, y, i('W'));
+            } else {
+                a.set(x, y, if (x + y) % 2 == 0 { i('W') } else { i('w') });
+            }
+        }
+    }
+    a.outlined(i('o'))
+}
+
 /// Lumps of clay heaped up, 16x16: a pile of soft blue-grey lumps, each
 /// with a little wet sheen, so it doesn't read as one stone.
 pub fn icon_clay() -> PixelArt {

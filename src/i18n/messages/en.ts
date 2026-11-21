@@ -71,6 +71,17 @@ const en: typeof ja = {
       label: 'Always seen',
       done: 'Signal fire smoke is now always seen (rescue an hour after lighting; one already burning, an hour from now)',
     },
+    mill: 'Water mill',
+    millSteps: { WHEEL: 'water wheel', LATHE: 'wood lathe', STAKES: 'marking out', FOUNDATION: 'foundation', FRAME: 'frame', WALLS: 'walls', ROOF: 'roof and door' },
+    millNone: 'Nothing yet (next: {next})',
+    millDone: 'Done up to the {step} (next: {next})',
+    millNoNext: 'none',
+    millAdvance: { label: 'Next step', done: 'Done up to the {step}', none: 'No step left' },
+    millGive: {
+      label: "Give the next stage's things",
+      done: 'Gave the materials and tools for the {step}',
+      some: 'Gave the materials and tools for the {step} ({left} wouldn\'t fit)',
+    },
     here: 'Where you are',
     hereCell: 'Cell ({x}, {y}) · feet ({px}, {py}) · facing {facing}',
     hereFrame: 'Frame {avg} ms (avg) / {max} ms (max) · {fps} fps',
@@ -139,6 +150,7 @@ const en: typeof ja = {
     SpokedWheel: { name: 'Spoked wheel', reading: 'Spoked wheel' },
     Handcart: { name: 'Handcart', reading: 'Handcart' },
     SignalFire: { name: 'Signal fire', reading: 'Signal fire' },
+    MarkingStakes: { name: 'Marking stakes', reading: 'Marking stakes' },
   },
 };
 

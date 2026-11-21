@@ -11,6 +11,10 @@
 //! `SNAP_WATER=n` with that much food and water, `SNAP_UPSET=1` with an
 //! upset stomach, `SNAP_LUCK=1` with a signal fire's smoke always seen,
 //! `SNAP_RESCUED=1` rescued straight away (the ending plays),
+//! `SNAP_MILL=wheel|lathe|stakes|foundation|frame|walls|roof` with the water wheel set at the mill
+//! site (and the lathe beside it, the mill's ground marked out, its
+//! foundation laid, its frame raised, its walls up, its roof on),
+//! `SNAP_INSIDE=1` in the mill's room, just in from its door,
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
@@ -43,6 +47,31 @@ fn main() {
     if let Ok(at) = std::env::var("SNAP_AT") {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
         game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
+    }
+    // SNAP_MILL=wheel|lathe|stakes|foundation|frame|walls|roof sets the water wheel at the mill site,
+    // then the wood lathe beside it, then marks the mill's ground out, as
+    // far as asked.
+    if let Ok(mill) = std::env::var("SNAP_MILL") {
+        let steps = match mill.as_str() {
+            "wheel" => 1,
+            "lathe" => 2,
+            "stakes" => 3,
+            "foundation" => 4,
+            "frame" => 5,
+            "walls" => 6,
+            "roof" => 7,
+            _ => panic!("SNAP_MILL must be wheel, lathe, stakes, foundation, frame, walls or roof"),
+        };
+        assert!(game.debug_set_wheel(), "the water wheel goes in");
+        assert!(steps < 2 || game.debug_set_lathe(), "the lathe goes in");
+        assert!(steps < 3 || game.debug_set_stakes(), "the mill's ground is marked out");
+        assert!(steps < 4 || game.debug_build_mill(steps - 3), "the mill's stages are built");
+    }
+    // SNAP_INSIDE=1 puts the castaway in the mill's room, just in from its
+    // door (with SNAP_MILL=roof).
+    if std::env::var("SNAP_INSIDE").is_ok() {
+        let (x, y) = game.map().mill_room_door()[1];
+        game.debug_place_player((x, y - 2));
     }
     // SNAP_FISH=dx,dy puts a fish in the water that far from the feet.
     if let Ok(at) = std::env::var("SNAP_FISH") {
@@ -81,6 +110,7 @@ fn main() {
                 "frame" => ItemKind::PackFrame,
                 "tool belt" | "belt" => ItemKind::ToolBelt,
                 "wood lathe" | "lathe" => ItemKind::WoodLathe,
+                "marking stakes" | "stakes" => ItemKind::MarkingStakes,
                 "spoked wheel" | "spoked" => ItemKind::SpokedWheel,
                 "handcart" | "cart" => ItemKind::Handcart,
                 "husk" => ItemKind::Husk,

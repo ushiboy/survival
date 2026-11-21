@@ -1,3 +1,4 @@
+use crate::common::math::Rect;
 use crate::ppu::{SCREEN_H, SCREEN_W};
 
 /// Viewport into the world, in pixels.
@@ -17,9 +18,15 @@ impl Camera {
     }
 
     /// Centres on a world point, clamped to the world bounds.
-    pub fn follow(&mut self, (cx, cy): (i32, i32), (world_w, world_h): (i32, i32)) {
-        self.x = (cx - self.w / 2).clamp(0, (world_w - self.w).max(0));
-        self.y = (cy - self.h / 2).clamp(0, (world_h - self.h).max(0));
+    pub fn follow(&mut self, at: (i32, i32), (world_w, world_h): (i32, i32)) {
+        self.follow_within(at, Rect::new(0, 0, world_w, world_h));
+    }
+
+    /// Centres on a world point, clamped to the bounds `within` (world
+    /// px).
+    pub fn follow_within(&mut self, (cx, cy): (i32, i32), within: Rect) {
+        self.x = (cx - self.w / 2).clamp(within.x, (within.right() - self.w).max(within.x));
+        self.y = (cy - self.h / 2).clamp(within.y, (within.bottom() - self.h).max(within.y));
     }
 
     pub fn to_screen(&self, wx: i32, wy: i32) -> (i32, i32) {

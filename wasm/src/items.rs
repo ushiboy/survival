@@ -128,6 +128,10 @@ pub enum ItemKind {
     /// fire drill, a branch and a palm frond burnt on it send up smoke for
     /// a day, for a passing plane to see.
     SignalFire,
+    /// Stakes split from bamboo, and rope for a line between them: held in
+    /// hand and driven in round the turning wood lathe (B), they mark out
+    /// the ground the mill is to stand on.
+    MarkingStakes,
 }
 
 /// Where a piece of gear goes.
@@ -189,7 +193,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, numbered as the debug tools give them (add new kinds
     /// here too; the page lists them by its own names for them).
-    pub const ALL: [ItemKind; 45] = [
+    pub const ALL: [ItemKind; 46] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -235,6 +239,7 @@ impl ItemKind {
         ItemKind::SpokedWheel,
         ItemKind::Handcart,
         ItemKind::SignalFire,
+        ItemKind::MarkingStakes,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -271,7 +276,7 @@ impl ItemKind {
             | ItemKind::ToolBelt => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WaterWheel => (3, 3),
-            ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade => (1, 3),
+            ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade | ItemKind::MarkingStakes => (1, 3),
             ItemKind::Ladder | ItemKind::LogBridge => (1, 4),
             ItemKind::Timber
             | ItemKind::LauanTimber
@@ -331,6 +336,7 @@ impl ItemKind {
             ItemKind::SpokedWheel => "SPOKED WHEEL",
             ItemKind::Handcart => "HANDCART",
             ItemKind::SignalFire => "SIGNAL FIRE",
+            ItemKind::MarkingStakes => "MARKING STAKES",
         }
     }
 
@@ -383,6 +389,7 @@ impl ItemKind {
             ItemKind::SpokedWheel => "A HUB, SPOKES AND RIM, ALL TURNED ROUND. IT ROLLS UNDER A LOAD.",
             ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
             ItemKind::SignalFire => "STONES IN EARTH, WOOD STACKED ON. LIGHT A BRANCH AND A PALM FROND ON IT TO SEND UP SMOKE.",
+            ItemKind::MarkingStakes => "STAKES AND A LINE TO MARK OUT GROUND FOR SOMETHING BIG.",
         }
     }
 
@@ -466,7 +473,8 @@ impl ItemKind {
             | ItemKind::DiggingStick
             | ItemKind::BambooSpade
             | ItemKind::WoodLathe
-            | ItemKind::SignalFire => Some(Slot::Hand),
+            | ItemKind::SignalFire
+            | ItemKind::MarkingStakes => Some(Slot::Hand),
             ItemKind::PackFrame => Some(Slot::Back),
             ItemKind::ToolBelt => Some(Slot::Waist),
             _ => None,

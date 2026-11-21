@@ -33,6 +33,14 @@ impl Body {
         self.world_hitbox().center()
     }
 
+    /// Moves straight over to stand with the feet at `(fx, fy)` (world
+    /// px), through anything in the way.
+    pub fn set_feet(&mut self, (fx, fy): (i32, i32)) {
+        let (x, y) = self.feet();
+        self.x += px_to_fx(fx - x);
+        self.y += px_to_fx(fy - y);
+    }
+
     /// Moves by a fixed-point delta, one axis at a time so walls can be slid
     /// along. When blocked head-on, `corner_assist` (px) nudges the body
     /// sideways around corners — the "forgiving" feel of good action games.

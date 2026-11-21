@@ -239,6 +239,8 @@ pub struct BagSprites {
     pub digging_stick: [SpriteId; 2],
     /// Upright, turned.
     pub bamboo_spade: [SpriteId; 2],
+    /// Upright, turned.
+    pub marking_stakes: [SpriteId; 2],
     pub clay: SpriteId,
     pub soil: SpriteId,
     pub signal_fire: SpriteId,
@@ -300,6 +302,7 @@ impl BagSprites {
             ItemKind::Handcart => (self.handcart, palettes::OBJ_FX),
             ItemKind::DiggingStick => (self.digging_stick[turned as usize], palettes::OBJ_CRAB),
             ItemKind::BambooSpade => (self.bamboo_spade[turned as usize], palettes::OBJ_FX),
+            ItemKind::MarkingStakes => (self.marking_stakes[turned as usize], palettes::OBJ_FX),
             ItemKind::Clay => (self.clay, palettes::OBJ_FX),
             ItemKind::Soil => (self.soil, palettes::OBJ_CRAB),
             ItemKind::SignalFire => (self.signal_fire, palettes::OBJ_FX),
@@ -371,6 +374,7 @@ pub struct SpriteIds {
     /// Digging tools lying on the ground, and what they dig.
     pub digging_stick: SpriteId,
     pub bamboo_spade: SpriteId,
+    pub marking_stakes: SpriteId,
     pub clay: SpriteId,
     pub soil: SpriteId,
     pub bark_pot: SpriteId,
@@ -411,6 +415,11 @@ pub struct SpriteIds {
     pub lean_to: SpriteId,
     pub fire: FireSprites,
     pub signal_fire: SignalFireSprites,
+    /// The posts of the mill's frame: the back (north) ones and the taller
+    /// front (south) ones.
+    pub mill_post: [SpriteId; 2],
+    /// A beam of the mill's frame, the north plate to the south one.
+    pub mill_beam: SpriteId,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
     /// A puff of dust: whole, breaking up.
@@ -676,6 +685,10 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             let b = item_art::icon_bamboo_spade();
             [bank.add(&b), bank.add(&b.rotated_cw())]
         },
+        marking_stakes: {
+            let m = item_art::icon_marking_stakes();
+            [bank.add(&m), bank.add(&m.rotated_cw())]
+        },
         clay: bank.add(&item_art::icon_clay()),
         soil: bank.add(&item_art::icon_soil()),
         signal_fire: bank.add(&item_art::signal_fire(false)),
@@ -739,6 +752,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         bamboo_lying: bank.add(&bamboo_lying()),
         digging_stick: bank.add(&digging_stick()),
         bamboo_spade: bank.add(&bamboo_spade()),
+        marking_stakes: bank.add(&marking_stakes()),
         clay: bank.add(&clay_lump()),
         soil: bank.add(&soil_heap()),
         bark_pot: bank.add(&bark_pot()),
@@ -770,6 +784,11 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         pine_cone: bank.add(&pine_cone()),
         snore: bank.add(&snore()),
         dust: dust_frames().map(|a| bank.add(&a)),
+        mill_post: [
+            bank.add(&mill_post(crate::game::mill::POST_TOP, crate::game::mill::POST_FOOT)),
+            bank.add(&mill_post(crate::game::mill::POST_TOP_FRONT, crate::game::mill::POST_FOOT)),
+        ],
+        mill_beam: bank.add(&mill_beam(crate::game::mill::beam_len())),
         signal_fire: SignalFireSprites {
             hearth: bank.add(&item_art::signal_fire(false)),
             lit: bank.add(&item_art::signal_fire(true)),

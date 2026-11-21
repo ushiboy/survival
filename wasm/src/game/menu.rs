@@ -26,6 +26,7 @@
 //! slot straight away, from the items page.
 
 use super::bag::{BAG_W, Bag, Placed, footprint};
+use super::mill::MillWorks;
 use super::state::{Gear, HOOK_CELLS, Inventory};
 use crate::common::input::{Buttons, InputState};
 use crate::crafting::{RECIPES, RecipeOrder};
@@ -117,10 +118,13 @@ pub enum Page {
     /// Moving things between the bag and the handcart's load (only with
     /// the cart at hand).
     Cart,
+    /// Leaving materials at the mill's site and building its next stage
+    /// (only near its marked-out ground, while there's a stage to build).
+    Build,
 }
 
 impl Page {
-    pub const ALL: [Page; 4] = [Page::Items, Page::Craft, Page::Gear, Page::Cart];
+    pub const ALL: [Page; 5] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Build];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -128,6 +132,7 @@ impl Page {
             Page::Craft => "CRAFT",
             Page::Gear => "GEAR",
             Page::Cart => "CART",
+            Page::Build => "BUILD",
         }
     }
 }
@@ -223,6 +228,13 @@ pub enum Mode {
     Cart {
         in_cart: bool,
     },
+    /// On the build page, on a line of the next stage's materials (`row`,
+    /// from 0) or, after them, on BUILD; `confirming` while asking whether
+    /// to build it.
+    Build {
+        row: usize,
+        confirming: bool,
+    },
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -241,6 +253,12 @@ pub enum Outcome {
     /// Something made that doesn't go in the bag (a handcart) is handed
     /// over to the game; its materials are used up.
     Made(ItemKind),
+    /// As many of a kind as the mill's next stage still takes are to be
+    /// left at its site (from the bag, then the cart).
+    Deliver(ItemKind),
+    /// The mill's next stage is to be built: everything it takes is in,
+    /// and the tools are carried. The bag closes.
+    Build,
 }
 
 #[derive(Clone, Debug)]
@@ -257,6 +275,13 @@ pub struct BagMenu {
     /// The handcart is at hand (being pulled, or set down close by): its
     /// load can be got at.
     pub cart_at_hand: bool,
+    /// The castaway is fit to see the mill's next stage through (its hours
+    /// of work wouldn't leave them close to collapse).
+    pub fit_to_build: bool,
+    /// How far the mill has got, while the BUILD screen is open at the
+    /// bench beside its ground (the build page is there only then, on its
+    /// own, not among the bag's pages).
+    pub works: Option<MillWorks>,
     held_frames: u32,
 }
 
@@ -334,13 +359,44 @@ impl BagMenu {
         inv.recipes.sorted(|w| inv.can_make(&RECIPES[w]) && self.in_place_for(&RECIPES[w]))
     }
 
-    /// The pages to choose from: the cart's only with it at hand.
+    /// The pages to choose from: the cart's only with it at hand, the
+    /// build page only by the mill's site.
     pub fn pages(&self) -> Vec<Page> {
-        Page::ALL.into_iter().filter(|&p| p != Page::Cart || self.cart_at_hand).collect()
+        Page::ALL
+            .into_iter()
+            .filter(|&p| match p {
+                _ if self.works.is_some() => p == Page::Build,
+                Page::Cart => self.cart_at_hand,
+                Page::Build => false,
+                _ => true,
+            })
+            .collect()
     }
 
     pub fn browse() -> Self {
-        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, near_lathe: false, cart_at_hand: false, held_frames: 0 }
+        Self {
+            cursor: (0, 0),
+            mode: Mode::Browse,
+            notice: None,
+            near_fire: false,
+            near_lathe: false,
+            cart_at_hand: false,
+            fit_to_build: true,
+            works: None,
+            held_frames: 0,
+        }
+    }
+
+    /// Opens the BUILD screen (at the bench beside the mill's ground), on
+    /// its first line, with how far the mill has got.
+    pub fn building(works: MillWorks) -> Self {
+        Self { mode: Mode::Build { row: 0, confirming: false }, works: Some(works), ..Self::browse() }
+    }
+
+    /// How many of `kind` are at hand to leave at the mill's site: in the
+    /// bag, and in the cart while it's at hand.
+    pub fn at_hand(&self, inv: &Inventory, kind: ItemKind) -> u32 {
+        inv.bag.count(kind) + inv.cart.as_ref().filter(|_| self.cart_at_hand).map_or(0, |c| c.count(kind))
     }
 
     /// Opens holding something just picked up (`count` of a kind) that
@@ -373,6 +429,7 @@ impl BagMenu {
             Mode::Crafting { .. } | Mode::Sorting { .. } | Mode::Recipe { .. } => Page::Craft,
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             Mode::Cart { .. } => Page::Cart,
+            Mode::Build { .. } => Page::Build,
             _ => Page::Items,
         }
     }
@@ -387,6 +444,7 @@ impl BagMenu {
                 self.cursor = (0, 0);
                 Mode::Cart { in_cart: false }
             }
+            Page::Build => Mode::Build { row: 0, confirming: false },
         };
     }
 
@@ -545,6 +603,7 @@ impl BagMenu {
             }
             Mode::Holding(held) => self.update_holding(input, inv, held, step),
             Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
+            Mode::Build { row, confirming } => self.update_build(input, inv, row, confirming, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Sorting { choice, pick } => {
                 let orders = RecipeOrder::ALL;
@@ -729,7 +788,13 @@ impl BagMenu {
             inv.took(recipe.makes);
             self.notice = Some("MADE IT!");
         } else {
-            *self = Self { near_fire: self.near_fire, near_lathe: self.near_lathe, cart_at_hand: self.cart_at_hand, ..Self::holding(recipe.makes, 1) };
+            *self = Self {
+                near_fire: self.near_fire,
+                near_lathe: self.near_lathe,
+                cart_at_hand: self.cart_at_hand,
+                works: self.works.take(),
+                ..Self::holding(recipe.makes, 1)
+            };
         }
         Outcome::Stay
     }
@@ -788,6 +853,92 @@ impl BagMenu {
             _ => "SOME OF IT WOULDN'T FIT",
         });
         Outcome::Stay
+    }
+
+    /// The BUILD screen: up and down go over the next stage's materials
+    /// and on to BUILD; A on a material asks whether to put what's at hand
+    /// of it in at the site (A again puts it in), and A on BUILD asks
+    /// whether to build it (A again builds it); B says no to either.
+    /// Otherwise B closes it.
+    fn update_build(&mut self, input: &InputState, inv: &Inventory, row: usize, confirming: bool, step: Option<(i32, i32)>) -> Outcome {
+        let Some(stage) = self.works.as_ref().and_then(MillWorks::next) else {
+            return Outcome::Close;
+        };
+        let lines = stage.needs.len() + 1;
+        if confirming {
+            if input.pressed(Buttons::A) {
+                self.mode = Mode::Build { row, confirming: false };
+                return match stage.needs.get(row) {
+                    Some(&(kind, _)) => Outcome::Deliver(kind),
+                    None => Outcome::Build,
+                };
+            }
+            if input.pressed(Buttons::B) {
+                self.mode = Mode::Build { row, confirming: false };
+                self.notice = None;
+            }
+            return Outcome::Stay;
+        }
+        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+            self.mode = Mode::Build { row: (row as i32 + dy).clamp(0, lines as i32 - 1) as usize, confirming: false };
+            self.notice = None;
+            return Outcome::Stay;
+        }
+        if input.pressed(Buttons::B) {
+            return Outcome::Close;
+        }
+        if !input.pressed(Buttons::A) {
+            return Outcome::Stay;
+        }
+        // A material: asked whether to put in what would go (none to put
+        // in says so straight away).
+        if let Some(&(kind, _)) = stage.needs.get(row) {
+            match self.why_not_put_in(inv, kind) {
+                Some(why) => self.notice = Some(why),
+                None => {
+                    self.mode = Mode::Build { row, confirming: true };
+                    self.notice = None;
+                }
+            }
+            return Outcome::Stay;
+        }
+        match self.why_not_build(inv) {
+            Some(why) => self.notice = Some(why),
+            None => {
+                self.mode = Mode::Build { row, confirming: true };
+                self.notice = None;
+            }
+        }
+        Outcome::Stay
+    }
+
+    /// How many of `kind` would be put in at the mill's site now: as many
+    /// as are at hand, no more than the next stage still takes.
+    pub fn to_put_in(&self, inv: &Inventory, kind: ItemKind) -> u32 {
+        self.works.as_ref().map_or(0, |w| w.still_needs(kind).min(self.at_hand(inv, kind)))
+    }
+
+    /// Why none of `kind` can be put in at the mill's site now, if none
+    /// can.
+    fn why_not_put_in(&self, inv: &Inventory, kind: ItemKind) -> Option<&'static str> {
+        let works = self.works.as_ref()?;
+        if works.still_needs(kind) == 0 {
+            return Some("THAT'S ALL IT TAKES");
+        }
+        (self.at_hand(inv, kind) == 0).then_some("NONE AT HAND")
+    }
+
+    /// Why the mill's next stage can't be built now, if it can't.
+    pub fn why_not_build(&self, inv: &Inventory) -> Option<&'static str> {
+        let works = self.works.as_ref()?;
+        let stage = works.next()?;
+        if !works.all_in() {
+            return Some("NOT ENOUGH MATERIALS");
+        }
+        if !stage.tools.iter().all(|&t| inv.carries(t)) {
+            return Some("MISSING A TOOL");
+        }
+        (!self.fit_to_build).then_some("TOO WEAK TO BUILD")
     }
 
     fn update_holding(&mut self, input: &InputState, inv: &mut Inventory, mut held: HeldItem, step: Option<(i32, i32)>) -> Outcome {
@@ -1103,6 +1254,67 @@ mod tests {
         assert!(!menu.pages().contains(&Page::Cart));
         menu.cart_at_hand = true;
         assert!(menu.pages().contains(&Page::Cart));
+    }
+
+    #[test]
+    fn the_build_screen_is_a_page_on_its_own_and_the_bag_has_none() {
+        let mut menu = BagMenu::browse();
+        menu.cart_at_hand = true;
+        assert!(!menu.pages().contains(&Page::Build));
+        let menu = BagMenu::building(MillWorks::default());
+        assert_eq!(menu.pages(), vec![Page::Build]);
+    }
+
+    #[test]
+    fn a_material_with_none_at_hand_says_so_without_asking() {
+        let mut menu = BagMenu::building(MillWorks::default());
+        let mut inv = Inventory::default();
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.mode, Mode::Build { row: 0, confirming: false });
+        assert_eq!(menu.notice, Some("NONE AT HAND"));
+    }
+
+    #[test]
+    fn a_material_at_hand_is_asked_about_before_it_goes_in() {
+        let mut menu = BagMenu::building(MillWorks::default());
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Stone, 3);
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.mode, Mode::Build { row: 0, confirming: true });
+        assert_eq!(menu.to_put_in(&inv, ItemKind::Stone), 3);
+    }
+
+    #[test]
+    fn build_waits_for_every_material_then_the_tools() {
+        let mut menu = BagMenu::building(MillWorks::default());
+        let mut inv = Inventory::default();
+        assert_eq!(menu.why_not_build(&inv), Some("NOT ENOUGH MATERIALS"));
+        let works = menu.works.as_mut().unwrap();
+        for &(kind, n) in works.next().unwrap().needs {
+            works.deliver(kind, n);
+        }
+        assert_eq!(menu.why_not_build(&inv), Some("MISSING A TOOL"));
+        for &tool in menu.works.as_ref().unwrap().next().unwrap().tools {
+            inv.bag.stow_one(tool);
+        }
+        assert_eq!(menu.why_not_build(&inv), None);
+    }
+
+    #[test]
+    fn with_everything_in_build_still_waits_for_the_strength_to_see_it_through() {
+        let mut menu = BagMenu::building(MillWorks::default());
+        let mut inv = Inventory::default();
+        let works = menu.works.as_mut().unwrap();
+        for &(kind, n) in works.next().unwrap().needs {
+            works.deliver(kind, n);
+        }
+        for &tool in menu.works.as_ref().unwrap().next().unwrap().tools {
+            inv.bag.stow_one(tool);
+        }
+        menu.fit_to_build = false;
+        assert_eq!(menu.why_not_build(&inv), Some("TOO WEAK TO BUILD"));
+        menu.fit_to_build = true;
+        assert_eq!(menu.why_not_build(&inv), None);
     }
 
     #[test]

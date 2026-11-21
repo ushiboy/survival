@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::river::River;
-use super::terrain::{Feature, Soil, Terrain, TileProps, tile_props};
+use super::terrain::{Feature, Marking, Soil, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
 use crate::items::ItemKind;
 
@@ -37,6 +37,9 @@ pub struct Spots {
 pub struct WorldMap {
     w: i32,
     h: i32,
+    /// How many rows of the map are the island's: the mill's room is kept
+    /// in the rows south of them (`add_mill_room`).
+    island_h: i32,
     terrain: Vec<Terrain>,
     features: Vec<Feature>,
     /// Smooth elevation per cell (tiles above the waterline), sampled at cell
@@ -70,7 +73,32 @@ pub struct WorldMap {
     pub crab_spawns: Vec<(i32, i32)>,
     /// Things lying about when the castaway arrives (world px).
     pub loot: Vec<(ItemKind, (i32, i32))>,
+    /// How far the mill's door stands open (0 shut, `MILL_DOOR_OPEN` wide
+    /// open). Not kept in the save: it's shut on carrying on.
+    mill_door: u8,
+    /// Whether the mill's roof is being built (it's drawn from the start
+    /// of the work). Not kept in the save: there's no saving mid-work.
+    mill_roofing: bool,
 }
+
+/// How far the mill's door slides open, in steps (`WorldMap::mill_door`):
+/// it slides `MILL_DOOR_STEP_PX` into the wall a step.
+pub const MILL_DOOR_OPEN: u8 = 4;
+/// How far (px) the mill's door slides a step.
+pub const MILL_DOOR_STEP_PX: i32 = 8;
+
+/// How far the mill's room's floor runs, across and down (cells): far
+/// roomier than the hut looks from outside.
+pub const MILL_ROOM_FLOOR: (i32, i32) = (24, 12);
+/// The column of the mill's room's west wall.
+const MILL_ROOM_WEST: i32 = 1;
+/// How many rows of the dark are kept above the mill's room: the camera
+/// takes them in at the top, so the north wall shows below the HUD drawn
+/// over the top of the screen.
+pub const MILL_ROOM_ABOVE: i32 = 2;
+/// The rows south of the island that keep the mill's room: the dark
+/// above it, its walls and floor, a row of the dark below.
+const MILL_ROOM_ROWS: i32 = MILL_ROOM_ABOVE + MILL_ROOM_FLOOR.1 + 4 + 1;
 
 /// How many cells of rock face a ladder spans.
 pub const LADDER_ROWS: i32 = 2;
@@ -107,6 +135,53 @@ pub fn lathe_stand((sx, sy): (i32, i32)) -> (i32, i32) {
     (sx - 2, sy)
 }
 
+/// The ground the mill is to stand on, marked out with stakes, off the
+/// mill site's bank `site`: `(x0, y0, x1, y1)`, its corner cells. It runs
+/// west from the bank and takes in the wood lathe beside the water wheel
+/// (on its east edge), for the mill to be built round it. It stops a row
+/// short of the water-drawing spot north of the lathe: the frame's north
+/// plate rises into that row, which must be clear of the river's water
+/// drawn on BG2.
+pub fn mill_plot((sx, sy): (i32, i32)) -> (i32, i32, i32, i32) {
+    (sx - 6, sy - 2, sx, sy + 2)
+}
+
+/// Where the bench for building the mill stands, off the mill site's bank
+/// `site`: just west of its ground, a row in from its north edge (out of
+/// the way of the building, on the side the castaway comes from, and off
+/// the row of the spot they build from).
+pub fn site_bench(site: (i32, i32)) -> (i32, i32) {
+    let (x0, y0, _, _) = mill_plot(site);
+    (x0 - 1, y0 + 1)
+}
+
+/// The mill's doorway off the mill site's bank `site`: the two cells of
+/// its south wall between the south-west post and the middle one, left
+/// open (wide enough to pull the cart in).
+pub fn mill_doorway(site: (i32, i32)) -> [(i32, i32); 2] {
+    let (x0, _, _, y1) = mill_plot(site);
+    [(x0 + 1, y1), (x0 + 2, y1)]
+}
+
+/// Where the mill's posts will stand on its ground off the mill site's
+/// bank `site`, a flat stone bedded under each: its corners and the middle
+/// of its long sides.
+pub fn foundation_stones(site: (i32, i32)) -> [(i32, i32); 6] {
+    let (x0, y0, x1, y1) = mill_plot(site);
+    let mid = (x0 + x1) / 2;
+    [(x0, y0), (mid, y0), (x1, y0), (x0, y1), (mid, y1), (x1, y1)]
+}
+
+/// How many cells round the mill's ground marking stakes held in hand are
+/// still driven in there (the castaway walks over first).
+pub const STAKES_REACH: i32 = 4;
+
+/// Where the castaway stands to drive the marking stakes in: in the
+/// middle of the mill's ground, west of the lathe.
+pub fn stakes_stand((sx, sy): (i32, i32)) -> (i32, i32) {
+    (sx - 3, sy)
+}
+
 /// How many rows up or down the river from the narrow's middle a log
 /// bridge can be held out and still go across it (at the middle).
 pub const BRIDGE_REACH: i32 = 3;
@@ -136,6 +211,7 @@ impl WorldMap {
         Self {
             w,
             h,
+            island_h: h,
             terrain: vec![fill; n],
             features: vec![Feature::None; n],
             elevation: vec![0.0; n],
@@ -152,6 +228,8 @@ impl WorldMap {
             spawn: (0, 0),
             crab_spawns: Vec::new(),
             loot: Vec::new(),
+            mill_door: 0,
+            mill_roofing: false,
         }
     }
 
@@ -165,6 +243,84 @@ impl WorldMap {
 
     pub fn pixel_size(&self) -> (i32, i32) {
         (self.w * TILE_SIZE, self.h * TILE_SIZE)
+    }
+
+    /// The island's part of the map (cells): all of it but the rows south
+    /// of it that keep the mill's room.
+    pub fn island_size(&self) -> (i32, i32) {
+        (self.w, self.island_h)
+    }
+
+    /// The island's part of the map (px), what the camera keeps to
+    /// outside.
+    pub fn island_pixel_size(&self) -> (i32, i32) {
+        (self.w * TILE_SIZE, self.island_h * TILE_SIZE)
+    }
+
+    /// Adds the rows south of the island that keep the mill's room
+    /// (`mill_room`), out of sight of it: its walls, its floor, its door,
+    /// and the dark round them. What's set in it once the mill is built
+    /// (the workbench, the lathe) goes in with the roof (`put_on_roof`).
+    pub fn add_mill_room(&mut self) {
+        let extra = MILL_ROOM_ROWS;
+        let n = (self.w * extra) as usize;
+        let h = self.h;
+        self.terrain.extend(std::iter::repeat_n(Terrain::Indoors, n));
+        self.features.extend(std::iter::repeat_n(Feature::MillRoomWall, n));
+        self.elevation.extend(std::iter::repeat_n(0.0, n));
+        self.riverside.extend(std::iter::repeat_n(false, n));
+        self.foot.extend(std::iter::repeat_n(0, n));
+        self.high.extend(std::iter::repeat_n(false, n));
+        self.soil.extend(std::iter::repeat_n(Soil::Sand, n));
+        self.rise.extend(std::iter::repeat_n(0, n));
+        self.h = h + extra;
+        let (x0, y0, x1, y1) = self.mill_room();
+        for y in y0 + 2..y1 - 1 {
+            for x in x0 + 1..x1 {
+                self.set_feature(x, y, Feature::None);
+            }
+        }
+        for (x, y) in self.mill_room_door() {
+            self.set_feature(x, y, Feature::MillDoor);
+        }
+    }
+
+    /// The mill's room, kept in the rows south of the island: its corner
+    /// cells `(x0, y0, x1, y1)`, walls and all. The west and east walls
+    /// are the columns `x0` and `x1`; the north wall's face rises in the
+    /// two rows from `y0`, the south wall's in the two up to `y1`, the
+    /// floor between (`MILL_ROOM_FLOOR`).
+    pub fn mill_room(&self) -> (i32, i32, i32, i32) {
+        let (x0, y0) = (MILL_ROOM_WEST, self.island_h + MILL_ROOM_ABOVE);
+        (x0, y0, x0 + MILL_ROOM_FLOOR.0 + 1, y0 + MILL_ROOM_FLOOR.1 + 3)
+    }
+
+    /// The mill's room's door: the cells of the south wall's upper row
+    /// it's hung in, toward the west (as outside), stepped into on the way
+    /// out.
+    pub fn mill_room_door(&self) -> [(i32, i32); 2] {
+        let (x0, _, _, y1) = self.mill_room();
+        [(x0 + 2, y1 - 1), (x0 + 3, y1 - 1)]
+    }
+
+    /// Whether feet at `(fx, fy)` (world px) are in the mill's room.
+    pub fn in_mill_room(&self, (_, fy): (i32, i32)) -> bool {
+        fy >= self.island_h * TILE_SIZE
+    }
+
+    /// Where the workbench stands in the mill's room (the bench the mill
+    /// was built from, brought in): against the north wall, toward the
+    /// west.
+    pub fn mill_room_bench(&self) -> (i32, i32) {
+        let (x0, y0, _, _) = self.mill_room();
+        (x0 + 3, y0 + 2)
+    }
+
+    /// Where the lathe stands in the mill's room, as `lathe_cells` takes
+    /// it: by the east wall (the wheel's axle comes through it).
+    pub fn mill_room_lathe(&self) -> (i32, i32) {
+        let (_, y0, x1, _) = self.mill_room();
+        (x1 - 1, y0 + 7)
     }
 
     /// Chunk columns and rows covering the map.
@@ -454,6 +610,219 @@ impl WorldMap {
         cells.to_vec()
     }
 
+    /// Where marking stakes held by someone at the cell `(x, y)` would be
+    /// driven in: the mill site's bank (its cell), if the wood lathe turns
+    /// beside the wheel there, the mill's ground isn't marked out yet, its
+    /// corners and the bench's cell are clear, and the cell is within
+    /// `STAKES_REACH` of it.
+    pub fn stakes_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let site = self.spots.mill.filter(|_| self.lathe_middle().is_some() && !self.is_staked())?;
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let clear = [(x0, y0), (x1, y0), (x0, y1), (x1, y1), site_bench(site)]
+            .iter()
+            .all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
+        let near = (x0 - STAKES_REACH..=x1 + STAKES_REACH).contains(&x) && (y0 - STAKES_REACH..=y1 + STAKES_REACH).contains(&y);
+        (clear && near).then_some(site)
+    }
+
+    /// Marks out the mill's ground off the mill site's bank `site`: a
+    /// stake at each corner, rope along the edges between them, and the
+    /// bench for building it set up beside it (`site_bench`) (what
+    /// stands on an edge already, the lathe, stays, the rope drawn over
+    /// it). Returns the cells whose look changed.
+    pub fn set_stakes(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let mut changed = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let (top, bottom, left, right) = (y == y0, y == y1, x == x0, x == x1);
+                if !(top || bottom || left || right) {
+                    continue;
+                }
+                // What already stands on an edge (the lathe) keeps its
+                // place; the rope is drawn on over it.
+                if self.feature(x, y) != Feature::None {
+                    changed.push((x, y));
+                    continue;
+                }
+                let mut ropes = 0;
+                if top || bottom {
+                    ropes |= if x < x1 { Marking::EAST } else { 0 } | if x > x0 { Marking::WEST } else { 0 };
+                }
+                if left || right {
+                    ropes |= if y < y1 { Marking::SOUTH } else { 0 } | if y > y0 { Marking::NORTH } else { 0 };
+                }
+                let stake = (top || bottom) && (left || right);
+                self.set_feature(x, y, Feature::Marking(Marking { stake, ropes }));
+                changed.push((x, y));
+            }
+        }
+        let bench = site_bench(site);
+        self.set_feature(bench.0, bench.1, Feature::SiteBench);
+        changed.push(bench);
+        changed
+    }
+
+    /// Lays the mill's foundation on its ground off the mill site's bank
+    /// `site`: the stakes and rope come up, the ground is tamped, and flat
+    /// stones are bedded where the posts will stand (`foundation_stones`).
+    /// What stands there already (the lathe) stays. Returns the cells
+    /// changed.
+    pub fn lay_foundation(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let stones = foundation_stones(site);
+        let mut changed = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if matches!(self.feature(x, y), Feature::None | Feature::Marking(_)) {
+                    self.set_feature(x, y, Feature::Foundation(stones.contains(&(x, y))));
+                }
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Raises the mill's frame on its foundation off the mill site's bank
+    /// `site`: a post on each stone; the plates and beams over the ground
+    /// are drawn from where the posts are (`mill_frame`). Returns the
+    /// cells whose look changed: the ground, and the row north of it the
+    /// north posts' heads reach up into.
+    pub fn raise_frame(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let mut changed = Vec::new();
+        for y in y0 - 1..=y1 {
+            for x in x0..=x1 {
+                if let Feature::Foundation(stone) = self.feature(x, y) {
+                    self.set_feature(x, y, Feature::Framed(stone));
+                }
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Walls the mill off the mill site's bank `site`: each cell of the
+    /// ground's edges between the posts becomes wall, but the doorway (and
+    /// the lathe, which stands in the east wall). Returns the cells whose
+    /// look changed: the ground, and the row north of it the north wall's
+    /// face reaches up into.
+    pub fn raise_walls(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let doorway = mill_doorway(site);
+        let mut changed = Vec::new();
+        for y in y0 - 1..=y1 {
+            for x in x0..=x1 {
+                let edge = (y0..=y1).contains(&y) && (x == x0 || x == x1 || y == y0 || y == y1);
+                if edge && !doorway.contains(&(x, y)) && self.feature(x, y) == Feature::Framed(false) {
+                    self.set_feature(x, y, Feature::MillWall);
+                }
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Roofs the mill off the mill site's bank `site`: the thatch goes on
+    /// over the frame, a door is hung in the doorway, and the bench beside
+    /// it is cleared away (the building's done). Returns the cells whose
+    /// look changed: the ground, the row north of it the roof's ridge
+    /// reaches up into, and the bench's.
+    pub fn put_on_roof(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        self.mill_roofing = false;
+        for (x, y) in mill_doorway(site) {
+            if self.feature(x, y) == Feature::Framed(false) {
+                self.set_feature(x, y, Feature::MillDoor);
+            }
+        }
+        let bench = site_bench(site);
+        if self.feature(bench.0, bench.1) == Feature::SiteBench {
+            self.set_feature(bench.0, bench.1, Feature::None);
+        }
+        let mut changed: Vec<(i32, i32)> = (y0 - 1..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect();
+        changed.push(bench);
+        // In the room: the bench, brought in for a workbench, and the
+        // lathe (the same one, the hut now round it).
+        let (bx, by) = self.mill_room_bench();
+        self.set_feature(bx, by, Feature::SiteBench);
+        changed.push((bx, by));
+        for (part, (x, y)) in lathe_cells(self.mill_room_lathe()).into_iter().enumerate() {
+            self.set_feature(x, y, Feature::Lathe(part as u8));
+            changed.push((x, y));
+        }
+        changed
+    }
+
+    /// Sets to roofing the mill off the mill site's bank `site`: the roof is
+    /// drawn from now on, the castaway working up on it (the door is hung
+    /// when it's done, `put_on_roof`). Returns the cells whose look
+    /// changed: the ground, and the row north of it the ridge reaches up
+    /// into.
+    pub fn start_roofing(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        self.mill_roofing = true;
+        (y0 - 1..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect()
+    }
+
+    /// Whether the mill's roof is drawn: on, or being built.
+    pub fn shows_mill_roof(&self) -> bool {
+        self.mill_roofing || self.has_mill_roof()
+    }
+
+    /// Whether the mill's roof is on (its door hung in the doorway).
+    pub fn has_mill_roof(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x, y) = mill_doorway(site)[0];
+            self.feature(x, y) == Feature::MillDoor
+        })
+    }
+
+    /// How far the mill's door stands open (0 shut, `MILL_DOOR_OPEN` wide
+    /// open).
+    pub fn mill_door(&self) -> u8 {
+        self.mill_door
+    }
+
+    /// Slides the mill's door a step toward open or shut. Returns the cells
+    /// whose look changed (the doorway's, and the row above it the door
+    /// reaches up into), none if it didn't move.
+    pub fn slide_mill_door(&mut self, open: bool) -> Vec<(i32, i32)> {
+        let Some(site) = self.spots.mill.filter(|_| self.has_mill_roof()) else { return Vec::new() };
+        let to = if open { (self.mill_door + 1).min(MILL_DOOR_OPEN) } else { self.mill_door.saturating_sub(1) };
+        if to == self.mill_door {
+            return Vec::new();
+        }
+        self.mill_door = to;
+        // The door's seen from inside too, the same door.
+        let room = self.mill_room_door();
+        mill_doorway(site).iter().flat_map(|&(x, y)| [(x, y - 1), (x, y)]).chain(room.iter().flat_map(|&(x, y)| [(x, y), (x, y + 1)])).collect()
+    }
+
+    /// Whether the mill's walls are up.
+    pub fn has_mill_walls(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            self.feature(x0, y0 + 1) == Feature::MillWall
+        })
+    }
+
+    /// Whether the mill's frame is up (its posts stand on the stones).
+    pub fn has_mill_frame(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            matches!(self.feature(x0, y0), Feature::Framed(_))
+        })
+    }
+
+    /// Whether the mill's ground is marked out (its corner stakes are in).
+    pub fn is_staked(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            matches!(self.feature(x0, y0), Feature::Marking(Marking { stake: true, .. }))
+        })
+    }
+
     /// Whether a signal fire could be set in the cell: dry ground (sand
     /// or grass, below or on the high ground) with nothing on it.
     pub fn signal_fire_spot(&self, x: i32, y: i32) -> bool {
@@ -467,6 +836,11 @@ impl WorldMap {
 
     /// The middle of the wood lathe (world px), if one stands by the wheel.
     pub fn lathe_middle(&self) -> Option<(i32, i32)> {
+        // With the hut round it, it's worked in the room.
+        if self.has_mill_roof() {
+            let (x, y) = self.mill_room_lathe();
+            return Some((x * TILE_SIZE, y * TILE_SIZE));
+        }
         let site = self.spots.mill?;
         let cells = lathe_cells(site);
         cells.iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::Lathe(_))).then_some((site.0 * TILE_SIZE, site.1 * TILE_SIZE))

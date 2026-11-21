@@ -237,6 +237,23 @@ impl Vitals {
         self.max_hp as f32 / 64.0 * minutes / per
     }
 
+    /// How much of the health gauge must be left at the end of a stretch of
+    /// work for the castaway to be fit to set to it: work that would leave
+    /// them close to collapse isn't taken on.
+    pub const WORK_SPARE: f32 = 1.0 / 8.0;
+
+    /// Whether the castaway is fit to set to `minutes` of work (awake, as
+    /// building the mill is): worn as they would be minute by minute
+    /// (tiredness, and hunger, thirst and ailments as they come), at least
+    /// `WORK_SPARE` of the gauge left at the end.
+    pub fn fit_to_work(&self, minutes: u32) -> bool {
+        let mut v = self.clone();
+        for _ in 0..minutes {
+            v.on_minute(Rest::Awake { ran: 0 });
+        }
+        v.hp as f32 >= v.max_hp as f32 * Self::WORK_SPARE
+    }
+
     /// Called once per in-game minute: hunger and thirst grow (slower while
     /// resting), health wears with them and with tiredness, and sleep mends
     /// it.
@@ -652,6 +669,40 @@ mod tests {
         let before = c.total_minutes();
         c.advance_minutes(25 * HOUR);
         assert_eq!(c.total_minutes() - before, 25 * HOUR);
+    }
+
+    /// The longest work (in whole hours, up to a day) `v` is fit for.
+    fn longest_work(v: &Vitals) -> u32 {
+        (0..=24).take_while(|&h| v.fit_to_work(h * HOUR)).last().unwrap_or(0)
+    }
+
+    #[test]
+    fn rested_and_fed_the_castaway_is_fit_for_a_long_days_work() {
+        assert!(Vitals::new().fit_to_work(10 * HOUR));
+    }
+
+    #[test]
+    fn weak_the_castaway_is_fit_only_for_shorter_work() {
+        let mut weak = Vitals::new();
+        weak.hp = weak.max_hp / 6;
+        assert!(longest_work(&weak) < longest_work(&Vitals::new()));
+        assert!(weak.fit_to_work(HOUR) && !weak.fit_to_work(10 * HOUR));
+    }
+
+    #[test]
+    fn work_that_would_leave_the_castaway_close_to_collapse_isnt_fit_for() {
+        let mut v = Vitals::new();
+        v.hp = 3;
+        assert!(!v.fit_to_work(HOUR), "it would leave next to nothing");
+    }
+
+    #[test]
+    fn thirsty_the_castaway_is_fit_for_less_work_than_with_water() {
+        let mut thirsty = Vitals::new();
+        thirsty.hp = thirsty.max_hp / 2;
+        let watered = thirsty.clone();
+        thirsty.water = 0;
+        assert!(longest_work(&thirsty) < longest_work(&watered));
     }
 
     #[test]
