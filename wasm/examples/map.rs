@@ -15,6 +15,7 @@
 //! - `--stakes`: the water wheel, the wood lathe and the marking stakes
 //!   round the mill's ground are set first.
 //! - `--foundation`: all that, and the mill's foundation laid.
+//! - `--frame`: and its frame raised on it too.
 //! - `--set-base`: keeps this run as the base later runs are compared
 //!   with; `--clear-base` goes back to comparing with the run before.
 //! - `--out DIR`: where to write (default `wasm/target/map`).
@@ -76,7 +77,8 @@ struct Options {
     wheel: bool,
     lathe: bool,
     stakes: bool,
-    foundation: bool,
+    /// How many of the mill's stages are built first.
+    stages: usize,
 }
 
 fn options() -> Options {
@@ -92,7 +94,7 @@ fn options() -> Options {
         wheel: false,
         lathe: false,
         stakes: false,
-        foundation: false,
+        stages: 0,
     };
     let mut args = std::env::args().skip(1);
     let number = |v: Option<String>, what: &str| -> i32 { v.and_then(|v| v.parse().ok()).unwrap_or_else(|| panic!("{what} needs a number")) };
@@ -114,7 +116,13 @@ fn options() -> Options {
                 o.wheel = true;
                 o.lathe = true;
                 o.stakes = true;
-                o.foundation = true;
+                o.stages = 1;
+            }
+            "--frame" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 2;
             }
             "--set-base" => o.set_base = true,
             "--clear-base" => o.clear_base = true,
@@ -187,8 +195,8 @@ fn main() {
     if o.stakes && !game.debug_set_stakes() {
         println!("the mill's ground isn't marked out");
     }
-    if o.foundation && !game.debug_build_mill(1) {
-        println!("the mill's foundation isn't laid");
+    if o.stages > 0 && !game.debug_build_mill(o.stages) {
+        println!("the mill's stages aren't built");
     }
     if o.bridge && !game.debug_lay_bridge() {
         println!("no bridge goes across the narrow");
@@ -461,6 +469,13 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::BareEarth(_) => [150, 110, 70],
         Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) | Feature::Marking(_) => [200, 150, 90],
         Feature::Foundation(_) => [170, 130, 90],
+        Feature::Framed(post) => {
+            if post {
+                [120, 80, 50]
+            } else {
+                [170, 130, 90]
+            }
+        }
         Feature::SiteBench => [200, 150, 90],
         Feature::None => c,
     }
@@ -629,6 +644,13 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::WaterWheel(_) => 'w',
                 Feature::Lathe(_) => 'T',
                 Feature::SiteBench => 'B',
+                Feature::Framed(post) => {
+                    if post {
+                        'P'
+                    } else {
+                        '_'
+                    }
+                }
                 Feature::Foundation(stone) => {
                     if stone {
                         'Q'

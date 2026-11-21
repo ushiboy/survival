@@ -14,7 +14,7 @@ pub mod save;
 pub mod state;
 
 use crate::assets::character::Outfit;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_CRAB_NIGHT, OBJ_FX, OBJ_WATER_FX, base_cgram, set_health_palette, set_player_palettes};
 use crate::assets::props::{PALM_W, coconut_spots};
 use crate::assets::{Assets, SpriteIds, ending_art};
 use crate::common::input::{Buttons, InputState};
@@ -1521,6 +1521,7 @@ impl Game {
         self.works.finish();
         let changed = match stage {
             0 => self.map.lay_foundation(site),
+            1 => self.map.raise_frame(site),
             _ => Vec::new(),
         };
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
@@ -1831,6 +1832,7 @@ impl Game {
         for fire in &self.signal_fires {
             fire.draw(list, &camera, sprites, self.frame_count);
         }
+        draw_mill_posts(list, &camera, sprites, &self.map, night);
         for crab in &self.crabs {
             crab.draw(list, &camera, sprites, night);
         }
@@ -2712,6 +2714,31 @@ fn cart_reach(cart: &Cart) -> Rect {
 /// step (a sixth of the way round between spokes over `CART_WHEEL_STEPS`
 /// pictures, on a wheel 11px across).
 const CART_WHEEL_STEP_PX: i32 = 2;
+
+/// The posts of the mill's frame, once it's up: sprites, sorted with the
+/// castaway by their feet, so they stand in front of someone behind them
+/// and behind someone in front (what spans between their heads is BG2, in
+/// front of everyone). At night in the dark palette, as things on the
+/// ground are.
+fn draw_mill_posts(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, map: &WorldMap, night: bool) {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_frame()) else { return };
+    let (_, _, _, y1) = crate::world::map::mill_plot(site);
+    let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
+    for stone in crate::world::map::foundation_stones(site) {
+        let front = stone.1 == y1;
+        let gfx = sprites.mill_post[front as usize];
+        let rise = mill::post_rise(stone.1, y1);
+        let (fx, fy) = mill::post_foot(stone);
+        let tall = rise + mill::POST_FOOT;
+        let h = (tall + 2 + 7) / 8 * 8;
+        // The art's post stands against its bottom, a pixel above it.
+        let (wx, wy) = (fx - 4, fy + 1 - h);
+        if camera.sees(wx, wy, 8, h) {
+            let (sx, sy) = camera.to_screen(wx, wy);
+            list.actor(fy, ObjEntry::new(sx, sy, gfx, palette, 2));
+        }
+    }
+}
 
 /// Draws the handcart where it stands, its poles pointing the way it was
 /// last pulled (at night in the dark palette, as things on the ground are).

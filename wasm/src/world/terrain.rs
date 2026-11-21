@@ -287,6 +287,11 @@ pub enum Feature {
     /// The mill's foundation: the ground tamped down hard, and (`true`) a
     /// flat stone bedded in it where a post will stand. Walked over.
     Foundation(bool),
+    /// The mill's frame raised on its foundation: the tamped ground, and
+    /// (`true`) a post stood on the stone there, which stands in the way.
+    /// The plates and beams between the posts' heads are drawn over the
+    /// ground round it (`render::tileset`).
+    Framed(bool),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,6 +323,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Lathe(_)
         | Feature::SiteBench => true,
         Feature::Marking(m) => m.stake,
+        Feature::Framed(post) => post,
         _ => false,
     };
     TileProps {

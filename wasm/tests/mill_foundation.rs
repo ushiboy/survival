@@ -213,15 +213,16 @@ fn building_wears_the_castaway_as_hours_awake_do() {
 }
 
 #[test]
-fn once_the_foundation_is_laid_there_is_nothing_more_to_build_yet() {
+fn once_the_foundation_is_laid_the_bench_moves_on_to_the_next_stage() {
     let mut game = all_in(true);
     build(&mut game, 600);
+    assert_eq!(game.mill_delivered(ItemKind::Stone), 0, "nothing in for the next stage yet");
     let (bx, by) = site_bench(mill_site(&game));
     game.debug_place_player((bx - 1, by));
     hold(&mut game, Buttons::RIGHT, 2);
     hold(&mut game, 0, 2);
     press(&mut game, Buttons::A);
-    assert_eq!(game.bag_page(), None);
+    assert_eq!(game.bag_page(), Some(Page::Build), "the BUILD screen, at the next stage");
 }
 
 #[test]

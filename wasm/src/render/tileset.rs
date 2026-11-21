@@ -15,6 +15,7 @@ use crate::assets::terrain::{TerrainTextures, sand_to, sand_to_shore, slice};
 use crate::assets::{Assets, PALM_SWAY_MAX, PropSet, SURF_FRAMES, SURF_PERIOD};
 use crate::common::math::Rect;
 use crate::common::rng::hash_unit;
+use crate::game::mill::post_head;
 use crate::ppu::banks::{MetatileBank, MetatileId};
 use crate::ppu::pattern::PixelArt;
 use crate::ppu::pattern::Tile16;
@@ -575,7 +576,7 @@ impl Builder<'_> {
         // tamped earth.
         let laid = map.spots.mill.is_some_and(|site| {
             let (x0, y0, _, _) = crate::world::map::mill_plot(site);
-            matches!(map.feature(x0, y0), Feature::Foundation(_))
+            matches!(map.feature(x0, y0), Feature::Foundation(_) | Feature::Framed(_))
         });
         if laid {
             tamp(&mut art, map, x, y);
@@ -637,6 +638,40 @@ impl Builder<'_> {
             }
         }
         self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// A cell of the mill's ground once its frame is up (grass palette): the
+    /// foundation as it was, the posts where they rise over it, and where a
+    /// post stands, its stone (what spans between the posts' heads is on
+    /// BG2, `mill_frame_overhead`).
+    fn framed(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, post: bool) -> MetatileId {
+        let mut art = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        tamp(&mut art, map, x, y);
+        // The posts are sprites (`Game::draw_mill_posts`), sorted with the
+        // castaway by their feet; here, only the stones they stand on.
+        if post {
+            paint_outlined(&mut art, foundation_stone, grass::SOIL);
+        }
+        self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// What of the mill's frame spans over the cell (grass palette, BG2):
+    /// the plates and the beams; `None` if nothing (or the frame isn't up).
+    fn mill_frame_overhead(&mut self, map: &WorldMap, x: i32, y: i32) -> Option<MetatileId> {
+        let (x0, y0, x1, y1) = crate::world::map::mill_plot(map.spots.mill?);
+        if !(x0..=x1).contains(&x) || !(y0 - 1..y1).contains(&y) || !map.has_mill_frame() {
+            return None;
+        }
+        // The posts are sprites, sorted with the castaway by their feet;
+        // what spans between their heads, higher than anyone's head, is in
+        // front of everyone.
+        let top = |px: i32, py: i32| span_px(map, x * 16 + px, y * 16 + py);
+        let mut art = PixelArt::filled(16, 16, 0);
+        let any = paint_outlined(&mut art, top, grass::SOIL);
+        any.then(|| self.unique_art(PAL_GRASS, &art))
     }
 
     /// The bench beside the mill's ground (grass palette): a plank laid on
@@ -2030,6 +2065,53 @@ fn site_bench_top(x: i32, y: i32) -> Option<u8> {
     None
 }
 
+/// Paints `top` (a cell's pixels, 0..16 each way) over `art`, outlined in
+/// `outline` where it meets what's under it. Whether anything was painted.
+fn paint_outlined(art: &mut PixelArt, top: impl Fn(i32, i32) -> Option<u8>, outline: u8) -> bool {
+    let mut any = false;
+    for py in 0..16i32 {
+        for px in 0..16i32 {
+            let c = top(px, py).or_else(|| [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| top(px + dx, py + dy).is_some()).then_some(outline));
+            if let Some(c) = c {
+                art.set(px as usize, py as usize, c);
+                any = true;
+            }
+        }
+    }
+    any
+}
+
+/// What spans between the posts' heads at world pixel `(wx, wy)`: pale
+/// pine beams across from the north plate to the south one (at the ends
+/// and the middle), and lauan plates along the north and south walls.
+fn span_px(map: &WorldMap, wx: i32, wy: i32) -> Option<u8> {
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(map.spots.mill?);
+    let mid = |c: i32| c * 16 + 8;
+    for cx in [x0, (x0 + x1) / 2, x1] {
+        let dx = wx - (mid(cx) - 2);
+        if (0..4).contains(&dx) && (post_head(y0, y1)..post_head(y1, y1) + 4).contains(&wy) {
+            return Some(if dx == 0 {
+                grass::WHITE
+            } else if dx == 3 {
+                grass::SAND[1]
+            } else {
+                grass::SAND[2]
+            });
+        }
+    }
+    for cy in [y0, y1] {
+        let dy = wy - post_head(cy, y1);
+        if (0..4).contains(&dy) && (mid(x0) - 2..mid(x1) + 2).contains(&wx) {
+            return Some(match dy {
+                0 => grass::SAND[1],
+                3 => grass::SOIL,
+                _ => grass::SAND[0],
+            });
+        }
+    }
+    None
+}
+
 /// A flat stone bedded in the mill's foundation, in the middle of its
 /// cell: a pale top, shaded toward its lower right.
 fn foundation_stone(x: i32, y: i32) -> Option<u8> {
@@ -2674,6 +2756,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Lathe(part) => b.lathe(map, river.as_ref(), x, y, part),
         Feature::Marking(m) => b.marking(map, river.as_ref(), x, y, m),
         Feature::Foundation(stone) => b.foundation(map, river.as_ref(), x, y, stone),
+        Feature::Framed(post) => b.framed(map, river.as_ref(), x, y, post),
         Feature::SiteBench => b.site_bench(x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),
@@ -2725,6 +2808,13 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
     };
     if let Some((cut, oy)) = dip(map, x, y).filter(|&(_, oy)| oy == 0 && overhead.is_empty()) {
         overhead = BgCell::new(b.unique_art(PAL_GRASS, &crumbled_grass(b.tex, cut, oy, x, y)));
+    }
+    // The mill's frame: the posts' heads and the plates and beams between
+    // them, in front of the castaway (who walks under them).
+    if overhead.is_empty()
+        && let Some(tile) = b.mill_frame_overhead(map, x, y)
+    {
+        overhead = BgCell { tile, hflip: false, high: true };
     }
     if let Some(r) = river.filter(|r| r.max > 0.0 && overhead.is_empty()) {
         overhead = BgCell { tile: b.river_water(map, &r, x, y), hflip: false, high: false };

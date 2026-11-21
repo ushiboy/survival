@@ -72,7 +72,7 @@ const en: typeof ja = {
       done: 'Signal fire smoke is now always seen (rescue an hour after lighting; one already burning, an hour from now)',
     },
     mill: 'Water mill',
-    millSteps: { WHEEL: 'water wheel', LATHE: 'wood lathe', STAKES: 'marking out', FOUNDATION: 'foundation' },
+    millSteps: { WHEEL: 'water wheel', LATHE: 'wood lathe', STAKES: 'marking out', FOUNDATION: 'foundation', FRAME: 'frame' },
     millNone: 'Nothing yet (next: {next})',
     millDone: 'Done up to the {step} (next: {next})',
     millNoNext: 'none',

@@ -24,7 +24,46 @@ pub const MILL_STAGES: &[MillStage] = &[
     // Holes dug with the stick where the posts will stand, the earth
     // tamped down, flat stones bedded in it for the posts to stand on.
     MillStage { name: "FOUNDATION", needs: &[(ItemKind::Stone, 10), (ItemKind::Soil, 4)], tools: &[ItemKind::DiggingStick], hours: 3 },
+    // Posts of lauan (hard and strong) stood on the stones, and plates of
+    // it along the north and south walls on their heads; beams of pine
+    // (long and straight) across between the plates. Shaped with the axe,
+    // the joints cut with the knife and lashed with rope.
+    MillStage {
+        name: "FRAME",
+        needs: &[(ItemKind::LauanTimber, 8), (ItemKind::PineTimber, 3), (ItemKind::Rope, 4)],
+        tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
+        hours: 6,
+    },
 ];
+
+/// How far a post of the mill's frame rises above the middle of its
+/// stone's cell (px), and how far into the cell it stands on (on the
+/// stone). The front (south) posts are taller, so their plate clears the
+/// head of someone standing by the south wall; the back (north) ones
+/// shorter, so their plate stays clear of the river's water drawn on BG2
+/// north-east of the ground. The beams across between the plates come out
+/// shorter.
+pub const POST_TOP: i32 = 20;
+pub const POST_TOP_FRONT: i32 = 32;
+pub const POST_FOOT: i32 = 2;
+
+/// The height (world px) of the heads of the posts on the row `cy` of the
+/// mill's ground, whose south edge is the row `y1`.
+pub fn post_head(cy: i32, y1: i32) -> i32 {
+    cy * 16 + 8 - post_rise(cy, y1)
+}
+
+/// How far the posts on the row `cy` rise (`POST_TOP` or, along the south
+/// edge `y1`, `POST_TOP_FRONT`).
+pub fn post_rise(cy: i32, y1: i32) -> i32 {
+    if cy == y1 { POST_TOP_FRONT } else { POST_TOP }
+}
+
+/// Where a post stands on its stone in the cell `(cx, cy)`: its foot (the
+/// middle of its bottom, world px), what it's sorted among sprites by.
+pub fn post_foot((cx, cy): (i32, i32)) -> (i32, i32) {
+    (cx * 16 + 8, cy * 16 + 8 + POST_FOOT)
+}
 
 /// How far the mill has got: the stages built, and what has been left at
 /// the site for the next (by its line in `needs`).

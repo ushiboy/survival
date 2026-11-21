@@ -513,6 +513,25 @@ pub fn timber() -> PixelArt {
     PixelArt::parse(&rows, ITEM_LEGEND)
 }
 
+/// A post of the mill's frame, rising `rise` px above the middle of its
+/// stone's cell and standing `foot` px into it (item colours): a squared
+/// lauan post, lit on its left, shaded on its right, its sawn top pale.
+/// Eight pixels wide; tall enough for the post and its outline, the post
+/// against the bottom (its foot one pixel above the bottom edge).
+pub fn mill_post(rise: i32, foot: i32) -> PixelArt {
+    let tall = (rise + foot) as usize;
+    let h = (tall + 2).div_ceil(8) * 8;
+    let top = h - 1 - tall;
+    let ix = |c: char| ITEM_LEGEND.iter().find(|&&(k, _)| k == c).map_or(0, |&(_, i)| i);
+    let mut a = PixelArt::filled(8, h, 0);
+    for y in top..h - 1 {
+        for (x, c) in [(2, 'W'), (3, 'w'), (4, 'w'), (5, 'd')] {
+            a.set(x, y, ix(if y == top { 'h' } else { c }));
+        }
+    }
+    a.outlined(ix('o'))
+}
+
 /// Wood art in the item colours redone in lauan's (gull palette).
 pub fn as_lauan(art: &PixelArt) -> PixelArt {
     art.map(|v| {

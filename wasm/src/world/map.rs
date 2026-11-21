@@ -110,18 +110,21 @@ pub fn lathe_stand((sx, sy): (i32, i32)) -> (i32, i32) {
 /// The ground the mill is to stand on, marked out with stakes, off the
 /// mill site's bank `site`: `(x0, y0, x1, y1)`, its corner cells. It runs
 /// west from the bank and takes in the wood lathe beside the water wheel
-/// (on its east edge), for the mill to be built round it; it stops short
-/// of the water-drawing spot north of the lathe.
+/// (on its east edge), for the mill to be built round it. It stops a row
+/// short of the water-drawing spot north of the lathe: the frame's north
+/// plate rises into that row, which must be clear of the river's water
+/// drawn on BG2.
 pub fn mill_plot((sx, sy): (i32, i32)) -> (i32, i32, i32, i32) {
-    (sx - 6, sy - 3, sx, sy + 2)
+    (sx - 6, sy - 2, sx, sy + 2)
 }
 
 /// Where the bench for building the mill stands, off the mill site's bank
-/// `site`: just west of its ground, halfway along (out of the way of the
-/// building, and the side the castaway comes from).
+/// `site`: just west of its ground, a row in from its north edge (out of
+/// the way of the building, on the side the castaway comes from, and off
+/// the row of the spot they build from).
 pub fn site_bench(site: (i32, i32)) -> (i32, i32) {
-    let (x0, y0, _, y1) = mill_plot(site);
-    (x0 - 1, (y0 + y1) / 2)
+    let (x0, y0, _, _) = mill_plot(site);
+    (x0 - 1, y0 + 1)
 }
 
 /// Where the mill's posts will stand on its ground off the mill site's
@@ -561,6 +564,33 @@ impl WorldMap {
             }
         }
         changed
+    }
+
+    /// Raises the mill's frame on its foundation off the mill site's bank
+    /// `site`: a post on each stone; the plates and beams over the ground
+    /// are drawn from where the posts are (`mill_frame`). Returns the
+    /// cells whose look changed: the ground, and the row north of it the
+    /// north posts' heads reach up into.
+    pub fn raise_frame(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let mut changed = Vec::new();
+        for y in y0 - 1..=y1 {
+            for x in x0..=x1 {
+                if let Feature::Foundation(stone) = self.feature(x, y) {
+                    self.set_feature(x, y, Feature::Framed(stone));
+                }
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Whether the mill's frame is up (its posts stand on the stones).
+    pub fn has_mill_frame(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            matches!(self.feature(x0, y0), Feature::Framed(_))
+        })
     }
 
     /// Whether the mill's ground is marked out (its corner stakes are in).
