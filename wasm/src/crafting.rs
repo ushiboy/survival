@@ -195,8 +195,8 @@ pub const RECIPES: &[Recipe] = &[
     },
 ];
 
-/// The recipes the castaway has thought of. A recipe comes to mind the
-/// first time one of each of its materials is carried at once (tools and
+/// The recipes the castaway has thought of. A recipe comes to mind once
+/// every kind of its materials has been had, not necessarily at once (tools and
 /// the fire aren't needed for that: finding out they're missing is a hint
 /// in itself), and stays known. One not yet looked at is fresh.
 ///
@@ -287,7 +287,7 @@ impl From<KnownRecipes> for RecipeBook {
 }
 
 impl RecipeBook {
-    /// Learns every recipe whose materials `has` all says are carried;
+    /// Learns every recipe whose materials `has` all says have been had;
     /// whether any was new.
     pub fn notice(&mut self, has: impl Fn(ItemKind) -> bool) -> bool {
         let mut found = false;
@@ -456,6 +456,7 @@ mod tests {
         assert_eq!(again.kinds_made(), 1);
     }
 
+    /// What has been had: these kinds only.
     fn carrying(kinds: &[ItemKind]) -> impl Fn(ItemKind) -> bool + '_ {
         move |k| kinds.contains(&k)
     }
@@ -466,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn a_recipe_comes_to_mind_when_one_of_each_material_is_carried() {
+    fn a_recipe_comes_to_mind_when_one_of_each_material_has_been_had() {
         // A stone knife takes two stones, but one is enough to think of it.
         let mut book = RecipeBook::default();
         assert!(book.notice(carrying(&[ItemKind::Stone])));
@@ -479,8 +480,6 @@ mod tests {
         let mut book = RecipeBook::default();
         book.notice(carrying(&[ItemKind::Stone, ItemKind::Branch]));
         assert!(!book.listed().contains(&index(ItemKind::StoneAxe)));
-        book.notice(carrying(&[ItemKind::Rope]));
-        assert!(!book.listed().contains(&index(ItemKind::StoneAxe)), "the materials must be carried at once");
         book.notice(carrying(&[ItemKind::Stone, ItemKind::Rope, ItemKind::Branch]));
         assert!(book.listed().contains(&index(ItemKind::StoneAxe)));
     }

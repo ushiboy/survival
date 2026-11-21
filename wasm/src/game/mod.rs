@@ -397,6 +397,7 @@ impl Game {
                 inv.recipes = s.inventory.recipes.clone();
                 inv.gear = s.inventory.gear;
                 inv.cart = s.inventory.cart.clone();
+                inv.had = s.inventory.had.clone();
                 let outfit = s.castaway.outfit();
                 if outfit != game.inventory.outfit {
                     game.equip(outfit);
@@ -477,7 +478,7 @@ impl Game {
     /// What the castaway carries, as saved.
     fn carried_now(&self) -> save::Carried {
         let inv = &self.inventory;
-        save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone() }
+        save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone(), had: inv.had.clone() }
     }
 
     /// What is carried, as text to tell whether it changed.

@@ -74,3 +74,27 @@ fn the_page_opens_on_the_way_last_made() {
     assert_eq!(carried(&game, ItemKind::Bark), 0, "made from bark both times");
     assert_eq!(carried(&game, ItemKind::Husk), 2);
 }
+
+/// Whether a recipe of this name has come to mind.
+fn knows(game: &Game, recipe: &str) -> bool {
+    let save: serde_json::Value = serde_json::from_str(&game.debug_save_json()).unwrap();
+    save["inventory"]["recipes"]["known"].as_array().unwrap().iter().any(|n| n == recipe)
+}
+
+#[test]
+fn materials_had_before_bring_a_recipe_to_mind_though_no_longer_carried_even_after_carrying_on() {
+    // A stone axe takes a stone, a rope and a branch.
+    let mut game = new_game();
+    game.debug_give(ItemKind::Stone);
+    game.debug_give(ItemKind::Branch);
+    common::hold(&mut game, 0, 1);
+    let mut save: serde_json::Value = serde_json::from_str(&game.debug_save_json()).unwrap();
+    save["inventory"]["bag"]["items"] = serde_json::json!([]);
+    let mut game = Game::debug_continue(&save.to_string()).expect("the save loads");
+    assert!(!knows(&game, "StoneAxe"));
+
+    game.debug_give(ItemKind::Rope);
+    common::hold(&mut game, 0, 1);
+    assert!(knows(&game, "StoneAxe"));
+    assert!(game.is_struck_by_an_idea(), "the \"!\" for the idea");
+}
