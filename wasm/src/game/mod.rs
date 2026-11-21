@@ -1522,6 +1522,7 @@ impl Game {
         let changed = match stage {
             0 => self.map.lay_foundation(site),
             1 => self.map.raise_frame(site),
+            2 => self.map.raise_walls(site),
             _ => Vec::new(),
         };
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
@@ -1823,8 +1824,10 @@ impl Game {
         let list = &mut self.draw_list;
         list.clear();
         let sprites = &self.assets.sprites;
-        let in_front = player_in_front_of_canopy(&self.map, &self.player);
-        self.player.draw(list, &camera, sprites, self.frame_count, shadows, in_front);
+        let in_front = player_in_front_of_canopy(&self.map, &self.player) || feet_before_mill_wall(&self.map, self.player.body.feet());
+        // Feet hidden behind a wall of the mill cast no shadow over it.
+        let player_shadow = shadows && !feet_behind_mill_wall(&self.map, self.player.body.feet());
+        self.player.draw(list, &camera, sprites, self.frame_count, player_shadow, in_front);
         let now = self.clock.total_minutes();
         for fire in &self.fires {
             fire.draw(list, &camera, sprites, self.frame_count, now);
@@ -2642,6 +2645,30 @@ fn palm_flip(map: &WorldMap, anchor: (i32, i32)) -> bool {
 
 /// Whether the castaway stands in front of (south of) a palm or broadleaf
 /// tree whose canopy or upper trunk tiles overlap their sprite, so they must be drawn above BG2.
+/// Whether feet at `(fx, fy)` (world px) are behind one of the mill's
+/// walls, whose face is drawn over them: just north of the north wall
+/// (outside), or inside just north of the south wall (not in the
+/// doorway).
+fn feet_behind_mill_wall(map: &WorldMap, (fx, fy): (i32, i32)) -> bool {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_walls()) else { return false };
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(site);
+    let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+    let in_door = crate::world::map::mill_doorway(site).iter().any(|&(dx, _)| dx == x);
+    (x0..=x1).contains(&x) && (y == y0 - 1 || (y1 - 2..y1).contains(&y) && !in_door)
+}
+
+/// Whether feet at world pixel `(fx, fy)` stand just in front of one of
+/// the mill's walls, so close that the head reaches up into the rows where
+/// the face is drawn on BG2 (over someone behind it): just south of the
+/// south wall (outside), or inside just south of the north wall. The
+/// castaway is then raised over BG2, as in front of a tree's canopy.
+fn feet_before_mill_wall(map: &WorldMap, (fx, fy): (i32, i32)) -> bool {
+    let Some(site) = map.spots.mill.filter(|_| map.has_mill_walls()) else { return false };
+    let (x0, y0, x1, y1) = crate::world::map::mill_plot(site);
+    let (x, y) = (fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE));
+    (x0 - 1..=x1 + 1).contains(&x) && (y == y1 + 1 || y == y0 + 1)
+}
+
 fn player_in_front_of_canopy(map: &WorldMap, player: &Player) -> bool {
     use crate::assets::character::{CHAR_H, CHAR_ORIGIN, CHAR_W};
     use crate::world::terrain::{BroadleafPart, PalmPart};
@@ -2718,14 +2745,18 @@ const CART_WHEEL_STEP_PX: i32 = 2;
 /// The posts of the mill's frame, once it's up: sprites, sorted with the
 /// castaway by their feet, so they stand in front of someone behind them
 /// and behind someone in front (what spans between their heads is BG2, in
-/// front of everyone). At night in the dark palette, as things on the
-/// ground are.
+/// front of everyone). Once the walls are up, the south ones are hidden in
+/// the south wall's face (it's drawn over them, so they're left out). At
+/// night in the dark palette, as things on the ground are.
 fn draw_mill_posts(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, map: &WorldMap, night: bool) {
     let Some(site) = map.spots.mill.filter(|_| map.has_mill_frame()) else { return };
     let (_, _, _, y1) = crate::world::map::mill_plot(site);
     let palette = if night { OBJ_CRAB_NIGHT } else { OBJ_CRAB };
     for stone in crate::world::map::foundation_stones(site) {
         let front = stone.1 == y1;
+        if front && map.has_mill_walls() {
+            continue;
+        }
         let gfx = sprites.mill_post[front as usize];
         let rise = mill::post_rise(stone.1, y1);
         let (fx, fy) = mill::post_foot(stone);
@@ -2736,6 +2767,19 @@ fn draw_mill_posts(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, ma
         if camera.sees(wx, wy, 8, h) {
             let (sx, sy) = camera.to_screen(wx, wy);
             list.actor(fy, ObjEntry::new(sx, sy, gfx, palette, 2));
+        }
+    }
+    // The beams across between the plates, higher than anyone's head: in
+    // front of everyone (over BG2 too, so over someone raised over BG2 in
+    // front of the north wall's face).
+    let (x0, y0, x1, _) = crate::world::map::mill_plot(site);
+    let top = mill::post_head(y0, y1) - 1;
+    let h = (mill::beam_len() + 2 + 7) / 8 * 8;
+    for cx in [x0, (x0 + x1) / 2, x1] {
+        let wx = cx * 16 + 8 - 4;
+        if camera.sees(wx, top, 8, h) {
+            let (sx, sy) = camera.to_screen(wx, top);
+            list.sky(ObjEntry::new(sx, sy, sprites.mill_beam, palette, 3));
         }
     }
 }

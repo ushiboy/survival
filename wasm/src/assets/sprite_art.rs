@@ -532,6 +532,21 @@ pub fn mill_post(rise: i32, foot: i32) -> PixelArt {
     a.outlined(ix('o'))
 }
 
+/// A beam of the mill's frame, `len` px from the north plate to the south
+/// one (item colours): a squared pine beam, pale, lit on its left. Eight
+/// pixels wide, the beam against the top (a pixel below the top edge).
+pub fn mill_beam(len: i32) -> PixelArt {
+    let h = (len as usize + 2).div_ceil(8) * 8;
+    let ix = |c: char| ITEM_LEGEND.iter().find(|&&(k, _)| k == c).map_or(0, |&(_, i)| i);
+    let mut a = PixelArt::filled(8, h, 0);
+    for y in 1..=len as usize {
+        for (x, c) in [(2, 'f'), (3, 'h'), (4, 'h'), (5, 'W')] {
+            a.set(x, y, ix(c));
+        }
+    }
+    a.outlined(ix('o'))
+}
+
 /// Wood art in the item colours redone in lauan's (gull palette).
 pub fn as_lauan(art: &PixelArt) -> PixelArt {
     art.map(|v| {

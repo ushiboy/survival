@@ -127,6 +127,14 @@ pub fn site_bench(site: (i32, i32)) -> (i32, i32) {
     (x0 - 1, y0 + 1)
 }
 
+/// The mill's doorway off the mill site's bank `site`: the two cells of
+/// its south wall between the south-west post and the middle one, left
+/// open (wide enough to pull the cart in).
+pub fn mill_doorway(site: (i32, i32)) -> [(i32, i32); 2] {
+    let (x0, _, _, y1) = mill_plot(site);
+    [(x0 + 1, y1), (x0 + 2, y1)]
+}
+
 /// Where the mill's posts will stand on its ground off the mill site's
 /// bank `site`, a flat stone bedded under each: its corners and the middle
 /// of its long sides.
@@ -583,6 +591,35 @@ impl WorldMap {
             }
         }
         changed
+    }
+
+    /// Walls the mill off the mill site's bank `site`: each cell of the
+    /// ground's edges between the posts becomes wall, but the doorway (and
+    /// the lathe, which stands in the east wall). Returns the cells whose
+    /// look changed: the ground, and the row north of it the north wall's
+    /// face reaches up into.
+    pub fn raise_walls(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let doorway = mill_doorway(site);
+        let mut changed = Vec::new();
+        for y in y0 - 1..=y1 {
+            for x in x0..=x1 {
+                let edge = (y0..=y1).contains(&y) && (x == x0 || x == x1 || y == y0 || y == y1);
+                if edge && !doorway.contains(&(x, y)) && self.feature(x, y) == Feature::Framed(false) {
+                    self.set_feature(x, y, Feature::MillWall);
+                }
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Whether the mill's walls are up.
+    pub fn has_mill_walls(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            self.feature(x0, y0 + 1) == Feature::MillWall
+        })
     }
 
     /// Whether the mill's frame is up (its posts stand on the stones).

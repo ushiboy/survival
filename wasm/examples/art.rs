@@ -187,7 +187,7 @@ fn on_sheet(f: Feature) -> bool {
         // and the signal fire, a sprite standing on bare ground (its
         // picture is the item's, on the items sheet); and the mill's ground
         // marked out and its foundation, drawn round the lathe (`pnpm map
-        // --stakes`, `--foundation`, `--frame`).
+        // --stakes`, `--foundation`, `--frame`, `--walls`).
         Feature::None
         | Feature::Ladder(_)
         | Feature::Bridge(_)
@@ -196,7 +196,8 @@ fn on_sheet(f: Feature) -> bool {
         | Feature::SignalFire(_)
         | Feature::Marking(_)
         | Feature::Foundation(_)
-        | Feature::Framed(_) => false,
+        | Feature::Framed(_)
+        | Feature::MillWall => false,
     }
 }
 

@@ -73,7 +73,7 @@ const ja = {
       done: '狼煙が必ず見つかるようにしました（火を付けて1時間後に救助。燃えている狼煙は今から1時間後）',
     },
     mill: '水車小屋',
-    millSteps: { WHEEL: '水車', LATHE: '木工旋盤', STAKES: '縄張り', FOUNDATION: '土台', FRAME: '骨組み' },
+    millSteps: { WHEEL: '水車', LATHE: '木工旋盤', STAKES: '縄張り', FOUNDATION: '土台', FRAME: '骨組み', WALLS: '壁' },
     millNone: 'まだ何もない（次は{next}）',
     millDone: '{step}まで済み（次は{next}）',
     millNoNext: 'ない',

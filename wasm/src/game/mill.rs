@@ -34,6 +34,15 @@ pub const MILL_STAGES: &[MillStage] = &[
         tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
         hours: 6,
     },
+    // Bamboo split with the knife into lath, woven between the posts and
+    // tied with vine; clay and soil worked together and plastered on with
+    // the spade. All round but a doorway in the south wall.
+    MillStage {
+        name: "WALLS",
+        needs: &[(ItemKind::Bamboo, 8), (ItemKind::Vine, 4), (ItemKind::Clay, 6), (ItemKind::Soil, 6)],
+        tools: &[ItemKind::StoneKnife, ItemKind::BambooSpade],
+        hours: 8,
+    },
 ];
 
 /// How far a post of the mill's frame rises above the middle of its
@@ -57,6 +66,13 @@ pub fn post_head(cy: i32, y1: i32) -> i32 {
 /// edge `y1`, `POST_TOP_FRONT`).
 pub fn post_rise(cy: i32, y1: i32) -> i32 {
     if cy == y1 { POST_TOP_FRONT } else { POST_TOP }
+}
+
+/// How long the beams across the mill's frame are on screen (px): from the
+/// top of the north plate down to the bottom of the south one.
+pub fn beam_len() -> i32 {
+    let (_, y0, _, y1) = crate::world::map::mill_plot((0, 0));
+    post_head(y1, y1) + 4 - post_head(y0, y1)
 }
 
 /// Where a post stands on its stone in the cell `(cx, cy)`: its foot (the

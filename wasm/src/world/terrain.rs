@@ -292,6 +292,10 @@ pub enum Feature {
     /// The plates and beams between the posts' heads are drawn over the
     /// ground round it (`render::tileset`).
     Framed(bool),
+    /// A stretch of the mill's walls between its posts: bamboo lath
+    /// plastered with clay and soil. It stands in the way. The faces of
+    /// the walls are drawn over the ground round it (`render::tileset`).
+    MillWall,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,7 +325,8 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Vine
         | Feature::VineStake
         | Feature::Lathe(_)
-        | Feature::SiteBench => true,
+        | Feature::SiteBench
+        | Feature::MillWall => true,
         Feature::Marking(m) => m.stake,
         Feature::Framed(post) => post,
         _ => false,

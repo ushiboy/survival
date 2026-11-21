@@ -418,6 +418,8 @@ pub struct SpriteIds {
     /// The posts of the mill's frame: the back (north) ones and the taller
     /// front (south) ones.
     pub mill_post: [SpriteId; 2],
+    /// A beam of the mill's frame, the north plate to the south one.
+    pub mill_beam: SpriteId,
     /// A Z drifting up from a sleeper.
     pub snore: SpriteId,
     /// A puff of dust: whole, breaking up.
@@ -786,6 +788,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             bank.add(&mill_post(crate::game::mill::POST_TOP, crate::game::mill::POST_FOOT)),
             bank.add(&mill_post(crate::game::mill::POST_TOP_FRONT, crate::game::mill::POST_FOOT)),
         ],
+        mill_beam: bank.add(&mill_beam(crate::game::mill::beam_len())),
         signal_fire: SignalFireSprites {
             hearth: bank.add(&item_art::signal_fire(false)),
             lit: bank.add(&item_art::signal_fire(true)),
