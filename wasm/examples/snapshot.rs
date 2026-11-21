@@ -14,6 +14,7 @@
 //! `SNAP_MILL=wheel|lathe|stakes|foundation|frame|walls|roof` with the water wheel set at the mill
 //! site (and the lathe beside it, the mill's ground marked out, its
 //! foundation laid, its frame raised, its walls up, its roof on),
+//! `SNAP_INSIDE=1` in the mill's room, just in from its door,
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
@@ -65,6 +66,12 @@ fn main() {
         assert!(steps < 2 || game.debug_set_lathe(), "the lathe goes in");
         assert!(steps < 3 || game.debug_set_stakes(), "the mill's ground is marked out");
         assert!(steps < 4 || game.debug_build_mill(steps - 3), "the mill's stages are built");
+    }
+    // SNAP_INSIDE=1 puts the castaway in the mill's room, just in from its
+    // door (with SNAP_MILL=roof).
+    if std::env::var("SNAP_INSIDE").is_ok() {
+        let (x, y) = game.map().mill_room_door()[1];
+        game.debug_place_player((x, y - 2));
     }
     // SNAP_FISH=dx,dy puts a fish in the water that far from the feet.
     if let Ok(at) = std::env::var("SNAP_FISH") {

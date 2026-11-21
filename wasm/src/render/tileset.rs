@@ -284,6 +284,8 @@ impl Builder<'_> {
             Terrain::Grass | Terrain::Highland | Terrain::CliffTop => bank.add_art(PAL_GRASS, &slice(&tex.grass, vx, vy)),
             Terrain::Cliff | Terrain::Crag => bank.add_art(PAL_ROCK, &PixelArt::filled(16, 16, SANDSTONE[2])),
             Terrain::Slope => bank.add_art(PAL_GRASS, &PixelArt::filled(16, 16, grass::SOIL)),
+            // The dark round the mill's room: the backdrop (black inside).
+            Terrain::Indoors => bank.add_art(PAL_GRASS, &PixelArt::filled(16, 16, 0)),
             // Transparent: the river is drawn on BG2.
             Terrain::River => bank.add_art(PAL_DEEP, &PixelArt::filled(16, 16, 0)),
         })
@@ -691,6 +693,38 @@ impl Builder<'_> {
         let mut art = PixelArt::filled(16, 16, 0);
         let any = paint_outlined(&mut art, top, grass::SOIL);
         any.then(|| self.unique_art(PAL_GRASS, &art))
+    }
+
+    /// A cell of the mill's room (grass palette, all on BG1): its floor,
+    /// its walls (`mill_room_px`) and what stands on its floor (the
+    /// workbench, the lathe), outlined, their shadows cast on the floor.
+    /// The dark round the room is see-through, onto the backdrop (black
+    /// while inside).
+    fn indoors(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        let mut art = compose(|px, py| mill_room_px(map, x * 16 + px as i32, y * 16 + py as i32));
+        let top: Option<Box<PixelTop>> = match map.feature(x, y) {
+            Feature::SiteBench => Some(Box::new(site_bench_top)),
+            Feature::Lathe(part) => {
+                let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
+                Some(Box::new(move |px, py| lathe_top(ox + px, oy + py)))
+            }
+            _ => None,
+        };
+        if let Some(top) = top {
+            for py in 0..16i32 {
+                for px in 0..16i32 {
+                    let c = top(px, py).or_else(|| {
+                        let edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| top(px + dx, py + dy).is_some());
+                        let shadow = (1..=2).any(|d| top(px, py - d).is_some()) && (px + py) % 2 == 0;
+                        (edge || shadow).then_some(grass::RAMP[0])
+                    });
+                    if let Some(c) = c {
+                        art.set(px as usize, py as usize, c);
+                    }
+                }
+            }
+        }
+        self.unique_art(PAL_GRASS, &art)
     }
 
     /// The bench beside the mill's ground (grass palette): a plank laid on
@@ -2162,6 +2196,102 @@ fn mill_door_px(x: i32, y: i32, open: i32) -> u8 {
     }
 }
 
+/// A thing's pixel at `(x, y)` in its cell, if any of it is there.
+type PixelTop = dyn Fn(i32, i32) -> Option<u8>;
+
+/// How far the walls of the mill's room show along the floor's west and
+/// east edges (px): the tops of the walls, seen from above.
+const ROOM_WALL_TOP: i32 = 5;
+/// How tall the plate along the top of a wall of the mill's room is (px).
+const ROOM_PLATE: i32 = 4;
+/// How wide the posts in the faces of the mill's room's walls are (px),
+/// and how many bays they part the walls into.
+const ROOM_POST_W: i32 = 6;
+const ROOM_BAYS: i32 = 4;
+
+/// The mill's room at world pixel `(wx, wy)` (grass palette; 0 for the
+/// dark round it). Seen from above at a slant, as outside: the north
+/// wall's inner face, plaster with the lath showing through it here and
+/// there, posts in it and a plate along its top; along the west and east
+/// edges, the tops of the side walls; the south wall's face (seen as
+/// from outside), the door in it toward the west; between, a floor of
+/// earth tamped hard, darker than outside under the roof, in shadow along
+/// the foot of the north wall.
+fn mill_room_px(map: &WorldMap, wx: i32, wy: i32) -> u8 {
+    let (x0, y0, x1, y1) = map.mill_room();
+    let (left, right) = ((x0 + 1) * 16, x1 * 16);
+    let (north, floor, south, foot) = (y0 * 16, (y0 + 2) * 16, (y1 - 1) * 16, (y1 + 1) * 16);
+    if !(left - ROOM_WALL_TOP..right + ROOM_WALL_TOP).contains(&wx) || !(north..foot).contains(&wy) {
+        return 0;
+    }
+    // The plates along the tops of the north and south walls, and the tops
+    // of the side walls, all of a piece.
+    let plate = |d: i32| match d {
+        0 => grass::SAND[1],
+        d if d == ROOM_PLATE - 1 => grass::SOIL,
+        _ => grass::SAND[0],
+    };
+    for top in [north, south] {
+        if (top..top + ROOM_PLATE).contains(&wy) {
+            return plate(wy - top);
+        }
+    }
+    if wx < left || wx >= right {
+        let d = if wx < left { wx - (left - ROOM_WALL_TOP) } else { right + ROOM_WALL_TOP - 1 - wx };
+        return match d {
+            0 => grass::SOIL,
+            1 => grass::SAND[1],
+            _ => grass::SAND[0],
+        };
+    }
+    let post = (0..=ROOM_BAYS).any(|k| {
+        let px = (left + (right - left - ROOM_POST_W) * k / ROOM_BAYS).clamp(left, right - ROOM_POST_W);
+        (px..px + ROOM_POST_W).contains(&wx)
+    });
+    let post_px = |wx: i32| {
+        let px = (0..=ROOM_BAYS)
+            .map(|k| (left + (right - left - ROOM_POST_W) * k / ROOM_BAYS).clamp(left, right - ROOM_POST_W))
+            .find(|&p| (p..p + ROOM_POST_W).contains(&wx))
+            .unwrap_or(left);
+        match wx - px {
+            0 => grass::SAND[0],
+            d if d == ROOM_POST_W - 1 => grass::RAMP[0],
+            _ => grass::SOIL,
+        }
+    };
+    if wy < floor {
+        return if post { post_px(wx) } else { plaster(wx, wy) };
+    }
+    if wy >= south {
+        let (door0, _) = map.mill_room_door()[0];
+        let dx = wx - door0 * 16;
+        if (0..MILL_DOOR_W).contains(&dx) {
+            let open = map.mill_door() as i32 * crate::world::map::MILL_DOOR_STEP_PX;
+            return mill_door_px(dx, wy - (foot - 1), open);
+        }
+        if wy == foot - 1 {
+            return grass::SOIL;
+        }
+        return if post { post_px(wx) } else { plaster(wx, wy) };
+    }
+    // The floor, in shadow at the foot of the north wall.
+    let below = wy - floor;
+    if below < 2 || (below < 4 && (wx + wy) % 2 == 0) {
+        return grass::RAMP[0];
+    }
+    // Trodden earth: patches darker and lighter, flecked with grit.
+    // Shaded with a fine checker of the darker earth (thicker in the
+    // darker patches), so it reads darker than outside without speckling.
+    const BAYER: [[f32; 4]; 4] = [[0.0, 8.0, 2.0, 10.0], [12.0, 4.0, 14.0, 6.0], [3.0, 11.0, 1.0, 9.0], [15.0, 7.0, 13.0, 5.0]];
+    let patch = hash_unit(wx.div_euclid(24), wy.div_euclid(16), 0x7010) * 0.5 + hash_unit(wx.div_euclid(10), wy.div_euclid(7), 0x7011) * 0.5;
+    let n = hash_unit(wx, wy, 0x700F);
+    if n > 0.985 {
+        return grass::SAND[1];
+    }
+    let shade = 0.25 + patch * 0.25;
+    if BAYER[wy.rem_euclid(4) as usize][wx.rem_euclid(4) as usize] / 16.0 < shade { grass::SOIL } else { grass::SAND[0] }
+}
+
 /// How wide the mill's door is (px): the doorway's two cells.
 const MILL_DOOR_W: i32 = 32;
 
@@ -2842,6 +2972,9 @@ impl Tileset {
 
 /// BG1 and BG2 cells for one map cell.
 fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) -> (BgCell, BgCell) {
+    if map.terrain(x, y) == Terrain::Indoors {
+        return (BgCell::new(b.indoors(map, x, y)), BgCell::EMPTY);
+    }
     let mut overhead = BgCell::EMPTY;
     let river = RiverField::sample(map, x, y);
     let tile = match map.feature(x, y) {
@@ -2917,6 +3050,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Framed(post) => b.framed(map, river.as_ref(), x, y, post, false),
         Feature::MillWall => b.framed(map, river.as_ref(), x, y, false, true),
         Feature::MillDoor => b.framed(map, river.as_ref(), x, y, false, false),
+        Feature::MillRoomWall => b.indoors(map, x, y),
         Feature::SiteBench => b.site_bench(x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),

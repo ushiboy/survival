@@ -37,6 +37,9 @@ pub struct Spots {
 pub struct WorldMap {
     w: i32,
     h: i32,
+    /// How many rows of the map are the island's: the mill's room is kept
+    /// in the rows south of them (`add_mill_room`).
+    island_h: i32,
     terrain: Vec<Terrain>,
     features: Vec<Feature>,
     /// Smooth elevation per cell (tiles above the waterline), sampled at cell
@@ -83,6 +86,19 @@ pub struct WorldMap {
 pub const MILL_DOOR_OPEN: u8 = 4;
 /// How far (px) the mill's door slides a step.
 pub const MILL_DOOR_STEP_PX: i32 = 8;
+
+/// How far the mill's room's floor runs, across and down (cells): far
+/// roomier than the hut looks from outside.
+pub const MILL_ROOM_FLOOR: (i32, i32) = (24, 12);
+/// The column of the mill's room's west wall.
+const MILL_ROOM_WEST: i32 = 1;
+/// How many rows of the dark are kept above the mill's room: the camera
+/// takes them in at the top, so the north wall shows below the HUD drawn
+/// over the top of the screen.
+pub const MILL_ROOM_ABOVE: i32 = 2;
+/// The rows south of the island that keep the mill's room: the dark
+/// above it, its walls and floor, a row of the dark below.
+const MILL_ROOM_ROWS: i32 = MILL_ROOM_ABOVE + MILL_ROOM_FLOOR.1 + 4 + 1;
 
 /// How many cells of rock face a ladder spans.
 pub const LADDER_ROWS: i32 = 2;
@@ -195,6 +211,7 @@ impl WorldMap {
         Self {
             w,
             h,
+            island_h: h,
             terrain: vec![fill; n],
             features: vec![Feature::None; n],
             elevation: vec![0.0; n],
@@ -226,6 +243,84 @@ impl WorldMap {
 
     pub fn pixel_size(&self) -> (i32, i32) {
         (self.w * TILE_SIZE, self.h * TILE_SIZE)
+    }
+
+    /// The island's part of the map (cells): all of it but the rows south
+    /// of it that keep the mill's room.
+    pub fn island_size(&self) -> (i32, i32) {
+        (self.w, self.island_h)
+    }
+
+    /// The island's part of the map (px), what the camera keeps to
+    /// outside.
+    pub fn island_pixel_size(&self) -> (i32, i32) {
+        (self.w * TILE_SIZE, self.island_h * TILE_SIZE)
+    }
+
+    /// Adds the rows south of the island that keep the mill's room
+    /// (`mill_room`), out of sight of it: its walls, its floor, its door,
+    /// and the dark round them. What's set in it once the mill is built
+    /// (the workbench, the lathe) goes in with the roof (`put_on_roof`).
+    pub fn add_mill_room(&mut self) {
+        let extra = MILL_ROOM_ROWS;
+        let n = (self.w * extra) as usize;
+        let h = self.h;
+        self.terrain.extend(std::iter::repeat_n(Terrain::Indoors, n));
+        self.features.extend(std::iter::repeat_n(Feature::MillRoomWall, n));
+        self.elevation.extend(std::iter::repeat_n(0.0, n));
+        self.riverside.extend(std::iter::repeat_n(false, n));
+        self.foot.extend(std::iter::repeat_n(0, n));
+        self.high.extend(std::iter::repeat_n(false, n));
+        self.soil.extend(std::iter::repeat_n(Soil::Sand, n));
+        self.rise.extend(std::iter::repeat_n(0, n));
+        self.h = h + extra;
+        let (x0, y0, x1, y1) = self.mill_room();
+        for y in y0 + 2..y1 - 1 {
+            for x in x0 + 1..x1 {
+                self.set_feature(x, y, Feature::None);
+            }
+        }
+        for (x, y) in self.mill_room_door() {
+            self.set_feature(x, y, Feature::MillDoor);
+        }
+    }
+
+    /// The mill's room, kept in the rows south of the island: its corner
+    /// cells `(x0, y0, x1, y1)`, walls and all. The west and east walls
+    /// are the columns `x0` and `x1`; the north wall's face rises in the
+    /// two rows from `y0`, the south wall's in the two up to `y1`, the
+    /// floor between (`MILL_ROOM_FLOOR`).
+    pub fn mill_room(&self) -> (i32, i32, i32, i32) {
+        let (x0, y0) = (MILL_ROOM_WEST, self.island_h + MILL_ROOM_ABOVE);
+        (x0, y0, x0 + MILL_ROOM_FLOOR.0 + 1, y0 + MILL_ROOM_FLOOR.1 + 3)
+    }
+
+    /// The mill's room's door: the cells of the south wall's upper row
+    /// it's hung in, toward the west (as outside), stepped into on the way
+    /// out.
+    pub fn mill_room_door(&self) -> [(i32, i32); 2] {
+        let (x0, _, _, y1) = self.mill_room();
+        [(x0 + 2, y1 - 1), (x0 + 3, y1 - 1)]
+    }
+
+    /// Whether feet at `(fx, fy)` (world px) are in the mill's room.
+    pub fn in_mill_room(&self, (_, fy): (i32, i32)) -> bool {
+        fy >= self.island_h * TILE_SIZE
+    }
+
+    /// Where the workbench stands in the mill's room (the bench the mill
+    /// was built from, brought in): against the north wall, toward the
+    /// west.
+    pub fn mill_room_bench(&self) -> (i32, i32) {
+        let (x0, y0, _, _) = self.mill_room();
+        (x0 + 3, y0 + 2)
+    }
+
+    /// Where the lathe stands in the mill's room, as `lathe_cells` takes
+    /// it: by the east wall (the wheel's axle comes through it).
+    pub fn mill_room_lathe(&self) -> (i32, i32) {
+        let (_, y0, x1, _) = self.mill_room();
+        (x1 - 1, y0 + 7)
     }
 
     /// Chunk columns and rows covering the map.
@@ -647,6 +742,15 @@ impl WorldMap {
         }
         let mut changed: Vec<(i32, i32)> = (y0 - 1..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect();
         changed.push(bench);
+        // In the room: the bench, brought in for a workbench, and the
+        // lathe (the same one, the hut now round it).
+        let (bx, by) = self.mill_room_bench();
+        self.set_feature(bx, by, Feature::SiteBench);
+        changed.push((bx, by));
+        for (part, (x, y)) in lathe_cells(self.mill_room_lathe()).into_iter().enumerate() {
+            self.set_feature(x, y, Feature::Lathe(part as u8));
+            changed.push((x, y));
+        }
         changed
     }
 
@@ -690,7 +794,9 @@ impl WorldMap {
             return Vec::new();
         }
         self.mill_door = to;
-        mill_doorway(site).iter().flat_map(|&(x, y)| [(x, y - 1), (x, y)]).collect()
+        // The door's seen from inside too, the same door.
+        let room = self.mill_room_door();
+        mill_doorway(site).iter().flat_map(|&(x, y)| [(x, y - 1), (x, y)]).chain(room.iter().flat_map(|&(x, y)| [(x, y), (x, y + 1)])).collect()
     }
 
     /// Whether the mill's walls are up.
@@ -730,6 +836,11 @@ impl WorldMap {
 
     /// The middle of the wood lathe (world px), if one stands by the wheel.
     pub fn lathe_middle(&self) -> Option<(i32, i32)> {
+        // With the hut round it, it's worked in the room.
+        if self.has_mill_roof() {
+            let (x, y) = self.mill_room_lathe();
+            return Some((x * TILE_SIZE, y * TILE_SIZE));
+        }
         let site = self.spots.mill?;
         let cells = lathe_cells(site);
         cells.iter().all(|&(x, y)| matches!(self.feature(x, y), Feature::Lathe(_))).then_some((site.0 * TILE_SIZE, site.1 * TILE_SIZE))

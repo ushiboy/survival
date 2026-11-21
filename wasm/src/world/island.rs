@@ -842,6 +842,8 @@ pub fn generate(seed: u32) -> WorldMap {
     // Last of all, so nothing else on the island moves for them.
     place_clay_beds(&mut map, seed);
     place_bare_earth(&mut map, &heights, seed, &in_grove);
+    // The mill's room, south of it all, out of sight.
+    map.add_mill_room();
     map
 }
 

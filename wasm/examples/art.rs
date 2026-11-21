@@ -199,6 +199,9 @@ fn on_sheet(f: Feature) -> bool {
         | Feature::Framed(_)
         | Feature::MillWall
         | Feature::MillDoor => false,
+        // The mill's room, kept off the island: seen in snapshots inside it
+        // (`SNAP_INSIDE=1`).
+        Feature::MillRoomWall => false,
     }
 }
 

@@ -19,6 +19,10 @@ pub enum Terrain {
     /// An earthen slope cut through the cliff, climbing up onto the high
     /// ground from the land below.
     Slope,
+    /// Inside the mill, in its room kept off the island's south edge (out
+    /// of sight of it): its tamped earth floor, its walls and the dark
+    /// round them (`Feature::MillRoomWall`).
+    Indoors,
 }
 
 impl Terrain {
@@ -300,6 +304,9 @@ pub enum Feature {
     /// in it, that slides open into the wall as someone comes up to it
     /// (`WorldMap::mill_door`). It doesn't stand in the way.
     MillDoor,
+    /// A wall of the mill's room (`Terrain::Indoors`), or the dark round
+    /// it: in the way.
+    MillRoomWall,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,7 +337,8 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::VineStake
         | Feature::Lathe(_)
         | Feature::SiteBench
-        | Feature::MillWall => true,
+        | Feature::MillWall
+        | Feature::MillRoomWall => true,
         Feature::Marking(m) => m.stake,
         Feature::Framed(post) => post,
         _ => false,

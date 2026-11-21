@@ -105,16 +105,6 @@ fn the_door_opens_as_the_castaway_comes_up_to_it_and_shuts_after_them() {
 }
 
 #[test]
-fn the_castaway_still_walks_in_through_the_doorway() {
-    let mut game = roofed();
-    let (dx, dy) = mill_doorway(mill_site(&game))[0];
-    game.debug_place_player((dx, dy + 2));
-    hold(&mut game, 0, 2);
-    hold(&mut game, Buttons::UP, 60);
-    assert!(game.player_tile().1 < dy, "inside: {:?}", game.player_tile());
-}
-
-#[test]
 fn once_the_roof_is_on_there_is_nothing_more_to_build() {
     let mut game = roofed();
     assert_eq!(game.debug_give_mill_stage(), 0);
