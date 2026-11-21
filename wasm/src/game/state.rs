@@ -368,6 +368,11 @@ pub struct Gear {
 /// Hooks on a tool belt.
 pub const BELT_HOOKS: usize = 2;
 
+/// Cells each hook of the belt has, side by side under the bag: a tool
+/// hung there lies along them, so only one at most this long and one cell
+/// wide hangs (`ItemKind::hangs_on_belt`).
+pub const HOOK_CELLS: i32 = 3;
+
 impl Gear {
     pub fn worn(&self, slot: Slot) -> Option<ItemKind> {
         match slot {
@@ -527,6 +532,38 @@ impl Inventory {
         }
         self.gear.belt[hook] = None;
         Ok(())
+    }
+
+    /// The hook a kind carried hangs on, if it isn't in the bag.
+    pub fn hook_of(&self, kind: ItemKind) -> Option<usize> {
+        if self.bag.has(kind) {
+            return None;
+        }
+        self.gear.belt.iter().position(|&k| k == Some(kind))
+    }
+
+    /// Puts `kind` in `slot`: one in the bag (or, to hold in hand, on the
+    /// belt). What was there before goes back into the bag; nothing
+    /// changes if it wouldn't fit.
+    pub fn put_in(&mut self, slot: Slot, kind: ItemKind) -> Result<(), &'static str> {
+        if !slot.holds(kind) {
+            return Err("IT DOES NOT GO THERE");
+        }
+        if slot.keeps_in_bag() {
+            if !self.carries(kind) {
+                return Err("YOU DO NOT HAVE IT");
+            }
+            self.gear.hand = Some(kind);
+            return Ok(());
+        }
+        let Some(i) = self.bag.items().iter().position(|p| p.kind == kind) else { return Err("YOU DO NOT HAVE IT") };
+        self.wear(i)
+    }
+
+    /// Empties `slot`: takes off what's worn there into the bag (or just
+    /// lets go of a tool in hand).
+    pub fn empty(&mut self, slot: Slot) -> Result<(), &'static str> {
+        self.take_off(slot)
     }
 
     /// Takes off what's worn in `slot`: a tool is just let go of; a pack
@@ -949,6 +986,63 @@ mod tests {
 
     fn hangable() -> Vec<ItemKind> {
         ItemKind::ALL.iter().copied().filter(|k| k.hangs_on_belt()).collect()
+    }
+
+    #[test]
+    fn every_slot_is_filled_from_the_bag_and_emptied_the_same_way() {
+        let mut inv = Inventory::default();
+        for k in [tool(), pack(), ItemKind::ToolBelt] {
+            inv.bag.stow_one(k);
+        }
+        for slot in Slot::ALL {
+            let kind = [tool(), pack(), ItemKind::ToolBelt].into_iter().find(|&k| slot.holds(k)).unwrap();
+            assert!(inv.put_in(slot, kind).is_ok(), "{slot:?}");
+            assert_eq!(inv.gear.worn(slot), Some(kind));
+            assert!(inv.empty(slot).is_ok(), "{slot:?}");
+            assert_eq!(inv.gear.worn(slot), None);
+            assert!(inv.bag.has(kind), "{slot:?} gave {kind:?} back to the bag");
+        }
+    }
+
+    #[test]
+    fn only_the_hand_keeps_what_it_holds_in_the_bag() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(tool());
+        inv.bag.stow_one(pack());
+        inv.put_in(Slot::Hand, tool()).unwrap();
+        assert!(inv.bag.has(tool()));
+        inv.put_in(Slot::Back, pack()).unwrap();
+        assert!(!inv.bag.has(pack()));
+    }
+
+    #[test]
+    fn a_tool_on_a_hook_can_be_put_in_the_hand() {
+        let tool = hangable()[0];
+        let mut inv = belted(&[tool]);
+        inv.hang(find(&inv, tool)).unwrap();
+        assert!(inv.put_in(Slot::Hand, tool).is_ok());
+        assert_eq!(inv.gear.hand, Some(tool));
+        assert_eq!(inv.hook_of(tool), Some(0));
+    }
+
+    #[test]
+    fn a_slot_holds_only_its_own_gear() {
+        assert!(Slot::Back.holds(pack()));
+        assert!(!Slot::Back.holds(tool()));
+        assert!(Slot::Hand.holds(tool()));
+    }
+
+    #[test]
+    fn every_tool_that_hangs_fits_on_a_hook_lying_down() {
+        for kind in hangable() {
+            let (w, h) = kind.size();
+            assert!(w.min(h) == 1 && w.max(h) <= HOOK_CELLS, "{kind:?} is too big to hang");
+        }
+    }
+
+    #[test]
+    fn the_hooks_lie_side_by_side_under_the_bag() {
+        assert!(ItemKind::ToolBelt.hooks() as i32 * HOOK_CELLS <= super::super::bag::BAG_W);
     }
 
     #[test]

@@ -2180,15 +2180,15 @@ impl Game {
         self.inventory.recipes.learn_all();
     }
 
-    /// Debug: puts on the gear of `kind` carried in the bag (as WEAR
-    /// would); false if it couldn't be.
+    /// Debug: puts on the gear of `kind` carried in the bag (as choosing
+    /// it for its slot on the gear page would); false if it couldn't be.
     pub fn debug_wear(&mut self, kind: ItemKind) -> bool {
         let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
         self.inventory.wear(i).is_ok()
     }
 
-    /// Debug: hangs a tool of `kind` from the bag on the belt (as HANG ON
-    /// BELT would); false if it couldn't be.
+    /// Debug: hangs a tool of `kind` from the bag on the belt's first free
+    /// hook; false if it couldn't be.
     pub fn debug_hang(&mut self, kind: ItemKind) -> bool {
         let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind == kind) else { return false };
         self.inventory.hang(i).is_ok()

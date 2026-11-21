@@ -7,7 +7,11 @@ use crate::assets::palettes::{HUD_DIM, HUD_FOOD, HUD_HEART, HUD_MENU, HUD_TEXT, 
 use crate::assets::{HudTiles, SpriteIds};
 use crate::crafting::{RECIPES, RecipeOrder};
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
-use crate::game::menu::{BagMenu, GearRow, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, commands_for, gear_choices, gear_rows, need_lines};
+use crate::game::menu::{
+    BagMenu, GearChoice, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, Spot, commands_for, gear_choices, hook_at, item_at, lies_on_hook, need_lines,
+    on_belt,
+};
+use crate::game::state::HOOK_CELLS;
 use crate::game::state::Inventory;
 use crate::items::{ItemKind, Slot};
 use crate::ppu::Bg3Layer;
@@ -47,6 +51,26 @@ const SCROLL_COL: usize = 29;
 const NOTICE_ROW: usize = 24;
 // What a recipe needs ends above the notice.
 const _: () = assert!(NEEDS_ROW + NEEDS_SHOWN <= NOTICE_ROW);
+/// The gear page, across the whole width: the slots (as many as
+/// `PLACES_SHOWN`, more scroll), each's name and what's in it from
+/// `GEAR_ITEM_COL`; below them what can go in the slot chosen (names
+/// `GEAR_NAME_WIDTH` wide), with where each is kept at `GEAR_FROM_COL`,
+/// and the picture of the thing in question to their right, from
+/// `GEAR_PIC_COL` to the screen's edge; and at the bottom, from
+/// `GEAR_DESC_ROW`, what it is (`GEAR_DESC_LINES` lines of
+/// `GEAR_DESC_WIDTH`).
+const GEAR_COL: usize = 2;
+const PLACES_SHOWN: usize = 7;
+const GEAR_ITEM_COL: usize = 12;
+const GEAR_NAME_WIDTH: usize = 13;
+const GEAR_FROM_COL: usize = 17;
+const GEAR_PIC_COL: usize = 23;
+const GEAR_PIC_WIDTH: i32 = 64;
+const GEAR_DESC_ROW: usize = 20;
+const GEAR_DESC_LINES: usize = 4;
+const GEAR_DESC_WIDTH: usize = 28;
+// The description ends above the notice.
+const _: () = assert!(GEAR_DESC_ROW + GEAR_DESC_LINES <= NOTICE_ROW);
 /// The mark of the lathe (a cog), by recipes turned on it as `^` (a
 /// flame) is by those made at a fire.
 const LATHE_MARK: &str = "*";
@@ -112,53 +136,85 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         draw_cart_page(bg3, tiles, list, sprites, inventory, menu);
         return;
     }
+    if menu.page() == Page::Gear {
+        draw_gear_page(bg3, tiles, list, sprites, inventory, menu);
+        return;
+    }
+    let rows = bag.rows();
+    let hooks = inventory.gear.hooks();
     let used: i32 = bag.items().iter().map(|p| p.size().0 * p.size().1).sum();
-    let room = format!("{used:02}/{}", BAG_W * bag.rows());
-    text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), GRID_ROW + bag.rows() as usize * 2, &room);
+    let room = format!("{used:02}/{}", BAG_W * rows);
+    let under = GRID_ROW + rows as usize * 2;
+    text(bg3, tiles, GRID_COL + BAG_W as usize * 2 - room.len(), under, &room);
 
-    for y in 0..bag.rows() as usize {
+    for y in 0..rows as usize {
         for x in 0..BAG_W as usize {
             for q in 0..4 {
                 bg3.put(GRID_COL + x * 2 + q % 2, GRID_ROW + y * 2 + q / 2, tiles.bag_cell[q], HUD_MENU);
             }
         }
     }
+    // The belt's hooks, side by side a row below the grid (a tile apart),
+    // while one is worn: the cells of each, with a tool hung there lying
+    // along them.
+    let hook_gap = |x: usize| x / HOOK_CELLS as usize;
+    for x in 0..hooks * HOOK_CELLS as usize {
+        for q in 0..4 {
+            bg3.put(GRID_COL + x * 2 + hook_gap(x) + q % 2, under + 1 + q / 2, tiles.bag_cell[q], HUD_MENU);
+        }
+    }
+    let px_at = |x: i32, y: i32| {
+        if y >= rows { ((GRID_COL + hook_gap(x as usize)) as i32 * 8 + x * CELL, (under as i32 + 1) * 8) } else { cell_px(x, y) }
+    };
 
     let icons = &sprites.bag;
-    // The held item floats over the grid, lifted a little.
-    let held = menu.held_placement();
+    // The held item floats over the grid, lifted a little (lying along a
+    // hook over the belt).
+    let held = menu.held_placement().map(|h| if on_belt((h.x, h.y), bag) { Placed { turned: lies_on_hook(h.kind), ..h } } else { h });
     // Counts and the in-hand mark go in first so they're drawn over the
     // icons.
-    let in_hand = |p: &Placed| inventory.gear.hand == Some(p.kind);
+    let in_hand = |kind: ItemKind| inventory.gear.hand == Some(kind);
     if let Some(h) = held {
-        let (px, py) = cell_px(h.x, h.y);
+        let (px, py) = px_at(h.x, h.y);
         draw_count(list, sprites, &h, (px - 2, py - 3));
-        if in_hand(&h) {
+        if in_hand(h.kind) {
             list.sky(ObjEntry::new(px - 2, py - 3, icons.equipped, OBJ_FX, 3));
         }
         let (gfx, pal) = icons.icon(h.kind, h.turned);
         list.sky(ObjEntry::new(px - 2, py - 3, gfx, pal, 3));
     }
-    for p in bag.items() {
-        draw_count(list, sprites, p, cell_px(p.x, p.y));
-        if in_hand(p) {
-            let (px, py) = cell_px(p.x, p.y);
+    let hung: Vec<Placed> = (0..hooks)
+        .filter_map(|i| inventory.gear.belt[i].map(|kind| Placed { kind, x: i as i32 * HOOK_CELLS, y: rows, turned: lies_on_hook(kind), count: 1 }))
+        .collect();
+    for p in bag.items().iter().chain(&hung) {
+        let (px, py) = px_at(p.x, p.y);
+        draw_count(list, sprites, p, (px, py));
+        if in_hand(p.kind) {
             list.sky(ObjEntry::new(px, py, icons.equipped, OBJ_FX, 3));
         }
     }
-    for p in bag.items() {
-        let (px, py) = cell_px(p.x, p.y);
+    for p in bag.items().iter().chain(&hung) {
+        let (px, py) = px_at(p.x, p.y);
         let (gfx, pal) = icons.icon(p.kind, p.turned);
         list.sky(ObjEntry::new(px, py, gfx, pal, 3));
     }
 
-    // Cursor brackets around the item (or cell) in question; blinking when
-    // a held item can't go down here.
+    // Cursor brackets around the item (or cell, or hook) in question;
+    // blinking when a held item can't go down here.
     let (cx, cy) = menu.cursor;
+    let hook_frame = |x: i32| (hook_at(x) as i32 * HOOK_CELLS, rows, HOOK_CELLS, 1);
     let (bx, by, bw, bh, blocked) = match held {
+        Some(h) if on_belt((h.x, h.y), bag) => {
+            let (x, y, w, ht) = hook_frame(h.x);
+            (x, y, w, ht, !h.kind.hangs_on_belt() || h.count > 1)
+        }
         Some(h) => {
             let (w, ht) = h.size();
             (h.x, h.y, w, ht, bag.overlapping(&h).len() > 1)
+        }
+        None if on_belt((cx, cy), bag) => {
+            let (x, y, w, ht) = hook_frame(cx);
+            (x, y, w, ht, false)
         }
         None => match bag.at(cx, cy).map(|i| bag.items()[i]) {
             Some(p) => (p.x, p.y, p.size().0, p.size().1, false),
@@ -167,7 +223,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     };
     let in_grid = matches!(menu.mode, Mode::Browse | Mode::Commands { .. } | Mode::Holding(_));
     if in_grid && (!blocked || (clock / 6).is_multiple_of(2)) {
-        let (x0, y0) = cell_px(bx, by);
+        let (x0, y0) = px_at(bx, by);
         let (x1, y1) = (x0 + bw * CELL - 8, y0 + bh * CELL - 8);
         for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {
             let mut e = ObjEntry::new(x, y, icons.corner, OBJ_FX, 3).flipped(fh);
@@ -177,21 +233,25 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     }
 
     // What's under the cursor (or in hand), and what can be done with it.
-    let focus = held.map(|h| h.kind).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].kind)).filter(|_| in_grid);
+    let under_cursor = item_at(inventory, (cx, cy));
+    let focus = held.map(|h| h.kind).or(under_cursor.map(|(_, k)| k)).filter(|_| in_grid);
     if let Some(kind) = focus {
         let (w, h) = footprint(kind, false);
         text(bg3, tiles, INFO_COL, GRID_ROW, kind.name());
         text(bg3, tiles, INFO_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
-        if inventory.gear.hand == Some(kind) {
+        if in_hand(kind) {
             text(bg3, tiles, INFO_COL, GRID_ROW + 2, "IN HAND");
         }
-        let count = held.map(|h| h.count).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].count));
+        let count = held.map(|h| h.count).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].count).filter(|_| !on_belt((cx, cy), bag)));
         if let Some(n) = count.filter(|_| kind.max_stack() > 1) {
             text(bg3, tiles, INFO_COL, GRID_ROW + 2, &format!("{n} OF {}", kind.max_stack()));
         }
     }
     if let Mode::Commands { item, choice } = menu.mode {
-        let kind = bag.items()[item].kind;
+        let kind = match item {
+            Spot::Bag(i) => bag.items()[i].kind,
+            Spot::Hook(h) => inventory.gear.belt[h].unwrap_or(ItemKind::Stone),
+        };
         for (i, c) in commands_for(kind, &inventory.gear).iter().enumerate() {
             let row = GRID_ROW + 4 + i;
             if i == choice {
@@ -200,11 +260,9 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             text(bg3, tiles, INFO_COL + 1, row, c.label(kind));
         }
     }
-    if menu.page() == Page::Gear {
-        draw_gear(bg3, tiles, inventory, menu);
-    }
     if let Some(n) = menu.notice {
-        text(bg3, tiles, GRID_COL, GRID_ROW + bag.rows() as usize * 2 + 2, n);
+        // Below the belt, if one is worn.
+        text(bg3, tiles, GRID_COL, under + if hooks > 0 { 4 } else { 2 }, n);
     }
     draw_help(bg3, tiles, menu);
 }
@@ -219,7 +277,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Recipe { .. } => "A MAKE   B BACK",
         Mode::Commands { .. } | Mode::GearPick { .. } => "A OK   B BACK",
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
-        Mode::Gear { .. } => "A CHANGE   B BACK",
+        Mode::Gear { .. } => "A CHOOSE   B BACK",
         Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
@@ -610,61 +668,95 @@ fn wrap(s: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// The gear page beside the grid: each slot with what's in it (and the
-/// room a pack adds), the tools on the belt's hooks under the waist, and
-/// the choices for the line being changed.
-fn draw_gear(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
+/// The picture of `kind` as it lies in the bag, beside the list of what
+/// can go in a place (from row `top` down to the description), centred
+/// there; turned on its side if it's too tall to stand up in that room.
+fn draw_gear_picture(list: &mut DrawList, sprites: &SpriteIds, kind: ItemKind, top: usize) {
+    let room = (GEAR_DESC_ROW - top) as i32 * 8;
+    let (w, h) = footprint(kind, false);
+    let turned = h * CELL > room && w * CELL <= room;
+    let (w, h) = footprint(kind, turned);
+    let x = GEAR_PIC_COL as i32 * 8 + (GEAR_PIC_WIDTH - w * CELL) / 2;
+    let y = top as i32 * 8 + ((room - h * CELL) / 2).max(0);
+    let (gfx, pal) = sprites.bag.icon(kind, turned);
+    list.sky(ObjEntry::new(x, y, gfx, pal, 3));
+}
+
+/// `first` of `len` lines shown `room` at a time, scrolled to keep
+/// `at` in view.
+fn scroll_to(at: usize, room: usize) -> usize {
+    (at + 1).saturating_sub(room)
+}
+
+/// The gear page: the places gear goes, what's in each; once one is
+/// chosen, what can go there (and where each is kept: in the bag or on a
+/// hook); and what the thing in question is.
+fn draw_gear_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
     let (focus, picking) = match menu.mode {
-        Mode::Gear { slot } => (Some(slot), None),
-        Mode::GearPick { slot, choice } => (Some(slot), Some(choice)),
+        Mode::Gear { place } => (Some(place), None),
+        Mode::GearPick { place, choice } => (Some(place), Some(choice)),
         _ => (None, None),
     };
     let gear = &inventory.gear;
-    let rows = gear_rows(gear);
-    let mut row = GRID_ROW;
-    for (i, &line) in rows.iter().enumerate() {
-        match line {
-            GearRow::Slot(slot) => {
-                if focus == Some(i) {
-                    text(bg3, tiles, INFO_COL, row, ">");
-                }
-                text(bg3, tiles, INFO_COL + 1, row, slot.label());
-                let worn = gear.worn(slot);
-                text_fit(bg3, tiles, INFO_COL + 2, row + 1, worn.map_or("-", |k| k.name()));
-                row += 2;
-                if let Some(k) = worn.filter(|k| k.extra_rows() > 0) {
-                    text(bg3, tiles, INFO_COL + 2, row, &format!("+{} ROOM", k.extra_rows() * BAG_W));
-                    row += 1;
-                }
-                // A gap before the next slot, but not before the hooks.
-                if slot != Slot::Waist || gear.hooks() == 0 {
-                    row += 1;
-                }
-            }
-            GearRow::Hook(h) => {
-                // A step in from the belt's name: they hang from it.
-                if focus == Some(i) {
-                    text(bg3, tiles, INFO_COL + 2, row, ">");
-                }
-                text_fit(bg3, tiles, INFO_COL + 3, row, gear.belt[h].map_or("-", |k| k.name()));
-                row += 1;
-            }
+    let places = Slot::ALL;
+    let first = scroll_to(focus.unwrap_or(0), PLACES_SHOWN);
+    for (i, &place) in places.iter().enumerate().skip(first).take(PLACES_SHOWN) {
+        let row = GRID_ROW + i - first;
+        let col = GEAR_COL;
+        if focus == Some(i) {
+            text_in(bg3, tiles, col, row, ">", if picking.is_some() { HUD_DIM } else { HUD_TEXT });
+        }
+        text(bg3, tiles, col + 1, row, place.label());
+        match gear.worn(place) {
+            Some(kind) => text_fit(bg3, tiles, GEAR_ITEM_COL, row, kind.name()),
+            None => text_in(bg3, tiles, GEAR_ITEM_COL, row, "-", HUD_DIM),
         }
     }
-    if let (Some(slot), Some(choice)) = (focus, picking) {
-        // As many as fit above the help line, scrolled to keep the choice
-        // in view.
-        let top = row + 1;
-        let room = (LAST_ROW - 2).saturating_sub(top).max(1);
-        let first = (choice + 1).saturating_sub(room);
-        for (i, c) in gear_choices(inventory, rows[slot]).iter().enumerate().skip(first).take(room) {
-            let at = top + i - first;
+    let shown = places.len().min(PLACES_SHOWN);
+    if first > 0 {
+        text_in(bg3, tiles, SCROLL_COL, GRID_ROW, "▲", HUD_DIM);
+    }
+    if first + shown < places.len() {
+        text_in(bg3, tiles, SCROLL_COL, GRID_ROW + shown - 1, "▼", HUD_DIM);
+    }
+    let top = GRID_ROW + shown + 1;
+    let mut about = focus.and_then(|i| gear.worn(places[i]));
+    if let (Some(place), Some(choice)) = (focus, picking) {
+        let choices = gear_choices(inventory, places[place]);
+        let room = GEAR_DESC_ROW - 1 - top;
+        let first = scroll_to(choice, room);
+        for (i, c) in choices.iter().enumerate().skip(first).take(room) {
+            let row = top + i - first;
             if i == choice {
-                text(bg3, tiles, INFO_COL, at, ">");
+                text(bg3, tiles, GEAR_COL, row, ">");
             }
-            text_fit(bg3, tiles, INFO_COL + 1, at, c.label());
+            text(bg3, tiles, GEAR_COL + 1, row, &fit(c.label(), GEAR_NAME_WIDTH));
+            if let GearChoice::Use(kind) = *c {
+                let kept = inventory.hook_of(kind).map_or("BAG".to_string(), |h| format!("HOOK {}", h + 1));
+                text_in(bg3, tiles, GEAR_FROM_COL, row, &kept, HUD_DIM);
+            }
+        }
+        if first > 0 {
+            text_in(bg3, tiles, SCROLL_COL, top, "▲", HUD_DIM);
+        }
+        if first + room < choices.len() {
+            text_in(bg3, tiles, SCROLL_COL, top + room - 1, "▼", HUD_DIM);
+        }
+        about = match choices.get(choice) {
+            Some(GearChoice::Use(kind)) => Some(*kind),
+            _ => None,
+        };
+    }
+    if let Some(kind) = about {
+        draw_gear_picture(list, sprites, kind, top);
+        for (i, line) in wrap(kind.description(), GEAR_DESC_WIDTH).iter().take(GEAR_DESC_LINES).enumerate() {
+            text(bg3, tiles, GEAR_COL, GEAR_DESC_ROW + i, line);
         }
     }
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GEAR_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
 }
 
 #[cfg(test)]
@@ -678,6 +770,25 @@ mod tests {
             let lines = wrap(r.makes.description(), desc_width(w));
             assert!(DESC_ROW + lines.len() < NEEDS_ROW, "{:?}'s description runs into its needs", r.makes);
             assert!(lines.iter().all(|l| l.len() <= desc_width(w)), "{:?}'s description runs under its picture", r.makes);
+        }
+    }
+
+    #[test]
+    fn every_gear_description_fits_under_the_gear_page() {
+        for kind in ItemKind::ALL.iter().copied().filter(|k| k.slot().is_some()) {
+            let lines = wrap(kind.description(), GEAR_DESC_WIDTH);
+            assert!(lines.len() <= GEAR_DESC_LINES, "{kind:?}'s description runs too long");
+            assert!(lines.iter().all(|l| l.len() <= GEAR_DESC_WIDTH), "{kind:?}'s description runs too wide");
+        }
+    }
+
+    #[test]
+    fn every_gear_picture_fits_beside_the_list() {
+        let places = Slot::ALL.len();
+        let room = (GEAR_DESC_ROW - (GRID_ROW + places + 1)) as i32 * 8;
+        for kind in ItemKind::ALL.iter().copied().filter(|k| k.slot().is_some()) {
+            let fits = [false, true].into_iter().map(|t| footprint(kind, t)).any(|(w, h)| w * CELL <= GEAR_PIC_WIDTH && h * CELL <= room);
+            assert!(fits, "{kind:?}'s picture doesn't fit beside the list");
         }
     }
 

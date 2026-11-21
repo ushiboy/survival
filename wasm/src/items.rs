@@ -144,6 +144,22 @@ pub enum Slot {
 impl Slot {
     pub const ALL: [Slot; 3] = [Slot::Hand, Slot::Back, Slot::Waist];
 
+    /// Whether `kind` can go here.
+    pub fn holds(self, kind: ItemKind) -> bool {
+        kind.slot() == Some(self)
+    }
+
+    /// Whether what's here is still in the bag (taking room there): a
+    /// tool in hand is; anything worn is out of it.
+    pub fn keeps_in_bag(self) -> bool {
+        self == Slot::Hand
+    }
+
+    /// What's said once something is put here.
+    pub fn done_words(self) -> &'static str {
+        if self == Slot::Hand { "TOOK IT IN HAND" } else { "PUT IT ON" }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Slot::Hand => "HAND",
