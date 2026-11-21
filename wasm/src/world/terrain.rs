@@ -194,6 +194,25 @@ pub fn patch_anchor(x: i32, y: i32, part: u8) -> (i32, i32) {
     (x - (part % 2) as i32, y - (part / 2) as i32)
 }
 
+/// Where the mill is marked out: a stake at a corner of the ground, and
+/// the rope run from it (or past it, between the stakes) along the edges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Marking {
+    /// A stake driven in here (a corner): it stands in the way.
+    pub stake: bool,
+    /// Which way rope runs out of the cell's middle (`Marking::NORTH` and
+    /// so on, or'd together); the rope lies on the ground and is stepped
+    /// over.
+    pub ropes: u8,
+}
+
+impl Marking {
+    pub const NORTH: u8 = 1;
+    pub const EAST: u8 = 2;
+    pub const SOUTH: u8 = 4;
+    pub const WEST: u8 = 8;
+}
+
 /// A palm stump (left in the old trunk-base cell).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct StumpPart {
@@ -258,6 +277,9 @@ pub enum Feature {
     /// bare. It can be walked over, like a campfire (set down anywhere, it
     /// never blocks the way).
     SignalFire(bool),
+    /// The ground for the mill marked out: stakes at its corners with
+    /// rope between them.
+    Marking(Marking),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -287,6 +309,7 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Vine
         | Feature::VineStake
         | Feature::Lathe(_) => true,
+        Feature::Marking(m) => m.stake,
         _ => false,
     };
     TileProps {

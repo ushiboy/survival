@@ -17,7 +17,7 @@
 
 ## 使い道
 
-- レシピの材料: [石斧](../recipes/stone-axe.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[釣り竿](../recipes/fishing-rod.md)、[ハシゴ](../recipes/ladder.md)、[丸太橋](../recipes/log-bridge.md)、[水車](../recipes/water-wheel.md)、[竹のスコップ](../recipes/bamboo-spade.md)、[道具帯](../recipes/tool-belt.md)、[木工旋盤](../recipes/wood-lathe.md)、[リアカー](../recipes/handcart.md)
+- レシピの材料: [石斧](../recipes/stone-axe.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[釣り竿](../recipes/fishing-rod.md)、[ハシゴ](../recipes/ladder.md)、[丸太橋](../recipes/log-bridge.md)、[水車](../recipes/water-wheel.md)、[竹のスコップ](../recipes/bamboo-spade.md)、[道具帯](../recipes/tool-belt.md)、[木工旋盤](../recipes/wood-lathe.md)、[リアカー](../recipes/handcart.md)、[縄張りの杭](../recipes/marking-stakes.md)
 
 ## メモ
 

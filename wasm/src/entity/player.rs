@@ -152,8 +152,9 @@ const PULL_TOTAL: u32 = 26;
 /// Longest (frames) stepping over to where a ladder goes may take.
 const TO_LADDER_FRAMES: u32 = 90;
 const PITCH_SET: u32 = 12;
-/// Longest the walk over to set a wood lathe may take (frames).
-const TO_LATHE_FRAMES: u32 = 240;
+/// Longest the walk over to set a wood lathe (or drive the marking
+/// stakes in) may take (frames).
+const TO_STAND_FRAMES: u32 = 240;
 const PITCH_TOTAL: u32 = 24;
 /// Trying to scramble up a rock face too tall to climb bare-handed
 /// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
@@ -327,6 +328,17 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
+    /// Walking over to the middle of the mill's ground off the mill
+    /// site's bank `site`, to drive the marking stakes in (`Stake`).
+    ToStakes {
+        t: u32,
+        site: (i32, i32),
+    },
+    /// Driving the marking stakes in round the mill's ground.
+    Stake {
+        t: u32,
+        site: (i32, i32),
+    },
     /// Setting a signal fire down on the ground ahead (its cell).
     Build {
         t: u32,
@@ -424,6 +436,9 @@ pub enum Deed {
     /// The wood lathe was set on the bank beside the water wheel off the
     /// mill site's bank (the cell).
     SetLathe((i32, i32)),
+    /// The mill's ground off the mill site's bank (the cell) was marked out
+    /// with the marking stakes.
+    SetStakes((i32, i32)),
     /// A signal fire was set down in the cell.
     SetSignalFire((i32, i32)),
     /// The signal fire in the cell caught.
@@ -699,6 +714,15 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Install { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetLathe(site));
         }
+        if let Action::ToStakes { t, site } = self.action {
+            self.step_to_stakes(t + 1, site, map);
+            return None;
+        }
+        if let Action::Stake { t, site } = self.action {
+            let t = t + 1;
+            self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Stake { t, site } };
+            return (t == PITCH_SET).then_some(Deed::SetStakes(site));
+        }
         if let Action::Build { t, cell } = self.action {
             let t = t + 1;
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Build { t, cell } };
@@ -754,6 +778,10 @@ impl Player {
                 // A wood lathe goes on the bank beside the turning wheel:
                 // held anywhere near, the castaway walks over to set it.
                 ItemKind::WoodLathe => Action::ToLathe { t: 0, site: self.lathe_near(map)? },
+                // Marking stakes go in round the ground beside the turning
+                // lathe: held anywhere near, the castaway walks over to its
+                // middle to drive them in.
+                ItemKind::MarkingStakes => Action::ToStakes { t: 0, site: self.stakes_near(map)? },
                 // A signal fire goes down on open ground just ahead.
                 ItemKind::SignalFire => {
                     let (x, y) = self.fire_spot();
@@ -875,6 +903,12 @@ impl Player {
             }
             // Near the bank beside the turning wheel with no lathe in hand.
             if tool != Some(ItemKind::WoodLathe) && !cart_ahead && self.lathe_near(map).is_some() {
+                self.ponder();
+                return None;
+            }
+            // Near the ground beside the turning lathe, not yet marked out,
+            // with no stakes in hand.
+            if tool != Some(ItemKind::MarkingStakes) && !cart_ahead && self.stakes_near(map).is_some() {
                 self.ponder();
                 return None;
             }
@@ -1196,6 +1230,13 @@ impl Player {
         }
     }
 
+    /// The mill site, if marking stakes held here would be driven in round
+    /// the mill's ground (the castaway is near enough).
+    fn stakes_near(&self, map: &WorldMap) -> Option<(i32, i32)> {
+        let (fx, fy) = self.body.feet();
+        map.stakes_spot(fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
+    }
+
     /// The mill site, if a wood lathe held here would be set on the bank
     /// beside the turning water wheel (the castaway is near enough).
     fn lathe_near(&self, map: &WorldMap) -> Option<(i32, i32)> {
@@ -1203,20 +1244,41 @@ impl Player {
         map.lathe_spot(fx.div_euclid(TILE_SIZE), fy.div_euclid(TILE_SIZE))
     }
 
-    /// A frame of `Action::ToLathe`: walking (across, then along) until the
-    /// feet are in the middle of the place to stand to set the lathe, then
-    /// turning east to it. Stopped by something in the way (or taking too
-    /// long), it isn't set.
+    /// A frame of `Action::ToLathe`: walking over to the place to stand to
+    /// set the lathe, then turning east to it (`Install`). Stopped by
+    /// something in the way (or taking too long), it isn't set.
     fn step_to_lathe(&mut self, t: u32, site: (i32, i32), map: &WorldMap) {
-        let (sx, sy) = crate::world::map::lathe_stand(site);
+        match self.step_to_stand(t, crate::world::map::lathe_stand(site), Dir::Right, map) {
+            Some(true) => self.action = Action::Install { t: 0, site },
+            Some(false) => self.action = Action::ToLathe { t, site },
+            None => {}
+        }
+    }
+
+    /// A frame of `Action::ToStakes`: walking over to the middle of the
+    /// mill's ground, then facing the way the castaway came in to drive
+    /// the stakes in (`Stake`). Stopped by something in the way (or taking
+    /// too long), they aren't driven in.
+    fn step_to_stakes(&mut self, t: u32, site: (i32, i32), map: &WorldMap) {
+        match self.step_to_stand(t, crate::world::map::stakes_stand(site), Dir::Down, map) {
+            Some(true) => self.action = Action::Stake { t: 0, site },
+            Some(false) => self.action = Action::ToStakes { t, site },
+            None => {}
+        }
+    }
+
+    /// Walks (across, then along: the longer way first) until the feet are
+    /// in the middle of the cell `to`, then turns `face`: `Some(true)` once
+    /// there, `Some(false)` on the way, and `None` (standing idle) if
+    /// something is in the way or it took longer than `TO_STAND_FRAMES`.
+    fn step_to_stand(&mut self, t: u32, (sx, sy): (i32, i32), face: Dir, map: &WorldMap) -> Option<bool> {
         let to = (sx * TILE_SIZE + TILE_SIZE / 2, sy * TILE_SIZE + TILE_SIZE / 2);
         let (fx, fy) = self.body.feet();
         if (fx, fy) == to {
-            self.facing = Dir::Right;
+            self.facing = face;
             self.moving = false;
             self.walk_timer = 0;
-            self.action = Action::Install { t: 0, site };
-            return;
+            return Some(true);
         }
         // One axis at a time (the longer way first), the last pixel exactly.
         let step = |d: i32, sub: i32| if d.abs() * 256 < SPEED_WALK { d * 256 - sub } else { d.signum() * SPEED_WALK };
@@ -1224,11 +1286,11 @@ impl Player {
         let along_x = ddx != 0 && (ddx.abs() >= ddy.abs() || ddy == 0);
         let (dx, dy) = if along_x { (step(ddx, self.body.x.rem_euclid(256)), 0) } else { (0, step(ddy, self.body.y.rem_euclid(256))) };
         let moved = self.body.move_by(dx, dy, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
-        if !moved || t > TO_LATHE_FRAMES {
+        if !moved || t > TO_STAND_FRAMES {
             self.moving = false;
             self.walk_timer = 0;
             self.action = Action::Idle;
-            return;
+            return None;
         }
         self.facing = match (dx.signum(), dy.signum()) {
             (1, _) => Dir::Right,
@@ -1238,7 +1300,7 @@ impl Player {
         };
         self.moving = true;
         self.walk_timer += 1;
-        self.action = Action::ToLathe { t, site };
+        Some(false)
     }
 
     /// Walks along the bank (up or down) until the feet are in the middle
@@ -1654,7 +1716,13 @@ impl Player {
             return;
         }
 
-        if let Action::Pitch { t, .. } | Action::Lay { t, .. } | Action::Mount { t, .. } | Action::Install { t, .. } | Action::Build { t, .. } = self.action {
+        if let Action::Pitch { t, .. }
+        | Action::Lay { t, .. }
+        | Action::Mount { t, .. }
+        | Action::Install { t, .. }
+        | Action::Stake { t, .. }
+        | Action::Build { t, .. } = self.action
+        {
             // Lifting the ladder (or bridge), then leaning in to set it
             // against the rock (or down across the river).
             let stage = (t >= PITCH_SET) as usize;

@@ -24,7 +24,7 @@ use crate::world::harvest::BARK_STRIPS;
 use crate::world::island::{DEEP_BELOW, SAND_BELOW};
 use crate::world::map::LADDER_ROWS;
 use crate::world::noise::value_noise;
-use crate::world::terrain::{BroadleafPart, ClayPart, PalmPart, PinePart, Soil, patch_anchor};
+use crate::world::terrain::{BroadleafPart, ClayPart, Marking, PalmPart, PinePart, Soil, patch_anchor};
 use crate::world::{CHUNK_CELLS, CHUNK_PX, ChunkId, Feature, TILE_SIZE, Terrain, WorldMap};
 
 /// A layer's tile map.
@@ -583,6 +583,47 @@ impl Builder<'_> {
                 });
                 if let Some(c) = c {
                     art.set(px, py, c);
+                }
+            }
+        }
+        // The rope marking out the mill's ground runs on along its east
+        // edge over the lathe (it stands on that edge), unbroken from the
+        // stakes north and south of it.
+        let on_edge = map.spots.mill.is_some_and(|site| x == crate::world::map::mill_plot(site).2);
+        if on_edge && map.is_staked() {
+            let rope = Marking { stake: false, ropes: Marking::NORTH | Marking::SOUTH };
+            for py in 0..16 {
+                for px in 0..16 {
+                    if let Some(c) = marking_rope(rope, px as i32, py as i32) {
+                        art.set(px, py, c);
+                    }
+                }
+            }
+        }
+        self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// The mill's ground marked out (grass palette): rope lying along the
+    /// grass through the cell's middle, out each way it runs, and at a
+    /// corner the stake it's tied to, outlined, its shadow on the grass.
+    fn marking(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, m: Marking) -> MetatileId {
+        let mut art = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        let top = |px: i32, py: i32| marking_top(m, px, py);
+        for py in 0..16 {
+            for px in 0..16 {
+                let c = top(px, py).or_else(|| {
+                    let edge = m.stake && [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| marking_stake(px + dx, py + dy).is_some());
+                    // The rope's shadow just under it, the stake's cast
+                    // down to the right.
+                    let shadow = top(px, py - 1).is_some() && marking_rope(m, px, py - 1).is_some() && marking_stake(px, py - 1).is_none()
+                        || m.stake && (1..=2).any(|d| marking_stake(px - d, py - d).is_some()) && (px + py) % 2 == 0;
+                    (edge || shadow).then_some(grass::RAMP[0])
+                });
+                if let Some(c) = c {
+                    art.set(px as usize, py as usize, c);
                 }
             }
         }
@@ -1865,6 +1906,42 @@ const LATHE_SPINDLE: (i32, i32, i32) = (24, 18, 27);
 /// (px), if any of it is there: lauan (sand browns, lit on the top and the
 /// left, the soil brown in shade), stone bearings (white), the billet
 /// turned pale with grooves round it, and the rope.
+/// The marking's pixel at `(x, y)` in its cell, if anything is there: the
+/// stake (at a corner) in front of the rope.
+fn marking_top(m: Marking, x: i32, y: i32) -> Option<u8> {
+    if m.stake
+        && let Some(c) = marking_stake(x, y)
+    {
+        return Some(c);
+    }
+    marking_rope(m, x, y)
+}
+
+/// A stake split from bamboo, driven into the middle of a cell: a pale
+/// cut top, a lit face and a shaded one.
+fn marking_stake(x: i32, y: i32) -> Option<u8> {
+    if !(6..=9).contains(&x) || !(2..=10).contains(&y) {
+        return None;
+    }
+    Some(if y == 2 {
+        grass::SAND[2]
+    } else if x <= 7 {
+        grass::SAND[1]
+    } else {
+        grass::SAND[0]
+    })
+}
+
+/// Rope lying through the middle of a cell, out each way it runs: two
+/// pixels thick, twisted (light and dark by turns).
+fn marking_rope(m: Marking, x: i32, y: i32) -> Option<u8> {
+    let (mx, my) = (7..=8, 7..=8);
+    let twist = |a: i32, b: i32| if (a + b) % 3 == 0 { grass::SAND[0] } else { grass::SAND[2] };
+    let across = (my.contains(&y)) && ((m.ropes & Marking::WEST != 0 && x <= 8) || (m.ropes & Marking::EAST != 0 && x >= 7) || (m.stake && mx.contains(&x)));
+    let along = (mx.contains(&x)) && ((m.ropes & Marking::NORTH != 0 && y <= 8) || (m.ropes & Marking::SOUTH != 0 && y >= 7));
+    (across || along).then(|| twist(x, y))
+}
+
 fn lathe_top(x: i32, y: i32) -> Option<u8> {
     if !(0..32).contains(&x) || !(0..32).contains(&y) {
         return None;
@@ -2455,6 +2532,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Bridge(part) => b.bridge(map, river.as_ref(), x, y, part),
         Feature::WaterWheel(part) => b.water_wheel(map, river.as_ref(), x, y, part),
         Feature::Lathe(part) => b.lathe(map, river.as_ref(), x, y, part),
+        Feature::Marking(m) => b.marking(map, river.as_ref(), x, y, m),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),
         Feature::BareEarth(part) => {

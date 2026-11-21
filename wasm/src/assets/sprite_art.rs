@@ -907,6 +907,24 @@ pub fn bamboo_spade() -> PixelArt {
     )
 }
 
+/// Marking stakes lying on the ground, 32x8: the bundle of split bamboo
+/// stakes on its side, points to the right, the hank of rope round it.
+pub fn marking_stakes() -> PixelArt {
+    PixelArt::parse(
+        &[
+            "................................",
+            ".ooooooooooooooooooooooooooooo..",
+            "ocGGGGGGgGGGGWwWwWwGGGGGGGGGhhoo",
+            "ochhhhhhhhhhhwWwWwWhhhhhhhhhhhho",
+            "occccccgcccccWwWwWwccccccccccoo.",
+            ".oooooooooooooooooooooooooooo...",
+            "................................",
+            "................................",
+        ],
+        FX_LEGEND,
+    )
+}
+
 /// A lump of clay on the ground, 8x8 (effects palette greys).
 pub fn clay_lump() -> PixelArt {
     let rows = ["........", "...oo...", "..oLMo..", ".ooMmoo.", "oLMooMMo", "oMmmoMmo", ".oooooo.", "........"];

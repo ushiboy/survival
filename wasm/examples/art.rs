@@ -183,8 +183,11 @@ fn on_sheet(f: Feature) -> bool {
         // and the log bridge and water wheel, drawn with the river they're
         // in (see `pnpm map`, `pnpm map --bridge` and `pnpm map --wheel`);
         // and the signal fire, a sprite standing on bare ground (its
-        // picture is the item's, on the items sheet).
-        Feature::None | Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) => false,
+        // picture is the item's, on the items sheet); and the mill's ground
+        // marked out, drawn round the lathe (`pnpm map --stakes`).
+        Feature::None | Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) | Feature::Marking(_) => {
+            false
+        }
     }
 }
 

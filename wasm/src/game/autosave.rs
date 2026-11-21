@@ -54,6 +54,7 @@ pub fn cue_of(deed: &Deed) -> Option<Cue> {
         | Deed::LayBridge(_)
         | Deed::SetWheel(_)
         | Deed::SetLathe(_)
+        | Deed::SetStakes(_)
         | Deed::SetSignalFire(_)
         | Deed::LightSignalFire(_) => Some(Cue::Changed),
         // Passing: nothing is kept of them.

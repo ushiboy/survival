@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::river::River;
-use super::terrain::{Feature, Soil, Terrain, TileProps, tile_props};
+use super::terrain::{Feature, Marking, Soil, Terrain, TileProps, tile_props};
 use crate::common::math::Rect;
 use crate::items::ItemKind;
 
@@ -105,6 +105,25 @@ pub const LATHE_REACH: i32 = 4;
 /// off the mill site's bank `site`: just west of it, facing east.
 pub fn lathe_stand((sx, sy): (i32, i32)) -> (i32, i32) {
     (sx - 2, sy)
+}
+
+/// The ground the mill is to stand on, marked out with stakes, off the
+/// mill site's bank `site`: `(x0, y0, x1, y1)`, its corner cells. It runs
+/// west from the bank and takes in the wood lathe beside the water wheel
+/// (on its east edge), for the mill to be built round it; it stops short
+/// of the water-drawing spot north of the lathe.
+pub fn mill_plot((sx, sy): (i32, i32)) -> (i32, i32, i32, i32) {
+    (sx - 6, sy - 3, sx, sy + 2)
+}
+
+/// How many cells round the mill's ground marking stakes held in hand are
+/// still driven in there (the castaway walks over first).
+pub const STAKES_REACH: i32 = 4;
+
+/// Where the castaway stands to drive the marking stakes in: in the
+/// middle of the mill's ground, west of the lathe.
+pub fn stakes_stand((sx, sy): (i32, i32)) -> (i32, i32) {
+    (sx - 3, sy)
 }
 
 /// How many rows up or down the river from the narrow's middle a log
@@ -452,6 +471,60 @@ impl WorldMap {
             self.set_feature(x, y, Feature::Lathe(i as u8));
         }
         cells.to_vec()
+    }
+
+    /// Where marking stakes held by someone at the cell `(x, y)` would be
+    /// driven in: the mill site's bank (its cell), if the wood lathe turns
+    /// beside the wheel there, the mill's ground isn't marked out yet, its
+    /// corners are clear, and the cell is within `STAKES_REACH` of it.
+    pub fn stakes_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let site = self.spots.mill.filter(|_| self.lathe_middle().is_some() && !self.is_staked())?;
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let clear = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].iter().all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
+        let near = (x0 - STAKES_REACH..=x1 + STAKES_REACH).contains(&x) && (y0 - STAKES_REACH..=y1 + STAKES_REACH).contains(&y);
+        (clear && near).then_some(site)
+    }
+
+    /// Marks out the mill's ground off the mill site's bank `site`: a
+    /// stake at each corner, rope along the edges between them (what
+    /// stands on an edge already, the lathe, stays, the rope drawn over
+    /// it). Returns the cells whose look changed.
+    pub fn set_stakes(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let mut changed = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let (top, bottom, left, right) = (y == y0, y == y1, x == x0, x == x1);
+                if !(top || bottom || left || right) {
+                    continue;
+                }
+                // What already stands on an edge (the lathe) keeps its
+                // place; the rope is drawn on over it.
+                if self.feature(x, y) != Feature::None {
+                    changed.push((x, y));
+                    continue;
+                }
+                let mut ropes = 0;
+                if top || bottom {
+                    ropes |= if x < x1 { Marking::EAST } else { 0 } | if x > x0 { Marking::WEST } else { 0 };
+                }
+                if left || right {
+                    ropes |= if y < y1 { Marking::SOUTH } else { 0 } | if y > y0 { Marking::NORTH } else { 0 };
+                }
+                let stake = (top || bottom) && (left || right);
+                self.set_feature(x, y, Feature::Marking(Marking { stake, ropes }));
+                changed.push((x, y));
+            }
+        }
+        changed
+    }
+
+    /// Whether the mill's ground is marked out (its corner stakes are in).
+    pub fn is_staked(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = mill_plot(site);
+            matches!(self.feature(x0, y0), Feature::Marking(Marking { stake: true, .. }))
+        })
     }
 
     /// Whether a signal fire could be set in the cell: dry ground (sand

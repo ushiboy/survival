@@ -12,6 +12,8 @@
 //! - `--wheel`: a water wheel is set in the river at the mill site first.
 //! - `--lathe`: a water wheel and the wood lathe beside it are set at the
 //!   mill site first.
+//! - `--stakes`: the water wheel, the wood lathe and the marking stakes
+//!   round the mill's ground are set first.
 //! - `--set-base`: keeps this run as the base later runs are compared
 //!   with; `--clear-base` goes back to comparing with the run before.
 //! - `--out DIR`: where to write (default `wasm/target/map`).
@@ -72,6 +74,7 @@ struct Options {
     bridge: bool,
     wheel: bool,
     lathe: bool,
+    stakes: bool,
 }
 
 fn options() -> Options {
@@ -86,6 +89,7 @@ fn options() -> Options {
         bridge: false,
         wheel: false,
         lathe: false,
+        stakes: false,
     };
     let mut args = std::env::args().skip(1);
     let number = |v: Option<String>, what: &str| -> i32 { v.and_then(|v| v.parse().ok()).unwrap_or_else(|| panic!("{what} needs a number")) };
@@ -97,6 +101,11 @@ fn options() -> Options {
             "--lathe" => {
                 o.wheel = true;
                 o.lathe = true;
+            }
+            "--stakes" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
             }
             "--set-base" => o.set_base = true,
             "--clear-base" => o.clear_base = true,
@@ -165,6 +174,9 @@ fn main() {
     }
     if o.lathe && !game.debug_set_lathe() {
         println!("no wood lathe goes in beside the water wheel");
+    }
+    if o.stakes && !game.debug_set_stakes() {
+        println!("the mill's ground isn't marked out");
     }
     if o.bridge && !game.debug_lay_bridge() {
         println!("no bridge goes across the narrow");
@@ -435,7 +447,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::PineCone => [170, 100, 40],
         Feature::ClayBed(_) => [150, 160, 175],
         Feature::BareEarth(_) => [150, 110, 70],
-        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) => [200, 150, 90],
+        Feature::Ladder(_) | Feature::Bridge(_) | Feature::WaterWheel(_) | Feature::Lathe(_) | Feature::SignalFire(_) | Feature::Marking(_) => [200, 150, 90],
         Feature::None => c,
     }
 }
@@ -602,6 +614,13 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::Bridge(_) => '=',
                 Feature::WaterWheel(_) => 'w',
                 Feature::Lathe(_) => 'T',
+                Feature::Marking(m) => {
+                    if m.stake {
+                        'X'
+                    } else {
+                        '+'
+                    }
+                }
                 Feature::SignalFire(_) => 'F',
                 Feature::Pine(_) => 'n',
                 Feature::PineStump(_) => 'N',

@@ -709,6 +709,7 @@ impl Game {
             Some(Deed::LayBridge(span)) => self.lay_bridge(span),
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
             Some(Deed::SetLathe(site)) => self.set_lathe(site),
+            Some(Deed::SetStakes(site)) => self.set_stakes(site),
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
@@ -998,6 +999,19 @@ impl Game {
             fire.lit_at = None;
             self.map.set_feature(fire.cell.0, fire.cell.1, Feature::SignalFire(false));
         }
+    }
+
+    /// The marking stakes in hand are driven in round the mill's ground off
+    /// the mill site's bank `site`, rope run between them: they leave the
+    /// bag, and the ground is marked out for the mill.
+    fn set_stakes(&mut self, site: (i32, i32)) {
+        if !self.inventory.bag.take_kind(ItemKind::MarkingStakes) {
+            return;
+        }
+        self.inventory.settle_hand();
+        let changed = self.map.set_stakes(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
     }
 
     /// Steps the castaway out of anything just set down where they stand
@@ -1831,6 +1845,19 @@ impl Game {
         };
         let changed = self.map.set_lathe(site);
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
+    }
+
+    /// Dev tools: marks out the mill's ground beside the wood lathe (no
+    /// stakes needed in the bag; the lathe must be in). Returns whether it
+    /// was marked out.
+    pub fn debug_set_stakes(&mut self) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|&(x, y)| self.map.stakes_spot(x, y).is_some()) else {
+            return false;
+        };
+        let changed = self.map.set_stakes(site);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        self.step_clear();
         true
     }
 

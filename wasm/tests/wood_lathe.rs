@@ -77,12 +77,16 @@ fn before_the_wheel_turns_there_is_nothing_to_think_about_beside_it() {
     assert!(!game.is_pondering());
 }
 
+/// Once the lathe is set, it's the mill's ground beside it that gives
+/// pause (see `marking_stakes.rs`); with that marked out too, nothing does.
 #[test]
 fn once_the_lathe_is_set_there_is_nothing_more_to_think_about() {
     let mut game = west_of_the_bank(true);
     game.debug_give(ItemKind::WoodLathe);
     press(&mut game, Buttons::B);
     hold(&mut game, 0, 120);
+    assert!(game.debug_set_stakes());
+    hold(&mut game, 0, 2);
     press(&mut game, Buttons::A);
     assert!(!game.is_pondering());
 }

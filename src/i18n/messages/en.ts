@@ -139,6 +139,7 @@ const en: typeof ja = {
     SpokedWheel: { name: 'Spoked wheel', reading: 'Spoked wheel' },
     Handcart: { name: 'Handcart', reading: 'Handcart' },
     SignalFire: { name: 'Signal fire', reading: 'Signal fire' },
+    MarkingStakes: { name: 'Marking stakes', reading: 'Marking stakes' },
   },
 };
 

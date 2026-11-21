@@ -140,6 +140,7 @@ const ja = {
     SpokedWheel: { name: 'スポーク車輪', reading: 'すぽーくしゃりん' },
     Handcart: { name: 'リアカー', reading: 'りあかー' },
     SignalFire: { name: '狼煙台', reading: 'のろしだい' },
+    MarkingStakes: { name: '縄張りの杭', reading: 'なわばりのくい' },
   },
 };
 

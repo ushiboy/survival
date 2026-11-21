@@ -29,6 +29,7 @@
   - 竹を縦に割ってスコップの刃にする（レシピの道具: [竹のスコップ](../recipes/bamboo-spade.md)）
   - 樹皮を細く裂いて帯に編む（レシピの道具: [道具帯](../recipes/tool-belt.md)）
   - 旋盤の部品を刻む・スポークの穴を刻む（レシピの道具: [木工旋盤](../recipes/wood-lathe.md)、[スポーク車輪](../recipes/spoked-wheel.md)）
+  - 竹を割って尖らせ、縄張りの杭にする（レシピの道具: [縄張りの杭](../recipes/marking-stakes.md)）
 
 ## メモ
 
