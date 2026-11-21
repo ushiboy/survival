@@ -601,6 +601,10 @@ impl Game {
             menu.near_fire = near_fire;
             menu.near_lathe = near_lathe;
             menu.cart_at_hand = cart_at_hand;
+            // Only at the bench (the BUILD screen), where it's asked.
+            if menu.works.is_some() {
+                menu.fit_to_build = self.works.next().is_none_or(|s| self.vitals.fit_to_work(s.hours * 60));
+            }
             if menu.works.is_some() {
                 menu.works = Some(self.works.clone());
             }

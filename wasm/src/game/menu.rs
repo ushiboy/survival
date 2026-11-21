@@ -275,6 +275,9 @@ pub struct BagMenu {
     /// The handcart is at hand (being pulled, or set down close by): its
     /// load can be got at.
     pub cart_at_hand: bool,
+    /// The castaway is fit to see the mill's next stage through (its hours
+    /// of work wouldn't leave them close to collapse).
+    pub fit_to_build: bool,
     /// How far the mill has got, while the BUILD screen is open at the
     /// bench beside its ground (the build page is there only then, on its
     /// own, not among the bag's pages).
@@ -371,7 +374,17 @@ impl BagMenu {
     }
 
     pub fn browse() -> Self {
-        Self { cursor: (0, 0), mode: Mode::Browse, notice: None, near_fire: false, near_lathe: false, cart_at_hand: false, works: None, held_frames: 0 }
+        Self {
+            cursor: (0, 0),
+            mode: Mode::Browse,
+            notice: None,
+            near_fire: false,
+            near_lathe: false,
+            cart_at_hand: false,
+            fit_to_build: true,
+            works: None,
+            held_frames: 0,
+        }
     }
 
     /// Opens the BUILD screen (at the bench beside the mill's ground), on
@@ -925,7 +938,7 @@ impl BagMenu {
         if !stage.tools.iter().all(|&t| inv.carries(t)) {
             return Some("MISSING A TOOL");
         }
-        None
+        (!self.fit_to_build).then_some("TOO WEAK TO BUILD")
     }
 
     fn update_holding(&mut self, input: &InputState, inv: &mut Inventory, mut held: HeldItem, step: Option<(i32, i32)>) -> Outcome {
@@ -1284,6 +1297,23 @@ mod tests {
         for &tool in menu.works.as_ref().unwrap().next().unwrap().tools {
             inv.bag.stow_one(tool);
         }
+        assert_eq!(menu.why_not_build(&inv), None);
+    }
+
+    #[test]
+    fn with_everything_in_build_still_waits_for_the_strength_to_see_it_through() {
+        let mut menu = BagMenu::building(MillWorks::default());
+        let mut inv = Inventory::default();
+        let works = menu.works.as_mut().unwrap();
+        for &(kind, n) in works.next().unwrap().needs {
+            works.deliver(kind, n);
+        }
+        for &tool in menu.works.as_ref().unwrap().next().unwrap().tools {
+            inv.bag.stow_one(tool);
+        }
+        menu.fit_to_build = false;
+        assert_eq!(menu.why_not_build(&inv), Some("TOO WEAK TO BUILD"));
+        menu.fit_to_build = true;
         assert_eq!(menu.why_not_build(&inv), None);
     }
 
