@@ -141,6 +141,30 @@ impl GameHandle {
         self.game.debug_sure_rescue();
     }
 
+    /// Debug: the steps the water mill goes up in (the wheel, the lathe,
+    /// the stakes, then each stage by its name), as `debug_mill_advance`
+    /// takes them one at a time.
+    pub fn debug_mill_steps(&self) -> Vec<String> {
+        self.game.debug_mill_steps().into_iter().map(String::from).collect()
+    }
+
+    /// Debug: how many of `debug_mill_steps` are done.
+    pub fn debug_mill_progress(&self) -> usize {
+        self.game.debug_mill_progress()
+    }
+
+    /// Debug: sets the water mill up one step further; whether there was
+    /// one left.
+    pub fn debug_mill_advance(&mut self) -> bool {
+        self.game.debug_mill_advance()
+    }
+
+    /// Debug: hands over everything the mill's next stage takes (into the
+    /// bag, then the cart); returns how many didn't fit anywhere.
+    pub fn debug_give_mill_stage(&mut self) -> u32 {
+        self.game.debug_give_mill_stage()
+    }
+
     /// Debug: makes every recipe known.
     pub fn debug_learn_recipes(&mut self) {
         self.game.debug_learn_recipes();

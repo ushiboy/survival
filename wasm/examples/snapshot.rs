@@ -11,8 +11,9 @@
 //! `SNAP_WATER=n` with that much food and water, `SNAP_UPSET=1` with an
 //! upset stomach, `SNAP_LUCK=1` with a signal fire's smoke always seen,
 //! `SNAP_RESCUED=1` rescued straight away (the ending plays),
-//! `SNAP_MILL=wheel|lathe|stakes` with the water wheel set at the mill
-//! site (and the lathe beside it, and the mill's ground marked out),
+//! `SNAP_MILL=wheel|lathe|stakes|foundation` with the water wheel set at the mill
+//! site (and the lathe beside it, the mill's ground marked out, its
+//! foundation laid),
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
@@ -46,7 +47,7 @@ fn main() {
         let (x, y) = at.split_once(',').expect("SNAP_AT must be x,y");
         game.debug_place_player((x.parse().expect("x"), y.parse().expect("y")));
     }
-    // SNAP_MILL=wheel|lathe|stakes sets the water wheel at the mill site,
+    // SNAP_MILL=wheel|lathe|stakes|foundation sets the water wheel at the mill site,
     // then the wood lathe beside it, then marks the mill's ground out, as
     // far as asked.
     if let Ok(mill) = std::env::var("SNAP_MILL") {
@@ -54,11 +55,13 @@ fn main() {
             "wheel" => 1,
             "lathe" => 2,
             "stakes" => 3,
-            _ => panic!("SNAP_MILL must be wheel, lathe or stakes"),
+            "foundation" => 4,
+            _ => panic!("SNAP_MILL must be wheel, lathe, stakes or foundation"),
         };
         assert!(game.debug_set_wheel(), "the water wheel goes in");
         assert!(steps < 2 || game.debug_set_lathe(), "the lathe goes in");
         assert!(steps < 3 || game.debug_set_stakes(), "the mill's ground is marked out");
+        assert!(steps < 4 || game.debug_build_mill(1), "the mill's foundation is laid");
     }
     // SNAP_FISH=dx,dy puts a fish in the water that far from the feet.
     if let Ok(at) = std::env::var("SNAP_FISH") {

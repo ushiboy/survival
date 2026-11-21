@@ -280,6 +280,13 @@ pub enum Feature {
     /// The ground for the mill marked out: stakes at its corners with
     /// rope between them.
     Marking(Marking),
+    /// The bench set up beside the mill's marked-out ground while it's
+    /// built: a plank on two stones, the plan and the line on it. A at it
+    /// opens the BUILD screen. It stands in the way.
+    SiteBench,
+    /// The mill's foundation: the ground tamped down hard, and (`true`) a
+    /// flat stone bedded in it where a post will stand. Walked over.
+    Foundation(bool),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,7 +315,8 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Driftwood(_)
         | Feature::Vine
         | Feature::VineStake
-        | Feature::Lathe(_) => true,
+        | Feature::Lathe(_)
+        | Feature::SiteBench => true,
         Feature::Marking(m) => m.stake,
         _ => false,
     };

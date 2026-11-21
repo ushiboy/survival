@@ -8,6 +8,7 @@ pub mod cart;
 pub mod ending;
 pub mod fishing;
 pub mod menu;
+pub mod mill;
 pub mod regions;
 pub mod save;
 pub mod state;
@@ -48,6 +49,7 @@ use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
 pub use ending::EndingView;
 use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
+use mill::MillWorks;
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
 use state::{Ailment, GameClock, Inventory, Rest, Vitals};
@@ -197,6 +199,8 @@ pub struct Game {
     mill_noticed: bool,
     /// Has come upon the river's narrow (which happens once).
     bridge_noticed: bool,
+    /// How far the water mill has got.
+    works: MillWorks,
     /// In-game minutes the castaway has been asleep.
     /// Which chunks of the island are awake (creatures move only there).
     regions: Regions,
@@ -332,6 +336,7 @@ impl Game {
             shell_cap: 0,
             driftwood_cap,
             mill_noticed: save.is_some_and(|s| s.castaway.mill_noticed),
+            works: save.map_or_else(MillWorks::default, |s| s.island.mill.clone()),
             bridge_noticed: save.is_some_and(|s| s.castaway.bridge_noticed),
             regions,
             seed,
@@ -441,6 +446,7 @@ impl Game {
                 shell_cap: self.shell_cap,
                 asleep_since: self.regions.asleep_since(),
                 cart: self.cart.clone(),
+                mill: self.works.clone(),
             },
         }
     }
@@ -590,6 +596,9 @@ impl Game {
             menu.near_fire = near_fire;
             menu.near_lathe = near_lathe;
             menu.cart_at_hand = cart_at_hand;
+            if menu.works.is_some() {
+                menu.works = Some(self.works.clone());
+            }
             let outcome = menu.update(&self.input, &mut self.inventory);
             // A tool lifted out to be moved is still in hand.
             let moving = menu.held_placement().map(|p| p.kind);
@@ -615,6 +624,8 @@ impl Game {
             self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter);
             self.sleep_on();
             self.autosave.slept(SLEEP_MINUTES_PER_FRAME);
+        } else if self.player.is_working() {
+            self.work_on();
         } else {
             if self.player.running {
                 self.ran_frames += 1;
@@ -710,6 +721,15 @@ impl Game {
             Some(Deed::SetWheel(site)) => self.set_wheel(site),
             Some(Deed::SetLathe(site)) => self.set_lathe(site),
             Some(Deed::SetStakes(site)) => self.set_stakes(site),
+            Some(Deed::Built(site)) => self.built(site),
+            // At the bench beside the mill's ground, with a stage of it
+            // left to build: the BUILD screen opens.
+            Some(Deed::AtBench) => {
+                if self.works.next().is_some() {
+                    self.menu = Some(BagMenu::building(self.works.clone()));
+                    return;
+                }
+            }
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
@@ -1444,7 +1464,66 @@ impl Game {
             Outcome::Drop(kind, count) => self.put_down(kind, count),
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
             Outcome::Made(kind) => self.carry_off(kind),
+            Outcome::Deliver(kind) => self.deliver(kind),
+            Outcome::Build => {
+                let Some(site) = self.map.spots.mill else { return };
+                let Some(stage) = self.works.next() else { return };
+                self.menu = None;
+                self.player.start_work(site, stage.hours * 60 / SLEEP_MINUTES_PER_FRAME);
+            }
         }
+    }
+
+    /// Leaves as many of `kind` as the mill's next stage still takes at
+    /// its site: from the bag first, then the cart (while it's at hand).
+    fn deliver(&mut self, kind: ItemKind) {
+        let want = self.works.still_needs(kind);
+        let mut left = 0;
+        while left < want && self.inventory.bag.take_kind(kind) {
+            left += 1;
+        }
+        if self.cart_at_hand()
+            && let Some(cart) = &mut self.inventory.cart
+        {
+            while left < want && cart.take_kind(kind) {
+                left += 1;
+            }
+        }
+        self.works.deliver(kind, left);
+        if let Some(menu) = &mut self.menu {
+            menu.works = Some(self.works.clone());
+            menu.notice = Some(match (want, left) {
+                (0, _) => "THAT'S ALL IT TAKES",
+                (_, 0) => "NONE AT HAND",
+                _ => "PUT IN AT THE SITE",
+            });
+        }
+    }
+
+    /// One frame of building the mill: time hurries on as in sleep, but
+    /// the work wears the castaway as hours awake do.
+    fn work_on(&mut self) {
+        for _ in 0..SLEEP_MINUTES_PER_FRAME {
+            self.clock.advance_minutes(1);
+            self.vitals.on_minute(Rest::Awake { ran: 0 });
+            if self.vitals.collapsed() {
+                return;
+            }
+        }
+    }
+
+    /// The mill's next stage is up, off the mill site's bank `site`.
+    fn built(&mut self, site: (i32, i32)) {
+        if !self.works.all_in() {
+            return;
+        }
+        let stage = self.works.built;
+        self.works.finish();
+        let changed = match stage {
+            0 => self.map.lay_foundation(site),
+            _ => Vec::new(),
+        };
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
     }
 
     /// One frame of sleep: time hurries on (hunger and thirst with it, if
@@ -1861,6 +1940,73 @@ impl Game {
         true
     }
 
+    /// Dev tools: builds the mill's stages until `stages` are up (nothing
+    /// needed at the site or in the bag; its ground must be marked out).
+    /// Returns whether as many are up.
+    pub fn debug_build_mill(&mut self, stages: usize) -> bool {
+        let Some(site) = self.map.spots.mill.filter(|_| self.map.is_staked() || self.works.built > 0) else { return false };
+        while self.works.built < stages {
+            let Some(stage) = self.works.next() else { return false };
+            for &(kind, n) in stage.needs {
+                self.works.deliver(kind, n);
+            }
+            self.built(site);
+        }
+        true
+    }
+
+    /// Dev tools: the steps the mill goes up in, as the debug tools set it
+    /// up one at a time: the wheel, the lathe, the stakes, then each stage
+    /// (by its name).
+    pub fn debug_mill_steps(&self) -> Vec<&'static str> {
+        ["WHEEL", "LATHE", "STAKES"].into_iter().chain(mill::MILL_STAGES.iter().map(|s| s.name)).collect()
+    }
+
+    /// Dev tools: how many of `debug_mill_steps` are done.
+    pub fn debug_mill_progress(&self) -> usize {
+        if !self.map.has_wheel() {
+            0
+        } else if self.map.lathe_middle().is_none() {
+            1
+        } else if !(self.map.is_staked() || self.works.built > 0) {
+            2
+        } else {
+            3 + self.works.built
+        }
+    }
+
+    /// Dev tools: sets the mill up one step further (`debug_mill_steps`).
+    /// Returns whether there was a step left to take.
+    pub fn debug_mill_advance(&mut self) -> bool {
+        match self.debug_mill_progress() {
+            0 => self.debug_set_wheel(),
+            1 => self.debug_set_lathe(),
+            2 => self.debug_set_stakes(),
+            n if n - 3 < mill::MILL_STAGES.len() => self.debug_build_mill(n - 2),
+            _ => false,
+        }
+    }
+
+    /// Dev tools: hands over everything the mill's next stage takes (its
+    /// materials, less what's been left at the site, and the tools not
+    /// carried): into the bag, and what doesn't fit into the cart, if
+    /// there is one. Returns how many didn't fit anywhere.
+    pub fn debug_give_mill_stage(&mut self) -> u32 {
+        let Some(stage) = self.works.next() else { return 0 };
+        let tools = stage.tools.iter().filter(|&&t| !self.inventory.carries(t)).map(|&t| (t, 1));
+        let wanted: Vec<(ItemKind, u32)> = tools.chain(stage.needs.iter().map(|&(k, _)| (k, self.works.still_needs(k)))).collect();
+        let mut left = 0;
+        for (kind, n) in wanted {
+            let rest = n - self.debug_give_n(kind, n);
+            let rest = match &mut self.inventory.cart {
+                Some(cart) => cart.stow(kind, rest),
+                None => rest,
+            };
+            left += rest;
+        }
+        left
+    }
+
     /// Dev tools: the most shells the tide leaves each morning (it grows
     /// with the island).
     pub fn debug_shells_per_morning(&self) -> usize {
@@ -2064,6 +2210,8 @@ impl Game {
         }
         if let Some(m) = map.spots.mill {
             v.push(("水車小屋の予定地", m));
+            let (bx, by) = crate::world::map::site_bench(m);
+            v.push(("水車小屋の普請台", (bx - 1, by)));
         }
         if let Some(l) = map.spots.ladder {
             v.push(("崖のくぼみ（ハシゴ）", l));
@@ -2278,6 +2426,27 @@ impl Game {
 
     pub fn clock(&self) -> &GameClock {
         &self.clock
+    }
+
+    /// The page the bag is open at, if it's open.
+    pub fn bag_page(&self) -> Option<menu::Page> {
+        self.menu.as_ref().map(BagMenu::page)
+    }
+
+    /// The pages the open bag has (none if it's shut).
+    pub fn bag_pages(&self) -> Vec<menu::Page> {
+        self.menu.as_ref().map_or_else(Vec::new, BagMenu::pages)
+    }
+
+    /// How many of `kind` have been left at the mill's site for its next
+    /// stage.
+    pub fn mill_delivered(&self, kind: ItemKind) -> u32 {
+        self.works.delivered(kind)
+    }
+
+    /// How many stages of the mill have been built.
+    pub fn mill_stages_built(&self) -> usize {
+        self.works.built
     }
 
     /// Whether any of `kind` is carried (in the bag or on the belt).

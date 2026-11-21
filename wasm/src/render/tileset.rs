@@ -571,6 +571,15 @@ impl Builder<'_> {
             Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
             None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
         };
+        // Once the mill's foundation is laid round it, it stands on the
+        // tamped earth.
+        let laid = map.spots.mill.is_some_and(|site| {
+            let (x0, y0, _, _) = crate::world::map::mill_plot(site);
+            matches!(map.feature(x0, y0), Feature::Foundation(_))
+        });
+        if laid {
+            tamp(&mut art, map, x, y);
+        }
         let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
         for py in 0..16 {
             for px in 0..16 {
@@ -624,6 +633,53 @@ impl Builder<'_> {
                 });
                 if let Some(c) = c {
                     art.set(px as usize, py as usize, c);
+                }
+            }
+        }
+        self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// The bench beside the mill's ground (grass palette): a plank laid on
+    /// two stones, the plan (a pale board scratched with lines) and a hank
+    /// of rope on it, outlined, its shadow on the grass.
+    fn site_bench(&mut self, x: i32, y: i32) -> MetatileId {
+        let mut art = slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4));
+        for py in 0..16i32 {
+            for px in 0..16i32 {
+                let c = site_bench_top(px, py).or_else(|| {
+                    let edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| site_bench_top(px + dx, py + dy).is_some());
+                    let shadow = (1..=2).any(|d| site_bench_top(px - 1, py - d).is_some()) && (px + py) % 2 == 0;
+                    (edge || shadow).then_some(grass::RAMP[0])
+                });
+                if let Some(c) = c {
+                    art.set(px as usize, py as usize, c);
+                }
+            }
+        }
+        self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// The mill's foundation (grass palette): the grass worn away to earth
+    /// tamped hard (a few tufts left along its outer edge, and the bank's
+    /// lip kept by the river), and where a post will stand, a flat stone
+    /// bedded in it.
+    fn foundation(&mut self, map: &WorldMap, river: Option<&RiverField>, x: i32, y: i32, stone: bool) -> MetatileId {
+        let mut art = match river {
+            Some(r) => self.grass_bank_art(map, &CellField::sample(map, x, y), r, x, y),
+            None => slice(&self.tex.grass, x.rem_euclid(4), y.rem_euclid(4)),
+        };
+        tamp(&mut art, map, x, y);
+        if stone {
+            let top = |px: i32, py: i32| foundation_stone(px, py);
+            for py in 0..16i32 {
+                for px in 0..16i32 {
+                    let c = top(px, py).or_else(|| {
+                        let edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| top(px + dx, py + dy).is_some());
+                        edge.then_some(grass::SOIL)
+                    });
+                    if let Some(c) = c {
+                        art.set(px as usize, py as usize, c);
+                    }
                 }
             }
         }
@@ -1906,6 +1962,90 @@ const LATHE_SPINDLE: (i32, i32, i32) = (24, 18, 27);
 /// (px), if any of it is there: lauan (sand browns, lit on the top and the
 /// left, the soil brown in shade), stone bearings (white), the billet
 /// turned pale with grooves round it, and the rope.
+/// The grass of a cell of the mill's ground worn away to earth tamped
+/// hard (grass palette), a few tufts left along the ground's outer edge;
+/// what isn't grass (the bank's lip by the river) is kept.
+fn tamp(art: &mut PixelArt, map: &WorldMap, x: i32, y: i32) {
+    let plot = map.spots.mill.map(crate::world::map::mill_plot);
+    for py in 0..16 {
+        for px in 0..16 {
+            if !grass::RAMP.contains(&art.get(px, py)) {
+                continue;
+            }
+            let (wx, wy) = (x * 16 + px as i32, y * 16 + py as i32);
+            // How far in from the ground's outer edge (px).
+            let inside = plot.map_or(16, |(x0, y0, x1, y1)| (wx - x0 * 16).min((x1 + 1) * 16 - 1 - wx).min(wy - y0 * 16).min((y1 + 1) * 16 - 1 - wy));
+            if inside < 2 && hash_unit(wx, wy, 0xF0D1) < 0.5 {
+                continue;
+            }
+            let n = hash_unit(wx, wy, 0xF0D2);
+            art.set(
+                px,
+                py,
+                if n < 0.18 {
+                    grass::SOIL
+                } else if n > 0.93 {
+                    grass::SAND[1]
+                } else {
+                    grass::SAND[0]
+                },
+            );
+        }
+    }
+}
+
+/// The bench beside the mill's ground: its pixel at `(x, y)` in its cell,
+/// if anything is there. A trestle table: a broad plank on two legs, the
+/// plan (a pale board scratched with lines) and a hank of rope on it.
+fn site_bench_top(x: i32, y: i32) -> Option<u8> {
+    // The plan on the plank: a pale board, lines scratched on it.
+    if (2..=7).contains(&x) && (3..=6).contains(&y) {
+        return Some(if (y == 4 || y == 5) && (3..=6).contains(&x) && (x + y) % 3 != 0 { grass::SAND[0] } else { grass::WHITE });
+    }
+    // A hank of rope: a ring, its middle dark.
+    let (rx, ry) = (x as f32 + 0.5 - 11.0, (y as f32 + 0.5 - 5.0) * 1.5);
+    let r = (rx * rx + ry * ry).sqrt();
+    if r <= 2.6 {
+        return Some(if r < 1.0 {
+            grass::SOIL
+        } else if (x + y) % 2 == 0 {
+            grass::SAND[2]
+        } else {
+            grass::SAND[1]
+        });
+    }
+    // The plank: lit along its top, its front edge in shadow.
+    if (0..=15).contains(&x) && (5..=9).contains(&y) {
+        return Some(match y {
+            5 => grass::SAND[2],
+            6..=7 => grass::SAND[1],
+            8 => grass::SAND[0],
+            _ => grass::SOIL,
+        });
+    }
+    // The two legs it stands on.
+    if ((2..=3).contains(&x) || (12..=13).contains(&x)) && (10..=13).contains(&y) {
+        return Some(if x == 2 || x == 12 { grass::SAND[0] } else { grass::SOIL });
+    }
+    None
+}
+
+/// A flat stone bedded in the mill's foundation, in the middle of its
+/// cell: a pale top, shaded toward its lower right.
+fn foundation_stone(x: i32, y: i32) -> Option<u8> {
+    let (dx, dy) = ((x as f32 + 0.5 - 8.0) / 5.5, (y as f32 + 0.5 - 8.5) / 4.0);
+    let d = dx * dx + dy * dy;
+    (d <= 1.0).then(|| {
+        if dx + dy > 0.7 {
+            grass::SAND[1]
+        } else if d < 0.25 && dx + dy < -0.2 {
+            grass::WHITE
+        } else {
+            grass::SAND[2]
+        }
+    })
+}
+
 /// The marking's pixel at `(x, y)` in its cell, if anything is there: the
 /// stake (at a corner) in front of the rope.
 fn marking_top(m: Marking, x: i32, y: i32) -> Option<u8> {
@@ -2533,6 +2673,8 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::WaterWheel(part) => b.water_wheel(map, river.as_ref(), x, y, part),
         Feature::Lathe(part) => b.lathe(map, river.as_ref(), x, y, part),
         Feature::Marking(m) => b.marking(map, river.as_ref(), x, y, m),
+        Feature::Foundation(stone) => b.foundation(map, river.as_ref(), x, y, stone),
+        Feature::SiteBench => b.site_bench(x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),
         Feature::BareEarth(part) => {

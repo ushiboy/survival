@@ -18,6 +18,9 @@ function fakeCore() {
     debugUpsetStomach: vi.fn(),
     debugCure: vi.fn(),
     debugSureRescue: vi.fn(),
+    debugMill: () => ({ steps: ['WHEEL', 'LATHE', 'STAKES', 'FOUNDATION'], done: 0 }),
+    debugMillAdvance: vi.fn(() => true),
+    debugGiveMillStage: vi.fn(() => 0),
   };
 }
 
@@ -88,6 +91,61 @@ describe('DebugTools の狼煙', () => {
     await userEvent.click(screen.getByRole('button', { name: '必ず見つかる' }));
     expect(core.debugSureRescue).toHaveBeenCalled();
     expect(screen.getByText(/狼煙が必ず見つかるようにしました/)).toBeInTheDocument();
+  });
+});
+
+describe('DebugTools の水車小屋', () => {
+  /** A mill `done` steps along (of the wheel, the lathe, the stakes and the foundation). */
+  function millAt(done: number) {
+    const core = fakeCore();
+    core.debugMill = () => ({ steps: ['WHEEL', 'LATHE', 'STAKES', 'FOUNDATION'], done });
+    return core;
+  }
+
+  it('どこまで進んでいるかを出す', () => {
+    renderIn(<DebugTools core={millAt(3) as unknown as GameCore} status={null} />);
+    expect(screen.getByText('縄張りまで済み（次は土台）')).toBeInTheDocument();
+  });
+
+  it('まだ何もないときは、次が水車だと出す', () => {
+    renderIn(<DebugTools core={millAt(0) as unknown as GameCore} status={null} />);
+    expect(screen.getByText('まだ何もない（次は水車）')).toBeInTheDocument();
+  });
+
+  it('1段階ずつ進められる', async () => {
+    const core = millAt(2);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '次へ進める' }));
+    expect(core.debugMillAdvance).toHaveBeenCalled();
+    expect(screen.getByText('縄張りまで進めました')).toBeInTheDocument();
+  });
+
+  it('次の段階に要る物をまとめて持たせられる', async () => {
+    const core = millAt(3);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '次の段階の物を持たせる' }));
+    expect(core.debugGiveMillStage).toHaveBeenCalled();
+    expect(screen.getByText('土台に要る材料と道具を持たせました')).toBeInTheDocument();
+  });
+
+  it('入りきらなかった数を知らせる', async () => {
+    const core = millAt(3);
+    core.debugGiveMillStage = vi.fn(() => 4);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '次の段階の物を持たせる' }));
+    expect(screen.getByText('土台に要る材料と道具を持たせました（4 個は入りきりません）')).toBeInTheDocument();
+  });
+
+  it('縄張りの前は、段階の物は持たせられない', () => {
+    renderIn(<DebugTools core={millAt(2) as unknown as GameCore} status={null} />);
+    expect(screen.getByRole('button', { name: '次の段階の物を持たせる' })).toBeDisabled();
+  });
+
+  it('全部建て終えたら、どちらのボタンも押せない', () => {
+    renderIn(<DebugTools core={millAt(4) as unknown as GameCore} status={null} />);
+    expect(screen.getByText('土台まで済み（次はない）')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '次へ進める' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '次の段階の物を持たせる' })).toBeDisabled();
   });
 });
 

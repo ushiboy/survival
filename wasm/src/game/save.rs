@@ -19,6 +19,7 @@ use serde_json::Value;
 
 use super::bag::Bag;
 use super::cart::Cart;
+use super::mill::MillWorks;
 use super::state::{GameClock, Gear, Vitals};
 use crate::assets::character::Outfit;
 use crate::common::math::Dir;
@@ -32,11 +33,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 4;
+pub const SAVE_VERSION: u32 = 5;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -74,6 +75,14 @@ fn v2_to_v3(save: &mut Value) {
 fn v3_to_v4(save: &mut Value) {
     if let Some(recipes) = save.pointer_mut("/inventory/recipes").and_then(Value::as_object_mut) {
         recipes.insert("sort".into(), Value::from("AToZ"));
+    }
+}
+
+/// Version 5 added how far the water mill has got (on the island): a
+/// version 4 save has built none of it and left nothing at its site.
+fn v4_to_v5(save: &mut Value) {
+    if let Some(island) = save.get_mut("island").and_then(Value::as_object_mut) {
+        island.insert("mill".into(), serde_json::json!({ "built": 0, "delivered": [] }));
     }
 }
 
@@ -187,6 +196,9 @@ pub struct IslandState {
     /// The handcart, once made: where it stands, whether it's being
     /// pulled, and which way its poles point.
     pub cart: Option<Cart>,
+    /// How far the water mill has got: the stages built and what has been
+    /// left at its site for the next.
+    pub mill: MillWorks,
 }
 
 /// Something lying on the ground.
@@ -233,6 +245,7 @@ mod tests {
         include_str!("save_samples/v2.json"),
         include_str!("save_samples/v3.json"),
         include_str!("save_samples/v4.json"),
+        include_str!("save_samples/v5.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -308,6 +321,20 @@ mod tests {
     #[test]
     fn the_sample_keeps_the_order_the_recipes_were_sorted_in() {
         assert_eq!(load(SAVE_VERSION).inventory.recipes.order(), RecipeOrder::CanMake);
+    }
+
+    #[test]
+    fn a_version_4_save_has_built_none_of_the_mill() {
+        let s = load(4);
+        assert_eq!(s.island.mill, MillWorks::default());
+    }
+
+    #[test]
+    fn the_sample_keeps_what_was_left_at_the_mills_site() {
+        let s = load(SAVE_VERSION);
+        assert_eq!(s.island.mill.built, 0);
+        assert_eq!(s.island.mill.delivered(ItemKind::Stone), 6);
+        assert_eq!(s.island.mill.delivered(ItemKind::Soil), 2);
     }
 
     #[test]

@@ -116,6 +116,23 @@ pub fn mill_plot((sx, sy): (i32, i32)) -> (i32, i32, i32, i32) {
     (sx - 6, sy - 3, sx, sy + 2)
 }
 
+/// Where the bench for building the mill stands, off the mill site's bank
+/// `site`: just west of its ground, halfway along (out of the way of the
+/// building, and the side the castaway comes from).
+pub fn site_bench(site: (i32, i32)) -> (i32, i32) {
+    let (x0, y0, _, y1) = mill_plot(site);
+    (x0 - 1, (y0 + y1) / 2)
+}
+
+/// Where the mill's posts will stand on its ground off the mill site's
+/// bank `site`, a flat stone bedded under each: its corners and the middle
+/// of its long sides.
+pub fn foundation_stones(site: (i32, i32)) -> [(i32, i32); 6] {
+    let (x0, y0, x1, y1) = mill_plot(site);
+    let mid = (x0 + x1) / 2;
+    [(x0, y0), (mid, y0), (x1, y0), (x0, y1), (mid, y1), (x1, y1)]
+}
+
 /// How many cells round the mill's ground marking stakes held in hand are
 /// still driven in there (the castaway walks over first).
 pub const STAKES_REACH: i32 = 4;
@@ -476,17 +493,21 @@ impl WorldMap {
     /// Where marking stakes held by someone at the cell `(x, y)` would be
     /// driven in: the mill site's bank (its cell), if the wood lathe turns
     /// beside the wheel there, the mill's ground isn't marked out yet, its
-    /// corners are clear, and the cell is within `STAKES_REACH` of it.
+    /// corners and the bench's cell are clear, and the cell is within
+    /// `STAKES_REACH` of it.
     pub fn stakes_spot(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let site = self.spots.mill.filter(|_| self.lathe_middle().is_some() && !self.is_staked())?;
         let (x0, y0, x1, y1) = mill_plot(site);
-        let clear = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].iter().all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
+        let clear = [(x0, y0), (x1, y0), (x0, y1), (x1, y1), site_bench(site)]
+            .iter()
+            .all(|&(cx, cy)| self.terrain(cx, cy).is_land() && self.feature(cx, cy) == Feature::None);
         let near = (x0 - STAKES_REACH..=x1 + STAKES_REACH).contains(&x) && (y0 - STAKES_REACH..=y1 + STAKES_REACH).contains(&y);
         (clear && near).then_some(site)
     }
 
     /// Marks out the mill's ground off the mill site's bank `site`: a
-    /// stake at each corner, rope along the edges between them (what
+    /// stake at each corner, rope along the edges between them, and the
+    /// bench for building it set up beside it (`site_bench`) (what
     /// stands on an edge already, the lathe, stays, the rope drawn over
     /// it). Returns the cells whose look changed.
     pub fn set_stakes(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
@@ -513,6 +534,29 @@ impl WorldMap {
                 }
                 let stake = (top || bottom) && (left || right);
                 self.set_feature(x, y, Feature::Marking(Marking { stake, ropes }));
+                changed.push((x, y));
+            }
+        }
+        let bench = site_bench(site);
+        self.set_feature(bench.0, bench.1, Feature::SiteBench);
+        changed.push(bench);
+        changed
+    }
+
+    /// Lays the mill's foundation on its ground off the mill site's bank
+    /// `site`: the stakes and rope come up, the ground is tamped, and flat
+    /// stones are bedded where the posts will stand (`foundation_stones`).
+    /// What stands there already (the lathe) stays. Returns the cells
+    /// changed.
+    pub fn lay_foundation(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        let stones = foundation_stones(site);
+        let mut changed = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if matches!(self.feature(x, y), Feature::None | Feature::Marking(_)) {
+                    self.set_feature(x, y, Feature::Foundation(stones.contains(&(x, y))));
+                }
                 changed.push((x, y));
             }
         }

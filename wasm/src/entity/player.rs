@@ -155,6 +155,8 @@ const PITCH_SET: u32 = 12;
 /// Longest the walk over to set a wood lathe (or drive the marking
 /// stakes in) may take (frames).
 const TO_STAND_FRAMES: u32 = 240;
+/// Frames between one blow and the next while building the mill.
+const WORK_BEAT: u32 = 12;
 const PITCH_TOTAL: u32 = 24;
 /// Trying to scramble up a rock face too tall to climb bare-handed
 /// (frames): two goes, each `SCRAMBLE_TRY` long, hauling up and sliding
@@ -339,6 +341,21 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
+    /// Walking over to the middle of the mill's ground off the mill
+    /// site's bank `site`, to build its next stage there (`Work`), which
+    /// takes `frames`.
+    ToWork {
+        t: u32,
+        site: (i32, i32),
+        frames: u32,
+    },
+    /// Building the mill's next stage, for `frames` (time hurries on
+    /// meanwhile, as in sleep).
+    Work {
+        t: u32,
+        site: (i32, i32),
+        frames: u32,
+    },
     /// Setting a signal fire down on the ground ahead (its cell).
     Build {
         t: u32,
@@ -439,6 +456,11 @@ pub enum Deed {
     /// The mill's ground off the mill site's bank (the cell) was marked out
     /// with the marking stakes.
     SetStakes((i32, i32)),
+    /// The mill's next stage was built off the mill site's bank (the
+    /// cell).
+    Built((i32, i32)),
+    /// A at the bench beside the mill's ground: the BUILD screen opens.
+    AtBench,
     /// A signal fire was set down in the cell.
     SetSignalFire((i32, i32)),
     /// The signal fire in the cell caught.
@@ -723,6 +745,19 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Stake { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetStakes(site));
         }
+        if let Action::ToWork { t, site, frames } = self.action {
+            match self.step_to_stand(t + 1, crate::world::map::stakes_stand(site), Dir::Down, map) {
+                Some(true) => self.action = Action::Work { t: 0, site, frames },
+                Some(false) => self.action = Action::ToWork { t: t + 1, site, frames },
+                None => {}
+            }
+            return None;
+        }
+        if let Action::Work { t, site, frames } = self.action {
+            let t = t + 1;
+            self.action = if t >= frames { Action::Idle } else { Action::Work { t, site, frames } };
+            return (t == frames).then_some(Deed::Built(site));
+        }
         if let Action::Build { t, cell } = self.action {
             let t = t + 1;
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Build { t, cell } };
@@ -829,6 +864,14 @@ impl Player {
                 self.moving = false;
                 self.walk_timer = 0;
                 return None;
+            }
+            // The bench beside the mill's ground: what building it takes
+            // is looked over there.
+            let (rx, ry) = self.reach_point();
+            if map.feature(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)) == crate::world::Feature::SiteBench {
+                self.moving = false;
+                self.walk_timer = 0;
+                return Some(Deed::AtBench);
             }
             // A signal fire not yet lit: kneel to drill a fire into it, or
             // without what that takes, stop and think.
@@ -1284,8 +1327,17 @@ impl Player {
         let step = |d: i32, sub: i32| if d.abs() * 256 < SPEED_WALK { d * 256 - sub } else { d.signum() * SPEED_WALK };
         let (ddx, ddy) = (to.0 - fx, to.1 - fy);
         let along_x = ddx != 0 && (ddx.abs() >= ddy.abs() || ddy == 0);
-        let (dx, dy) = if along_x { (step(ddx, self.body.x.rem_euclid(256)), 0) } else { (0, step(ddy, self.body.y.rem_euclid(256))) };
-        let moved = self.body.move_by(dx, dy, CORNER_ASSIST_PX, &|r| map.is_solid_rect(r));
+        let across = (step(ddx, self.body.x.rem_euclid(256)), 0);
+        let along = (0, step(ddy, self.body.y.rem_euclid(256)));
+        let (first, then) = if along_x { (across, along) } else { (along, across) };
+        // Something in the way the longer way: round it the other way.
+        let solid = |r| map.is_solid_rect(r);
+        let mut moved = self.body.move_by(first.0, first.1, CORNER_ASSIST_PX, &solid);
+        let (mut dx, mut dy) = first;
+        if !moved && then != (0, 0) {
+            moved = self.body.move_by(then.0, then.1, CORNER_ASSIST_PX, &solid);
+            (dx, dy) = then;
+        }
         if !moved || t > TO_STAND_FRAMES {
             self.moving = false;
             self.walk_timer = 0;
@@ -1410,6 +1462,21 @@ impl Player {
     }
 
     /// Stopped to think.
+    /// Sets off to build the mill's next stage off the mill site's bank
+    /// `site` (walking to the middle of its ground first), which takes
+    /// `frames`.
+    pub fn start_work(&mut self, site: (i32, i32), frames: u32) {
+        self.moving = false;
+        self.walk_timer = 0;
+        self.action = Action::ToWork { t: 0, site, frames };
+    }
+
+    /// Whether the castaway is at work building the mill (time hurries
+    /// on).
+    pub fn is_working(&self) -> bool {
+        matches!(self.action, Action::Work { .. })
+    }
+
     pub fn is_pondering(&self) -> bool {
         matches!(self.action, Action::Ponder { .. })
     }
@@ -1710,6 +1777,17 @@ impl Player {
             };
             let step = ((k / 5) % 2) as usize;
             list.actor(depth, ObjEntry::new(cx, cy - lift, sprites.player.climb[step], OBJ_PLAYER, prio));
+            if shadows {
+                list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
+            }
+            return;
+        }
+
+        if let Action::Work { t, .. } = self.action {
+            // Crouching to tamp the earth and bed the stones, over and
+            // over.
+            let stage = (t / WORK_BEAT % 2) as usize;
+            list.actor(depth, ObjEntry::new(cx, cy, sprites.player.shake[view][stage], OBJ_PLAYER, prio).flipped(flip));
             if shadows {
                 list.shadow(ObjEntry::new(sx, sy + SPRITE_H - 5, sprites.shadow_player, OBJ_SHADOW, ACTOR_PRIORITY));
             }

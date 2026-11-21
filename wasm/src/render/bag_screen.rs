@@ -33,6 +33,13 @@ const TAB_COLS: [usize; 4] = [3, 10, 18, 24];
 /// The L and R marks either side of the tabs.
 const TAB_L_COL: usize = 1;
 const TAB_R_COL: usize = 30;
+/// The BUILD screen: the next stage's materials, what's been left at the
+/// site of each (IN) between what it takes (NEED) and what's at hand
+/// (HAVE), and BUILD below what it takes.
+const BUILD_NEED_COL: usize = 17;
+const BUILD_IN_COL: usize = 21;
+const BUILD_HAVE_COL: usize = 27;
+const BUILD_ROW: usize = NOTICE_ROW - 2;
 /// The cart page: the cart's grid starts this column, right of the bag's.
 const CART_COL: usize = GRID_COL + BAG_W as usize * 2 + 1;
 /// The crafting page: the picture of the chosen recipe's result in the
@@ -113,6 +120,12 @@ fn cell_px(x: i32, y: i32) -> (i32, i32) {
 pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu, clock: u32) {
     let bag = &inventory.bag;
     clear(bg3);
+    // The BUILD screen (opened at the bench beside the mill's ground) is
+    // on its own, without the bag's tabs.
+    if menu.page() == Page::Build {
+        draw_build_page(bg3, tiles, inventory, menu);
+        return;
+    }
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
     let pages = menu.pages();
@@ -279,6 +292,9 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Holding(_) => "A PUT  Y TURN  B CANCEL",
         Mode::Gear { .. } => "A CHOOSE   B BACK",
         Mode::Cart { .. } => "A MOVE ACROSS   B BACK",
+        Mode::Build { confirming: true, .. } => "A YES   B NO",
+        Mode::Build { row, .. } if menu.works.as_ref().and_then(|w| w.next()).is_some_and(|s| row < s.needs.len()) => "A PUT IN   B CLOSE",
+        Mode::Build { .. } => "A BUILD   B CLOSE",
     };
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
     // The list can be sorted: said at the right end, out of the way.
@@ -343,6 +359,64 @@ fn draw_cart_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spr
     }
     text_in(bg3, tiles, CART_COL, GRID_ROW - 1, "CART", HUD_DIM);
     if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// The build page: the mill's next stage, what it takes (left at the site
+/// a few at a time) and the tools it's built with, and BUILD; the cursor
+/// goes down the materials and on to BUILD.
+fn draw_build_page(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
+    let Some(works) = menu.works.as_ref() else { return };
+    let Some(stage) = works.next() else { return };
+    let row_on = match menu.mode {
+        Mode::Build { row, .. } => Some(row),
+        _ => None,
+    };
+    text(bg3, tiles, GRID_COL, TAB_ROW, "BUILDING THE MILL");
+    text(bg3, tiles, GRID_COL, GRID_ROW, &format!("STAGE: {}", stage.name));
+    let mut row = GRID_ROW + 2;
+    text(bg3, tiles, GRID_COL, row, "MATERIALS");
+    text(bg3, tiles, BUILD_NEED_COL - 2, row, "NEED");
+    text(bg3, tiles, BUILD_IN_COL, row, "IN");
+    text(bg3, tiles, BUILD_HAVE_COL - 2, row, "HAVE");
+    for (i, &(kind, n)) in stage.needs.iter().enumerate() {
+        row += 1;
+        let (left, have) = (works.delivered(kind), menu.at_hand(inventory, kind));
+        let palette = need_row(bg3, tiles, row, Supply::of(left + have, n));
+        if row_on == Some(i) {
+            text(bg3, tiles, GRID_COL - 1, row, ">");
+        }
+        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
+        text_in(bg3, tiles, BUILD_NEED_COL, row, &format!("{n:>2}"), palette);
+        text_in(bg3, tiles, BUILD_IN_COL, row, &format!("{left:>2}"), palette);
+        text_in(bg3, tiles, BUILD_HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
+    }
+    if !stage.tools.is_empty() {
+        row += 2;
+        text(bg3, tiles, GRID_COL, row, "TOOLS");
+        text(bg3, tiles, BUILD_HAVE_COL - 2, row, "HAVE");
+        for &tool in stage.tools {
+            row += 1;
+            let have = Supply::from(inventory.carries(tool));
+            let palette = need_row(bg3, tiles, row, have);
+            text_in(bg3, tiles, GRID_COL + 2, row, tool.name(), palette);
+            text_in(bg3, tiles, BUILD_HAVE_COL - 1, row, if have == Supply::Enough { "YES" } else { " NO" }, palette);
+        }
+    }
+    if row_on == Some(stage.needs.len()) {
+        text(bg3, tiles, GRID_COL - 1, BUILD_ROW, ">");
+    }
+    let ready = menu.why_not_build(inventory).is_none();
+    text_in(bg3, tiles, GRID_COL, BUILD_ROW, "BUILD", if ready { HUD_TEXT } else { HUD_DIM });
+    if let Mode::Build { row, confirming: true } = menu.mode {
+        let ask = match stage.needs.get(row) {
+            Some(&(kind, _)) => format!("PUT IN {} X{}?", kind.name(), menu.to_put_in(inventory, kind)),
+            None => format!("BUILD THE {}?", stage.name),
+        };
+        text(bg3, tiles, GRID_COL, NOTICE_ROW, &fit(&ask, HUD_COLS - GRID_COL));
+    } else if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
     }
     draw_help(bg3, tiles, menu);

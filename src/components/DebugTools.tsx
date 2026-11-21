@@ -45,6 +45,15 @@ export function DebugTools({ core, status }: Props) {
   const locale = useLocale();
   const items = useMemo(() => namedItems(core.debugItems(), names, locale), [core, names, locale]);
   const places = useMemo(() => core.debugPlaces(), [core]);
+  const stepNames: Partial<Record<string, string>> = useMessages().debug.millSteps;
+  // Read every render: building in the game moves it on too.
+  const mill = core.debugMill();
+  const stepName = (i: number) => {
+    const key = mill.steps[i];
+    return key === undefined ? t('millNoNext') : (stepNames[key] ?? key);
+  };
+  const staked = mill.done >= 3;
+  const allDone = mill.done >= mill.steps.length;
   const [index, setIndex] = useState(() => items[0]?.index ?? 0);
   const [cell, setCell] = useState({ x: 0, y: 0 });
   const [count, setCount] = useState(1);
@@ -369,6 +378,37 @@ export function DebugTools({ core, status }: Props) {
           }}
         >
           {t('sureRescue.label')}
+        </button>
+      </div>
+      <div className="row">
+        <span>{t('mill')}</span>
+        <span>
+          {mill.done === 0
+            ? t('millNone', { next: stepName(0) })
+            : t('millDone', { step: stepName(mill.done - 1), next: stepName(mill.done) })}
+        </span>
+      </div>
+      <div className="row">
+        <button
+          disabled={allDone}
+          onClick={(e) => {
+            const name = stepName(mill.done);
+            setMessage(core.debugMillAdvance() ? t('millAdvance.done', { step: name }) : t('millAdvance.none'));
+            release(e);
+          }}
+        >
+          {t('millAdvance.label')}
+        </button>
+        <button
+          disabled={!staked || allDone}
+          onClick={(e) => {
+            const name = stepName(mill.done);
+            const left = core.debugGiveMillStage();
+            setMessage(left > 0 ? t('millGive.some', { step: name, left }) : t('millGive.done', { step: name }));
+            release(e);
+          }}
+        >
+          {t('millGive.label')}
         </button>
       </div>
       {message && <p className="note">{message}</p>}

@@ -38,6 +38,14 @@ export interface DebugItem {
   maxStack: number;
 }
 
+/** How far the water mill has got, for the debug panel. */
+export interface DebugMill {
+  /** The steps it goes up in: `WHEEL`, `LATHE`, `STAKES`, then each stage by its name (`FOUNDATION`, ...). */
+  steps: string[];
+  /** How many of them are done. */
+  done: number;
+}
+
 /** A place the debug panel can move the castaway to (cells). */
 export interface DebugPlace {
   name: string;
@@ -75,6 +83,12 @@ export interface GameCore {
   debugCure(): void;
   /** Debug: a signal fire's smoke is sure to be seen (an hour after it's lit; one already burning, an hour from now). */
   debugSureRescue(): void;
+  /** Debug: how far the water mill has got. */
+  debugMill(): DebugMill;
+  /** Debug: sets the water mill up one step further; whether there was one left. */
+  debugMillAdvance(): boolean;
+  /** Debug: hands over everything the mill's next stage takes (into the bag, then the cart); returns how many didn't fit. */
+  debugGiveMillStage(): number;
   dispose(): void;
 }
 
@@ -176,6 +190,9 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
     debugUpsetStomach: () => handle.debug_upset_stomach(),
     debugCure: () => handle.debug_cure(),
     debugSureRescue: () => handle.debug_sure_rescue(),
+    debugMill: () => ({ steps: handle.debug_mill_steps(), done: handle.debug_mill_progress() }),
+    debugMillAdvance: () => handle.debug_mill_advance(),
+    debugGiveMillStage: () => handle.debug_give_mill_stage(),
     dispose: () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', keepNow);
