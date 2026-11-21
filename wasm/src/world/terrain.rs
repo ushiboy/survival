@@ -296,6 +296,10 @@ pub enum Feature {
     /// plastered with clay and soil. It stands in the way. The faces of
     /// the walls are drawn over the ground round it (`render::tileset`).
     MillWall,
+    /// The mill's doorway once the roof is on: a sliding plank door hung
+    /// in it, that slides open into the wall as someone comes up to it
+    /// (`WorldMap::mill_door`). It doesn't stand in the way.
+    MillDoor,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -43,6 +43,17 @@ pub const MILL_STAGES: &[MillStage] = &[
         tools: &[ItemKind::StoneKnife, ItemKind::BambooSpade],
         hours: 8,
     },
+    // Rafters of bamboo (and a scaffold of it to work from) lashed to the
+    // frame with rope; thatch laid over them in courses from the eaves up
+    // and tied down, the ridge capped; a sliding door of lauan planks hung
+    // in the doorway, running on a lauan sill. The last stage: the hut is
+    // done.
+    MillStage {
+        name: "ROOF",
+        needs: &[(ItemKind::Thatch, 6), (ItemKind::Bamboo, 8), (ItemKind::Rope, 4), (ItemKind::LauanTimber, 2)],
+        tools: &[ItemKind::StoneKnife],
+        hours: 10,
+    },
 ];
 
 /// How far a post of the mill's frame rises above the middle of its

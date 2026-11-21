@@ -1471,6 +1471,16 @@ impl Player {
         self.action = Action::ToWork { t: 0, site, frames };
     }
 
+    /// Sets to building the mill's next stage off the mill site's bank
+    /// `site` where the castaway stands (up on the roof, once the walls are
+    /// up and there's no walking into the middle of the ground), which
+    /// takes `frames`.
+    pub fn start_work_here(&mut self, site: (i32, i32), frames: u32) {
+        self.moving = false;
+        self.walk_timer = 0;
+        self.action = Action::Work { t: 0, site, frames };
+    }
+
     /// Whether the castaway is at work building the mill (time hurries
     /// on).
     pub fn is_working(&self) -> bool {

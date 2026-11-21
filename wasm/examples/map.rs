@@ -17,6 +17,7 @@
 //! - `--foundation`: all that, and the mill's foundation laid.
 //! - `--frame`: and its frame raised on it too.
 //! - `--walls`: and its walls put up round the frame.
+//! - `--roof`: and its roof put on, its door hung (the bench cleared).
 //! - `--set-base`: keeps this run as the base later runs are compared
 //!   with; `--clear-base` goes back to comparing with the run before.
 //! - `--out DIR`: where to write (default `wasm/target/map`).
@@ -130,6 +131,12 @@ fn options() -> Options {
                 o.lathe = true;
                 o.stakes = true;
                 o.stages = 3;
+            }
+            "--roof" => {
+                o.wheel = true;
+                o.lathe = true;
+                o.stakes = true;
+                o.stages = 4;
             }
             "--set-base" => o.set_base = true,
             "--clear-base" => o.clear_base = true,
@@ -485,6 +492,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         }
         Feature::SiteBench => [200, 150, 90],
         Feature::MillWall => [215, 190, 140],
+        Feature::MillDoor => [120, 85, 55],
         Feature::None => c,
     }
 }
@@ -653,6 +661,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::Lathe(_) => 'T',
                 Feature::SiteBench => 'B',
                 Feature::MillWall => '#',
+                Feature::MillDoor => 'D',
                 Feature::Framed(post) => {
                     if post {
                         'P'

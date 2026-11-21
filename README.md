@@ -69,7 +69,7 @@ On exit it prints the player's tile position and how many ground tiles are held 
 | `SNAP_HP=16` | with that much health (out of 64) |
 | `SNAP_FOOD=0`, `SNAP_WATER=0` | with that much food or water |
 | `SNAP_UPSET=1` | with an upset stomach |
-| `SNAP_MILL=wheel` / `lathe` / `stakes` / `foundation` | with the water wheel set at the mill site (`lathe`: and the wood lathe beside it; `stakes`: and the mill's ground marked out with the marking stakes; `foundation`: and the mill's foundation laid; `frame`: and its frame raised; `walls`: and its walls up) |
+| `SNAP_MILL=wheel` / `lathe` / `stakes` / `foundation` | with the water wheel set at the mill site (`lathe`: and the wood lathe beside it; `stakes`: and the mill's ground marked out with the marking stakes; `foundation`: and the mill's foundation laid; `frame`: and its frame raised; `walls`: and its walls up; `roof`: and its roof on, its door hung) |
 | `SNAP_LUCK=1` | with a signal fire's smoke always seen (lit, the castaway is rescued some time that day) |
 | `SNAP_RESCUED=1` | rescued straight away: the ending plays (the cuts from frame 120, 300 frames each, then the records from frame 1020) |
 | `SNAP_CRAB=24` | with a crab that far to the player's right |

@@ -70,7 +70,19 @@ pub struct WorldMap {
     pub crab_spawns: Vec<(i32, i32)>,
     /// Things lying about when the castaway arrives (world px).
     pub loot: Vec<(ItemKind, (i32, i32))>,
+    /// How far the mill's door stands open (0 shut, `MILL_DOOR_OPEN` wide
+    /// open). Not kept in the save: it's shut on carrying on.
+    mill_door: u8,
+    /// Whether the mill's roof is being built (it's drawn from the start
+    /// of the work). Not kept in the save: there's no saving mid-work.
+    mill_roofing: bool,
 }
+
+/// How far the mill's door slides open, in steps (`WorldMap::mill_door`):
+/// it slides `MILL_DOOR_STEP_PX` into the wall a step.
+pub const MILL_DOOR_OPEN: u8 = 4;
+/// How far (px) the mill's door slides a step.
+pub const MILL_DOOR_STEP_PX: i32 = 8;
 
 /// How many cells of rock face a ladder spans.
 pub const LADDER_ROWS: i32 = 2;
@@ -199,6 +211,8 @@ impl WorldMap {
             spawn: (0, 0),
             crab_spawns: Vec::new(),
             loot: Vec::new(),
+            mill_door: 0,
+            mill_roofing: false,
         }
     }
 
@@ -612,6 +626,71 @@ impl WorldMap {
             }
         }
         changed
+    }
+
+    /// Roofs the mill off the mill site's bank `site`: the thatch goes on
+    /// over the frame, a door is hung in the doorway, and the bench beside
+    /// it is cleared away (the building's done). Returns the cells whose
+    /// look changed: the ground, the row north of it the roof's ridge
+    /// reaches up into, and the bench's.
+    pub fn put_on_roof(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        self.mill_roofing = false;
+        for (x, y) in mill_doorway(site) {
+            if self.feature(x, y) == Feature::Framed(false) {
+                self.set_feature(x, y, Feature::MillDoor);
+            }
+        }
+        let bench = site_bench(site);
+        if self.feature(bench.0, bench.1) == Feature::SiteBench {
+            self.set_feature(bench.0, bench.1, Feature::None);
+        }
+        let mut changed: Vec<(i32, i32)> = (y0 - 1..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect();
+        changed.push(bench);
+        changed
+    }
+
+    /// Sets to roofing the mill off the mill site's bank `site`: the roof is
+    /// drawn from now on, the castaway working up on it (the door is hung
+    /// when it's done, `put_on_roof`). Returns the cells whose look
+    /// changed: the ground, and the row north of it the ridge reaches up
+    /// into.
+    pub fn start_roofing(&mut self, site: (i32, i32)) -> Vec<(i32, i32)> {
+        let (x0, y0, x1, y1) = mill_plot(site);
+        self.mill_roofing = true;
+        (y0 - 1..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect()
+    }
+
+    /// Whether the mill's roof is drawn: on, or being built.
+    pub fn shows_mill_roof(&self) -> bool {
+        self.mill_roofing || self.has_mill_roof()
+    }
+
+    /// Whether the mill's roof is on (its door hung in the doorway).
+    pub fn has_mill_roof(&self) -> bool {
+        self.spots.mill.is_some_and(|site| {
+            let (x, y) = mill_doorway(site)[0];
+            self.feature(x, y) == Feature::MillDoor
+        })
+    }
+
+    /// How far the mill's door stands open (0 shut, `MILL_DOOR_OPEN` wide
+    /// open).
+    pub fn mill_door(&self) -> u8 {
+        self.mill_door
+    }
+
+    /// Slides the mill's door a step toward open or shut. Returns the cells
+    /// whose look changed (the doorway's, and the row above it the door
+    /// reaches up into), none if it didn't move.
+    pub fn slide_mill_door(&mut self, open: bool) -> Vec<(i32, i32)> {
+        let Some(site) = self.spots.mill.filter(|_| self.has_mill_roof()) else { return Vec::new() };
+        let to = if open { (self.mill_door + 1).min(MILL_DOOR_OPEN) } else { self.mill_door.saturating_sub(1) };
+        if to == self.mill_door {
+            return Vec::new();
+        }
+        self.mill_door = to;
+        mill_doorway(site).iter().flat_map(|&(x, y)| [(x, y - 1), (x, y)]).collect()
     }
 
     /// Whether the mill's walls are up.
