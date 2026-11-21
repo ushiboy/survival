@@ -16,11 +16,17 @@
 //! (holding the result if there's no room for it), and B goes back. Holding an item, A
 //! puts it down (swapping with the one item it covers, if any) and B
 //! returns it where it came from (or, if it came off the ground or there's
-//! no room left, leaves it on the ground). On the gear page, A on a slot
-//! (hand, back) lists what can go there and TAKE OFF; B returns to the tabs.
+//! no room left, leaves it on the ground). With a tool belt worn, its
+//! hooks lie side by side below the grid: the cursor goes down onto them,
+//! a tool there has the same commands as one in the bag, and a tool held
+//! for placing is hung on one with A (swapping with a tool already there).
+//! On the gear page, A on a slot (hand, back, waist) lists what can go
+//! there and TAKE OFF, and A on one of those puts it there; B goes back to
+//! the slots, and from them to the tabs. EQUIP on an item puts it in its
+//! slot straight away, from the items page.
 
 use super::bag::{BAG_W, Bag, Placed, footprint};
-use super::state::{Gear, Inventory};
+use super::state::{Gear, HOOK_CELLS, Inventory};
 use crate::common::input::{Buttons, InputState};
 use crate::crafting::{RECIPES, RecipeOrder};
 use crate::items::{ItemKind, Slot, Use};
@@ -37,20 +43,54 @@ pub struct HeldItem {
     pub turned: bool,
     /// How many are in hand (a stack is moved whole).
     pub count: u32,
-    /// Where it was in the bag, or `None` if it came off the ground.
+    /// Where it was in the bag, or `None` if it came off the ground (or
+    /// a hook).
     pub origin: Option<Placed>,
+    /// The belt's hook it was lifted off, if it was.
+    pub hook: Option<usize>,
+}
+
+/// Where an item on the items page is: in the bag (index into its
+/// items) or on a hook of the belt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spot {
+    Bag(usize),
+    Hook(usize),
+}
+
+/// Whether `cursor` is on the row of the belt's hooks, below the bag's
+/// grid (only there while a belt is worn).
+pub fn on_belt(cursor: (i32, i32), bag: &Bag) -> bool {
+    cursor.1 >= bag.rows()
+}
+
+/// The hook under a cursor on the belt's row.
+pub fn hook_at(x: i32) -> usize {
+    (x / HOOK_CELLS) as usize
+}
+
+/// Whether a tool held to be placed on the belt's row lies turned: it
+/// lies along the hook, on its long side.
+pub fn lies_on_hook(kind: ItemKind) -> bool {
+    let (w, h) = kind.size();
+    h > w
+}
+
+/// The item at `cursor` on the items page, and where it is.
+pub fn item_at(inv: &Inventory, cursor: (i32, i32)) -> Option<(Spot, ItemKind)> {
+    if on_belt(cursor, &inv.bag) {
+        let h = hook_at(cursor.0);
+        return inv.gear.belt.get(h).copied().flatten().filter(|_| h < inv.gear.hooks()).map(|k| (Spot::Hook(h), k));
+    }
+    inv.bag.at(cursor.0, cursor.1).map(|i| (Spot::Bag(i), inv.bag.items()[i].kind))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Use(Use),
     Move,
-    /// Take a tool in hand.
-    Wield,
-    /// Put a pack on the back or a belt round the waist.
-    Wear,
-    /// Hang a tool on the belt, out of the bag.
-    Hang,
+    /// Put it in its slot (hand, back, waist) there and then.
+    Equip,
     /// Put it down on the ground (or pour it away).
     Drop,
 }
@@ -62,9 +102,7 @@ impl Command {
             Command::Use(Use::Drink) => "DRINK",
             Command::Use(Use::Light) => "LIGHT FIRE",
             Command::Move => "MOVE",
-            Command::Wield => "TAKE IN HAND",
-            Command::Wear => "WEAR",
-            Command::Hang => "HANG ON BELT",
+            Command::Equip => "EQUIP",
             Command::Drop => kind.discard_words().0,
         }
     }
@@ -94,19 +132,6 @@ impl Page {
     }
 }
 
-/// A line of the gear page: a slot, or a hook of the belt worn at the
-/// waist (listed after the slots, one for each hook).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GearRow {
-    Slot(Slot),
-    Hook(usize),
-}
-
-/// The lines of the gear page, top to bottom.
-pub fn gear_rows(gear: &Gear) -> Vec<GearRow> {
-    Slot::ALL.into_iter().map(GearRow::Slot).chain((0..gear.hooks()).map(GearRow::Hook)).collect()
-}
-
 /// A choice for a gear slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GearChoice {
@@ -125,25 +150,17 @@ impl GearChoice {
     }
 }
 
-/// What can go on a line of the gear page: each kind of gear for it
-/// carried (but the one already there), then taking off what's there. A
-/// tool to hold may come from the bag or the belt; one to hang, only from
-/// the bag.
-pub fn gear_choices(inv: &Inventory, row: GearRow) -> Vec<GearChoice> {
-    let (fits, there): (fn(ItemKind) -> bool, Option<ItemKind>) = match row {
-        GearRow::Slot(Slot::Hand) => (|k| k.slot() == Some(Slot::Hand), inv.gear.hand),
-        GearRow::Slot(Slot::Back) => (|k| k.slot() == Some(Slot::Back), inv.gear.back),
-        GearRow::Slot(Slot::Waist) => (|k| k.slot() == Some(Slot::Waist), inv.gear.waist),
-        GearRow::Hook(h) => (ItemKind::hangs_on_belt, inv.gear.belt[h]),
-    };
-    let from_belt = match row {
-        GearRow::Slot(Slot::Hand) => inv.gear.belt.iter().flatten().copied().collect(),
-        _ => Vec::new(),
-    };
+/// What can go in a slot on the gear page: each kind carried that goes
+/// there (but the one already there), then taking off what's there. A
+/// tool to hold may come from the bag or the belt; anything else, only
+/// from the bag.
+pub fn gear_choices(inv: &Inventory, slot: Slot) -> Vec<GearChoice> {
+    let there = inv.gear.worn(slot);
+    let from_belt = inv.gear.belt.iter().flatten().copied().filter(|_| slot.keeps_in_bag());
     let mut out: Vec<GearChoice> = Vec::new();
     for kind in inv.bag.items().iter().map(|p| p.kind).chain(from_belt) {
         let choice = GearChoice::Use(kind);
-        if fits(kind) && Some(kind) != there && !out.contains(&choice) {
+        if slot.holds(kind) && Some(kind) != there && !out.contains(&choice) {
             out.push(choice);
         }
     }
@@ -151,6 +168,11 @@ pub fn gear_choices(inv: &Inventory, row: GearRow) -> Vec<GearChoice> {
         out.push(GearChoice::TakeOff);
     }
     out
+}
+
+/// Where EQUIP puts `kind`: its slot, unless it's there already.
+pub fn equip_slot(gear: &Gear, kind: ItemKind) -> Option<Slot> {
+    kind.slot().filter(|&s| gear.worn(s) != Some(kind))
 }
 
 /// Recipes listed on one page of the crafting list.
@@ -163,7 +185,7 @@ pub enum Mode {
     Browse,
     /// Choosing what to do with the item at `item`.
     Commands {
-        item: usize,
+        item: Spot,
         choice: usize,
     },
     Holding(HeldItem),
@@ -187,13 +209,13 @@ pub enum Mode {
         scroll: usize,
         confirming: bool,
     },
-    /// On a line of the gear page (index into `gear_rows`).
+    /// On a slot of the gear page (index into `Slot::ALL`).
     Gear {
-        slot: usize,
+        place: usize,
     },
-    /// Choosing from `gear_choices` for a line.
+    /// Choosing from `gear_choices` for a slot.
     GearPick {
-        slot: usize,
+        place: usize,
         choice: usize,
     },
     /// On the cart page, the cursor (`BagMenu::cursor`) on a cell of the
@@ -292,19 +314,11 @@ fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) ->
     None
 }
 
-/// Commands offered for an item, in menu order: taking a tool in hand
-/// (unless it's already held) or wearing a pack or a belt come after
-/// using it, then hanging a tool on the belt (when one is worn with a
-/// hook free).
+/// Commands offered for an item, in menu order: using it, then EQUIP
+/// (gear not in its slot already: it's put there straight away).
 pub fn commands_for(kind: ItemKind, gear: &Gear) -> Vec<Command> {
-    let gear_command = match kind.slot() {
-        Some(Slot::Hand) if gear.hand != Some(kind) => Some(Command::Wield),
-        Some(Slot::Back | Slot::Waist) => Some(Command::Wear),
-        _ => None,
-    };
-    let hook_free = gear.belt[..gear.hooks()].contains(&None);
-    let hang = (kind.hangs_on_belt() && hook_free).then_some(Command::Hang);
-    kind.usage().map(Command::Use).into_iter().chain(gear_command).chain(hang).chain([Command::Move, Command::Drop]).collect()
+    let equip = equip_slot(gear, kind).map(|_| Command::Equip);
+    kind.usage().map(Command::Use).into_iter().chain(equip).chain([Command::Move, Command::Drop]).collect()
 }
 
 impl BagMenu {
@@ -332,7 +346,7 @@ impl BagMenu {
     /// Opens holding something just picked up (`count` of a kind) that
     /// didn't fit anywhere.
     pub fn holding(kind: ItemKind, count: u32) -> Self {
-        let held = HeldItem { kind, turned: false, count, origin: None };
+        let held = HeldItem { kind, turned: false, count, origin: None, hook: None };
         Self { mode: Mode::Holding(held), notice: Some("NO ROOM - MAKE SPACE"), ..Self::browse() }
     }
 
@@ -368,7 +382,7 @@ impl BagMenu {
         self.mode = match page {
             Page::Items => Mode::Browse,
             Page::Craft => Mode::Crafting { choice: 0 },
-            Page::Gear => Mode::Gear { slot: 0 },
+            Page::Gear => Mode::Gear { place: 0 },
             Page::Cart => {
                 self.cursor = (0, 0);
                 Mode::Cart { in_cart: false }
@@ -438,13 +452,18 @@ impl BagMenu {
                         self.mode = Mode::Tabs(Page::Items);
                         return Outcome::Stay;
                     }
-                    self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - 1), (self.cursor.1 + dy).clamp(0, inv.bag.rows() - 1));
+                    // The belt's row is below the grid while one is worn.
+                    let belt = inv.gear.hooks() > 0;
+                    let last_row = inv.bag.rows() - if belt { 0 } else { 1 };
+                    let y = (self.cursor.1 + dy).clamp(0, last_row);
+                    let width = if y >= inv.bag.rows() { inv.gear.hooks() as i32 * HOOK_CELLS } else { BAG_W };
+                    self.cursor = ((self.cursor.0 + dx).clamp(0, width - 1), y);
                 }
                 if input.pressed(Buttons::B) {
                     return Outcome::Close;
                 }
                 if input.pressed(Buttons::A)
-                    && let Some(item) = inv.bag.at(self.cursor.0, self.cursor.1)
+                    && let Some((item, _)) = item_at(inv, self.cursor)
                 {
                     self.mode = Mode::Commands { item, choice: 0 };
                     self.notice = None;
@@ -452,8 +471,10 @@ impl BagMenu {
                 Outcome::Stay
             }
             Mode::Commands { item, choice } => {
-                let bag = &mut inv.bag;
-                let kind = bag.items()[item].kind;
+                let kind = match item {
+                    Spot::Bag(i) => inv.bag.items()[i].kind,
+                    Spot::Hook(h) => inv.gear.belt[h].expect("a tool on the hook"),
+                };
                 let commands = commands_for(kind, &inv.gear);
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
                     self.mode = Mode::Commands { item, choice: (choice as i32 + dy).rem_euclid(commands.len() as i32) as usize };
@@ -466,47 +487,63 @@ impl BagMenu {
                     return Outcome::Stay;
                 }
                 self.mode = Mode::Browse;
+                // Takes it out of where it is: one of a stack in the bag,
+                // or all of it.
+                let take = |inv: &mut Inventory, whole: bool| -> Option<Placed> {
+                    match item {
+                        Spot::Bag(i) if whole => Some(inv.bag.remove(i)),
+                        Spot::Bag(i) => {
+                            inv.bag.take_one(i);
+                            None
+                        }
+                        Spot::Hook(h) => {
+                            inv.gear.belt[h] = None;
+                            None
+                        }
+                    }
+                };
                 match commands[choice] {
                     Command::Use(how) => {
                         if how.uses_up() {
-                            bag.take_one(item);
+                            take(inv, false);
                         }
                         Outcome::Use(kind)
                     }
-                    Command::Wield => {
-                        inv.gear.hand = Some(kind);
-                        self.notice = Some("TOOK IT IN HAND");
-                        Outcome::Stay
-                    }
-                    Command::Wear => {
-                        self.notice = Some(match inv.wear(item) {
-                            Ok(()) => "PUT IT ON",
-                            Err(why) => why,
-                        });
-                        self.cursor = (self.cursor.0, self.cursor.1.min(inv.bag.rows() - 1));
-                        Outcome::Stay
-                    }
-                    Command::Hang => {
-                        self.notice = Some(match inv.hang(item) {
-                            Ok(()) => "HUNG IT ON THE BELT",
-                            Err(why) => why,
-                        });
+                    Command::Equip => {
+                        if let Some(slot) = equip_slot(&inv.gear, kind) {
+                            self.notice = Some(inv.put_in(slot, kind).err().unwrap_or(slot.done_words()));
+                            // A pack swapped may change the bag's rows.
+                            self.cursor = (self.cursor.0, self.cursor.1.min(inv.bag.rows() - 1 + (inv.gear.hooks() > 0) as i32));
+                        }
                         Outcome::Stay
                     }
                     Command::Move => {
-                        let p = bag.remove(item);
-                        self.cursor = (p.x, p.y);
-                        self.mode = Mode::Holding(HeldItem { kind, turned: p.turned, count: p.count, origin: Some(p) });
+                        let p = take(inv, true);
+                        let hook = match item {
+                            Spot::Hook(h) => Some(h),
+                            Spot::Bag(_) => None,
+                        };
+                        let turned = p.map_or(lies_on_hook(kind), |p| p.turned);
+                        if let Some(p) = p {
+                            self.cursor = (p.x, p.y);
+                        }
+                        self.mode = Mode::Holding(HeldItem { kind, turned, count: p.map_or(1, |p| p.count), origin: p, hook });
                         Outcome::Stay
                     }
                     Command::Drop => {
-                        let p = bag.remove(item);
+                        let count = match item {
+                            Spot::Bag(i) => inv.bag.remove(i).count,
+                            Spot::Hook(_) => {
+                                take(inv, true);
+                                1
+                            }
+                        };
                         self.notice = Some(kind.discard_words().1);
-                        Outcome::Drop(kind, p.count)
+                        Outcome::Drop(kind, count)
                     }
                 }
             }
-            Mode::Holding(held) => self.update_holding(input, &mut inv.bag, held, step),
+            Mode::Holding(held) => self.update_holding(input, inv, held, step),
             Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Sorting { choice, pick } => {
@@ -525,59 +562,44 @@ impl BagMenu {
                 Outcome::Stay
             }
             Mode::Recipe { recipe, scroll, confirming } => self.update_recipe(input, inv, recipe, scroll, confirming, step),
-            Mode::Gear { slot } => {
-                let rows = gear_rows(&inv.gear);
+            Mode::Gear { place } => {
+                let places = Slot::ALL;
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
-                    if dy < 0 && slot == 0 {
+                    if dy < 0 && place == 0 {
                         self.mode = Mode::Tabs(Page::Gear);
                         return Outcome::Stay;
                     }
-                    self.mode = Mode::Gear { slot: (slot as i32 + dy).clamp(0, rows.len() as i32 - 1) as usize };
+                    self.mode = Mode::Gear { place: (place as i32 + dy).clamp(0, places.len() as i32 - 1) as usize };
                     self.notice = None;
                 }
                 if input.pressed(Buttons::B) {
                     self.mode = Mode::Tabs(Page::Gear);
                     self.notice = None;
                 } else if input.pressed(Buttons::A) {
-                    if gear_choices(inv, rows[slot]).is_empty() {
+                    if gear_choices(inv, places[place]).is_empty() {
                         self.notice = Some("NOTHING TO PUT HERE");
                     } else {
-                        self.mode = Mode::GearPick { slot, choice: 0 };
+                        self.mode = Mode::GearPick { place, choice: 0 };
                         self.notice = None;
                     }
                 }
                 Outcome::Stay
             }
-            Mode::GearPick { slot, choice } => {
-                let row = gear_rows(&inv.gear)[slot];
-                let choices = gear_choices(inv, row);
+            Mode::GearPick { place, choice } => {
+                let at = Slot::ALL[place];
+                let choices = gear_choices(inv, at);
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
-                    self.mode = Mode::GearPick { slot, choice: (choice as i32 + dy).rem_euclid(choices.len() as i32) as usize };
+                    self.mode = Mode::GearPick { place, choice: (choice as i32 + dy).rem_euclid(choices.len() as i32) as usize };
                 }
                 if input.pressed(Buttons::B) {
-                    self.mode = Mode::Gear { slot };
+                    self.mode = Mode::Gear { place };
                 } else if input.pressed(Buttons::A) {
-                    let in_bag = |inv: &Inventory, kind| inv.bag.items().iter().position(|p| p.kind == kind);
-                    let result = match (choices[choice], row) {
-                        (GearChoice::Use(kind), GearRow::Slot(Slot::Hand)) => {
-                            inv.gear.hand = Some(kind);
-                            Ok(())
-                        }
-                        (GearChoice::Use(kind), GearRow::Slot(_)) => in_bag(inv, kind).map_or(Ok(()), |i| inv.wear(i)),
-                        (GearChoice::Use(kind), GearRow::Hook(h)) => in_bag(inv, kind).map_or(Ok(()), |i| inv.hang_at(i, h)),
-                        (GearChoice::TakeOff, GearRow::Slot(s)) => inv.take_off(s),
-                        (GearChoice::TakeOff, GearRow::Hook(h)) => inv.unhang(h),
-                    };
-                    let done = match (choices[choice], row) {
-                        (GearChoice::TakeOff, _) => "TOOK IT OFF",
-                        (_, GearRow::Slot(Slot::Hand)) => "TOOK IT IN HAND",
-                        (_, GearRow::Hook(_)) => "HUNG IT ON THE BELT",
-                        (_, GearRow::Slot(_)) => "PUT IT ON",
+                    let (result, done) = match choices[choice] {
+                        GearChoice::Use(kind) => (inv.put_in(at, kind), at.done_words()),
+                        GearChoice::TakeOff => (inv.empty(at), "TOOK IT OFF"),
                     };
                     self.notice = Some(result.err().unwrap_or(done));
-                    // Taking the belt off takes its hooks off the page.
-                    let last = gear_rows(&inv.gear).len() - 1;
-                    self.mode = Mode::Gear { slot: slot.min(last) };
+                    self.mode = Mode::Gear { place };
                     self.cursor = (self.cursor.0, self.cursor.1.min(inv.bag.rows() - 1));
                 }
                 Outcome::Stay
@@ -768,16 +790,49 @@ impl BagMenu {
         Outcome::Stay
     }
 
-    fn update_holding(&mut self, input: &InputState, bag: &mut Bag, mut held: HeldItem, step: Option<(i32, i32)>) -> Outcome {
+    fn update_holding(&mut self, input: &InputState, inv: &mut Inventory, mut held: HeldItem, step: Option<(i32, i32)>) -> Outcome {
         if input.pressed(Buttons::Y) && held.kind.size().0 != held.kind.size().1 {
             held.turned = !held.turned;
             self.mode = Mode::Holding(held);
         }
-        let (w, h) = footprint(held.kind, held.turned);
+        let rows = inv.bag.rows();
         let (dx, dy) = step.unwrap_or((0, 0));
-        self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - w), (self.cursor.1 + dy).clamp(0, bag.rows() - h));
+        if on_belt(self.cursor, &inv.bag) {
+            // Along the hooks a hook at a time; up, back into the grid.
+            let hooks = inv.gear.hooks() as i32;
+            if dy < 0 {
+                let (w, h) = footprint(held.kind, held.turned);
+                self.cursor = (self.cursor.0.min(BAG_W - w), rows - h);
+            } else {
+                let hook = (hook_at(self.cursor.0) as i32 + dx).clamp(0, hooks - 1);
+                self.cursor = (hook * HOOK_CELLS, rows);
+            }
+        } else {
+            let (w, h) = footprint(held.kind, held.turned);
+            let at_bottom = self.cursor.1 + h >= rows;
+            if dy > 0 && at_bottom && inv.gear.hooks() > 0 {
+                let hook = hook_at(self.cursor.0).min(inv.gear.hooks() - 1) as i32;
+                self.cursor = (hook * HOOK_CELLS, rows);
+            } else {
+                self.cursor = ((self.cursor.0 + dx).clamp(0, BAG_W - w), (self.cursor.1 + dy).clamp(0, rows - h));
+            }
+        }
 
         if input.pressed(Buttons::A) {
+            if on_belt(self.cursor, &inv.bag) {
+                // Onto a hook: only a tool that hangs; one already there
+                // is picked up in its place.
+                if held.kind.hangs_on_belt() && held.count == 1 {
+                    let hook = hook_at(self.cursor.0);
+                    match inv.gear.belt[hook].replace(held.kind) {
+                        Some(old) => self.mode = Mode::Holding(HeldItem { kind: old, turned: lies_on_hook(old), count: 1, origin: None, hook: Some(hook) }),
+                        None => self.mode = Mode::Browse,
+                    }
+                    self.notice = None;
+                }
+                return Outcome::Stay;
+            }
+            let bag = &mut inv.bag;
             let spot = Placed { kind: held.kind, x: self.cursor.0, y: self.cursor.1, turned: held.turned, count: held.count };
             match bag.overlapping(&spot)[..] {
                 // Onto a stack of the same: top it up, keeping any left over.
@@ -800,7 +855,7 @@ impl BagMenu {
                     // Swap: put this one down and pick up the one beneath.
                     let lifted = bag.remove(other);
                     bag.put(spot);
-                    let next = HeldItem { kind: lifted.kind, turned: lifted.turned, count: lifted.count, origin: Some(lifted) };
+                    let next = HeldItem { kind: lifted.kind, turned: lifted.turned, count: lifted.count, origin: Some(lifted), hook: None };
                     let (w, h) = footprint(next.kind, next.turned);
                     self.cursor = (self.cursor.0.min(BAG_W - w), self.cursor.1.min(bag.rows() - h));
                     self.mode = Mode::Holding(next);
@@ -812,7 +867,15 @@ impl BagMenu {
         }
         if input.pressed(Buttons::B) || input.pressed(Buttons::X) {
             self.mode = Mode::Browse;
-            // Back where it was (as many as are still in hand).
+            // Back where it was: on its hook, if that's still free...
+            if let Some(hook) = held.hook.filter(|&h| h < inv.gear.hooks() && inv.gear.belt[h].is_none()) {
+                inv.gear.belt[hook] = Some(held.kind);
+                self.cursor = (hook as i32 * HOOK_CELLS, rows);
+                self.notice = None;
+                return Outcome::Stay;
+            }
+            // ...or in the bag (as many as are still in hand).
+            let bag = &mut inv.bag;
             if let Some(origin) = held.origin.map(|o| Placed { count: held.count, ..o }).filter(|o| bag.fits(o)) {
                 bag.put(origin);
                 self.cursor = (origin.x, origin.y);
@@ -850,6 +913,9 @@ impl BagMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::bag::BASE_ROWS;
+    use crate::game::state::HOOK_CELLS;
+    use crate::items::Slot;
 
     /// Wearing a tool belt with an axe hung on it and a digging stick in
     /// the bag.
@@ -1065,34 +1131,196 @@ mod tests {
     }
 
     #[test]
-    fn the_belts_hooks_are_on_the_gear_page_only_while_it_is_worn() {
-        assert!(!gear_rows(&Inventory::default().gear).iter().any(|r| matches!(r, GearRow::Hook(_))));
-        let hooks = gear_rows(&belted().gear).into_iter().filter(|r| matches!(r, GearRow::Hook(_))).count();
-        assert_eq!(hooks, ItemKind::ToolBelt.hooks());
-    }
-
-    #[test]
     fn a_tool_on_the_belt_can_be_taken_in_hand() {
-        let choices = gear_choices(&belted(), GearRow::Slot(Slot::Hand));
+        let choices = gear_choices(&belted(), Slot::Hand);
         assert!(choices.contains(&GearChoice::Use(ItemKind::StoneAxe)));
         assert!(choices.contains(&GearChoice::Use(ItemKind::DiggingStick)));
     }
 
     #[test]
-    fn a_free_hook_offers_the_tools_in_the_bag_that_hang() {
+    fn a_choice_says_whether_it_is_in_the_bag_or_on_a_hook() {
         let inv = belted();
-        let free = (0..inv.gear.hooks()).find(|&h| inv.gear.belt[h].is_none()).unwrap();
-        assert_eq!(gear_choices(&inv, GearRow::Hook(free)), vec![GearChoice::Use(ItemKind::DiggingStick)]);
+        assert_eq!(inv.hook_of(ItemKind::DiggingStick), None);
+        assert_eq!(inv.hook_of(ItemKind::StoneAxe), Some(0));
     }
 
     #[test]
-    fn hanging_is_offered_for_a_tool_only_while_a_hook_is_free() {
+    fn the_gear_page_lists_only_the_slots_even_with_a_belt_worn() {
         let mut inv = belted();
-        assert!(commands_for(ItemKind::DiggingStick, &inv.gear).contains(&Command::Hang));
-        let at = inv.bag.items().iter().position(|p| p.kind == ItemKind::DiggingStick).unwrap();
-        inv.hang(at).unwrap();
-        inv.bag.stow_one(ItemKind::WoodSpear);
-        assert!(!commands_for(ItemKind::WoodSpear, &inv.gear).contains(&Command::Hang));
+        let mut menu = BagMenu { mode: Mode::Gear { place: 0 }, ..BagMenu::browse() };
+        for _ in 0..6 {
+            press(&mut menu, &mut inv, Buttons::DOWN);
+        }
+        assert_eq!(menu.mode, Mode::Gear { place: Slot::ALL.len() - 1 });
+    }
+
+    #[test]
+    fn equip_is_offered_while_there_is_somewhere_to_put_it() {
+        let mut inv = Inventory::default();
+        assert!(commands_for(ItemKind::StoneAxe, &inv.gear).contains(&Command::Equip));
+        assert!(commands_for(ItemKind::PackFrame, &inv.gear).contains(&Command::Equip));
+        assert!(!commands_for(ItemKind::Stone, &inv.gear).contains(&Command::Equip));
+        inv.gear.hand = Some(ItemKind::StoneAxe);
+        assert!(!commands_for(ItemKind::StoneAxe, &inv.gear).contains(&Command::Equip));
+    }
+
+    /// The menu with the commands open on the bag's `kind` and EQUIP chosen.
+    fn on_equip(inv: &Inventory, kind: ItemKind) -> BagMenu {
+        let item = inv.bag.items().iter().position(|p| p.kind == kind).unwrap();
+        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Equip).unwrap();
+        BagMenu { mode: Mode::Commands { item: Spot::Bag(item), choice }, ..BagMenu::browse() }
+    }
+
+    #[test]
+    fn equip_holds_a_tool_right_there_on_the_items_page() {
+        let mut inv = belted();
+        let mut menu = on_equip(&inv, ItemKind::DiggingStick);
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.gear.hand, Some(ItemKind::DiggingStick));
+        assert_eq!(menu.mode, Mode::Browse);
+        assert_eq!(menu.notice, Some("TOOK IT IN HAND"));
+    }
+
+    #[test]
+    fn equip_puts_on_a_pack_right_there_on_the_items_page() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(ItemKind::PackFrame);
+        let mut menu = on_equip(&inv, ItemKind::PackFrame);
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.gear.back, Some(ItemKind::PackFrame));
+        assert_eq!(menu.mode, Mode::Browse);
+        assert_eq!(menu.notice, Some("PUT IT ON"));
+    }
+
+    #[test]
+    fn equip_takes_a_tool_on_the_belt_in_hand() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        let choice = commands_for(ItemKind::StoneAxe, &inv.gear).iter().position(|&c| c == Command::Equip).unwrap();
+        menu.mode = Mode::Commands { item: Spot::Hook(0), choice };
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.gear.hand, Some(ItemKind::StoneAxe));
+        assert_eq!(inv.gear.belt[0], Some(ItemKind::StoneAxe));
+    }
+
+    /// `belted()` browsing the items page, the cursor at `at`.
+    fn browsing(at: (i32, i32)) -> (BagMenu, Inventory) {
+        (BagMenu { cursor: at, ..BagMenu::browse() }, belted())
+    }
+
+    #[test]
+    fn below_the_bag_the_cursor_reaches_the_belt_only_while_it_is_worn() {
+        let (mut menu, mut inv) = browsing((0, BASE_ROWS - 1));
+        press(&mut menu, &mut inv, Buttons::DOWN);
+        assert_eq!(menu.cursor, (0, BASE_ROWS));
+        let mut inv = Inventory::default();
+        let mut menu = BagMenu { cursor: (0, BASE_ROWS - 1), ..BagMenu::browse() };
+        press(&mut menu, &mut inv, Buttons::DOWN);
+        assert_eq!(menu.cursor, (0, BASE_ROWS - 1));
+    }
+
+    #[test]
+    fn a_tool_on_the_belt_has_the_commands_of_one_in_the_bag() {
+        let (mut menu, mut inv) = browsing((1, BASE_ROWS));
+        press(&mut menu, &mut inv, Buttons::A);
+        assert!(matches!(menu.mode, Mode::Commands { item: Spot::Hook(0), .. }));
+        let commands = commands_for(ItemKind::StoneAxe, &inv.gear);
+        assert!(commands.contains(&Command::Equip) && commands.contains(&Command::Move) && commands.contains(&Command::Drop));
+    }
+
+    /// Lifts the bag's `kind` to move it (MOVE from its commands).
+    fn lift(menu: &mut BagMenu, inv: &mut Inventory, kind: ItemKind) {
+        let item = inv.bag.items().iter().position(|p| p.kind == kind).unwrap();
+        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Move).unwrap();
+        menu.mode = Mode::Commands { item: Spot::Bag(item), choice };
+        press(menu, inv, Buttons::A);
+        assert!(matches!(menu.mode, Mode::Holding(_)));
+    }
+
+    /// Presses down until the held item is over the belt, then right to
+    /// hook `hook`.
+    fn down_to_hook(menu: &mut BagMenu, inv: &mut Inventory, hook: usize) {
+        for _ in 0..8 {
+            press(menu, inv, Buttons::DOWN);
+        }
+        for _ in 0..hook * HOOK_CELLS as usize {
+            press(menu, inv, Buttons::RIGHT);
+        }
+    }
+
+    #[test]
+    fn a_tool_moved_onto_a_free_hook_hangs_there_out_of_the_bag() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        lift(&mut menu, &mut inv, ItemKind::DiggingStick);
+        down_to_hook(&mut menu, &mut inv, 1);
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.gear.belt[1], Some(ItemKind::DiggingStick));
+        assert!(!inv.bag.has(ItemKind::DiggingStick));
+        assert_eq!(menu.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn what_does_not_hang_is_not_put_on_a_hook() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        inv.bag.stow_one(ItemKind::Stone);
+        lift(&mut menu, &mut inv, ItemKind::Stone);
+        down_to_hook(&mut menu, &mut inv, 1);
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.gear.belt[1], None);
+        assert!(matches!(menu.mode, Mode::Holding(h) if h.kind == ItemKind::Stone));
+    }
+
+    #[test]
+    fn a_tool_put_on_a_taken_hook_swaps_with_the_one_there() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        lift(&mut menu, &mut inv, ItemKind::DiggingStick);
+        down_to_hook(&mut menu, &mut inv, 0);
+        press(&mut menu, &mut inv, Buttons::A);
+        assert_eq!(inv.gear.belt[0], Some(ItemKind::DiggingStick));
+        assert!(matches!(menu.mode, Mode::Holding(h) if h.kind == ItemKind::StoneAxe));
+    }
+
+    /// Lifts the tool on hook `hook` (MOVE from its commands).
+    fn lift_off_hook(menu: &mut BagMenu, inv: &mut Inventory, hook: usize) {
+        let kind = inv.gear.belt[hook].unwrap();
+        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Move).unwrap();
+        menu.mode = Mode::Commands { item: Spot::Hook(hook), choice };
+        press(menu, inv, Buttons::A);
+    }
+
+    #[test]
+    fn a_tool_moved_off_the_belt_into_the_bag_leaves_its_hook() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        lift_off_hook(&mut menu, &mut inv, 0);
+        assert_eq!(inv.gear.belt[0], None);
+        assert!(matches!(menu.mode, Mode::Holding(h) if h.kind == ItemKind::StoneAxe));
+        for _ in 0..8 {
+            press(&mut menu, &mut inv, Buttons::UP);
+        }
+        press(&mut menu, &mut inv, Buttons::RIGHT);
+        press(&mut menu, &mut inv, Buttons::RIGHT);
+        press(&mut menu, &mut inv, Buttons::RIGHT);
+        press(&mut menu, &mut inv, Buttons::A);
+        assert!(inv.bag.has(ItemKind::StoneAxe), "{:?}", menu.notice);
+        assert_eq!(menu.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn b_puts_a_tool_lifted_off_the_belt_back_on_its_hook() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        lift_off_hook(&mut menu, &mut inv, 0);
+        press(&mut menu, &mut inv, Buttons::UP);
+        press(&mut menu, &mut inv, Buttons::B);
+        assert_eq!(inv.gear.belt[0], Some(ItemKind::StoneAxe));
+        assert_eq!(menu.mode, Mode::Browse);
+    }
+
+    #[test]
+    fn a_tool_on_the_belt_can_be_put_down() {
+        let (mut menu, mut inv) = browsing((0, 0));
+        let choice = commands_for(ItemKind::StoneAxe, &inv.gear).iter().position(|&c| c == Command::Drop).unwrap();
+        menu.mode = Mode::Commands { item: Spot::Hook(0), choice };
+        assert_eq!(press(&mut menu, &mut inv, Buttons::A), Outcome::Drop(ItemKind::StoneAxe, 1));
+        assert_eq!(inv.gear.belt[0], None);
     }
 
     /// Presses `buttons` for a frame of the bag screen, then lets go.
@@ -1113,7 +1341,7 @@ mod tests {
         assert_eq!(menu.page(), Page::Craft);
         assert!(matches!(menu.mode, Mode::Crafting { .. }), "the page opens, not just its tab");
         press(&mut menu, &mut inv, Buttons::R);
-        assert_eq!(menu.mode, Mode::Gear { slot: 0 });
+        assert_eq!(menu.mode, Mode::Gear { place: 0 });
         press(&mut menu, &mut inv, Buttons::L);
         press(&mut menu, &mut inv, Buttons::L);
         assert_eq!(menu.mode, Mode::Browse);
@@ -1128,7 +1356,7 @@ mod tests {
         for _ in 0..Page::ALL.len() {
             press(&mut menu, &mut inv, Buttons::R);
         }
-        assert_eq!(menu.mode, Mode::Gear { slot: 0 }, "the last page without the cart at hand");
+        assert_eq!(menu.mode, Mode::Gear { place: 0 }, "the last page without the cart at hand");
     }
 
     #[test]
@@ -1175,9 +1403,9 @@ mod tests {
     #[test]
     fn without_the_cart_at_hand_r_and_l_pass_its_page_by() {
         let mut inv = Inventory::default();
-        let mut menu = BagMenu { mode: Mode::Gear { slot: 0 }, ..BagMenu::browse() };
+        let mut menu = BagMenu { mode: Mode::Gear { place: 0 }, ..BagMenu::browse() };
         press(&mut menu, &mut inv, Buttons::R);
-        assert_eq!(menu.mode, Mode::Gear { slot: 0 });
+        assert_eq!(menu.mode, Mode::Gear { place: 0 });
     }
 
     /// Every recipe known, the list open with the cursor at `choice`.
