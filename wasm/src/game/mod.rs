@@ -773,10 +773,6 @@ impl Game {
             fuel: fuel(&self.inventory.bag).is_some(),
             hearth_full: !self.works.hearth_takes_fuel(self.clock.total_minutes()),
             fish_oil: self.inventory.bag.has(ItemKind::FishOil),
-            cart_ahead: self
-                .cart
-                .as_ref()
-                .is_some_and(|c| c.pulled || cart_reach(c).overlaps(&Rect::new(self.player.reach_point().0, self.player.reach_point().1, 1, 1))),
         };
         let was_asleep = self.player.is_asleep();
         let deed = self.player.update(&self.input, &self.map, situation);
@@ -830,11 +826,9 @@ impl Game {
                 self.menu = Some(BagMenu::at_the_shelf());
                 return;
             }
-            // Pulling the cart, it's set down first (A again lies down).
-            Some(Deed::ToBed) if self.player.pulling => {
-                self.handle_cart();
-                self.autosave.note(Cue::Changed);
-            }
+            // Pulling the cart, there's no lying down: it wants setting
+            // down first.
+            Some(Deed::ToBed) if self.player.pulling => self.player.ponder(),
             Some(Deed::ToBed) => self.player.lie_in_bed(self.map.bed_pillow()),
             Some(Deed::StokeHearth) => self.stoke_hearth(),
             Some(Deed::AskSignalOil(cell)) => {
@@ -844,10 +838,9 @@ impl Game {
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
-                // A with nothing else to do: set the cart down, or take
-                // up the one set down just ahead.
-                if idle_before && self.player.is_idle() && self.input.pressed(Buttons::A) && self.cart.is_some() {
-                    self.handle_cart();
+                // Y sets the cart down, or takes up the one set down close
+                // by.
+                if idle_before && self.player.is_idle() && !self.player.climbing && self.input.pressed(Buttons::Y) && self.handle_cart() {
                     self.autosave.note(Cue::Changed);
                 }
             }
@@ -1516,17 +1509,18 @@ impl Game {
         }
     }
 
-    /// A pressed with nothing else to do: a cart being pulled is set down
-    /// where it stands; a cart set down just ahead is taken up.
-    fn handle_cart(&mut self) {
-        let reach = self.player.reach_point();
-        let Some(cart) = &mut self.cart else { return };
+    /// Y pressed: a cart being pulled is set down where it stands; a cart
+    /// set down close by (its load at hand), whichever way the castaway
+    /// faces, is taken up. Whether it was.
+    fn handle_cart(&mut self) -> bool {
+        let at_hand = self.cart_at_hand();
+        let Some(cart) = &mut self.cart else { return false };
         if cart.pulled {
             cart.set_down();
-            return;
+            return true;
         }
-        if !cart_reach(cart).overlaps(&Rect::new(reach.0, reach.1, 1, 1)) {
-            return;
+        if !at_hand {
+            return false;
         }
         // Step round to its poles, facing the way they point, and take
         // hold (not if there's no room to stand there).
@@ -1535,12 +1529,14 @@ impl Game {
         let (fx, fy) = self.player.body.feet();
         let feet = self.player.body.world_hitbox().translate(to.0 - fx, to.1 - fy);
         if self.map.is_solid_rect(feet) {
-            return;
+            self.player.ponder();
+            return false;
         }
         self.player.body.x += crate::common::math::px_to_fx(to.0 - fx);
         self.player.body.y += crate::common::math::px_to_fx(to.1 - fy);
         self.player.facing = cart.poles;
         cart.take_up();
+        true
     }
 
     /// Whether the cart's load is at hand: it's being pulled, or set down
@@ -2581,6 +2577,16 @@ impl Game {
         self.camera.follow_within(self.player.center(), self.view_bounds());
     }
 
+    /// Dev tools: puts the castaway, awake, with their feet on a world
+    /// pixel.
+    pub fn debug_place_player_px(&mut self, (x, y): (i32, i32)) {
+        self.skip_title();
+        self.player = Player::at_feet(x, y);
+        let (fx, fy) = self.player.body.feet();
+        self.player = Player::at_feet(2 * x - fx, 2 * y - fy);
+        self.camera.follow_within(self.player.center(), self.view_bounds());
+    }
+
     /// Whether the castaway can stand on the cell.
     fn standable(&self, (x, y): (i32, i32)) -> bool {
         self.map.in_bounds(x, y) && !self.map.props(x, y).solid && !matches!(self.map.terrain(x, y), Terrain::DeepWater | Terrain::River)
@@ -3165,12 +3171,6 @@ fn draw_line(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, line: &L
         let (rx, ry) = camera.to_screen(fx - 12, fy - 3);
         list.actor(fy - 1, ObjEntry::new(rx, ry, ripple, OBJ_WATER_FX, ACTOR_PRIORITY));
     }
-}
-
-/// Where reaching takes hold of a cart set down (a little round it).
-fn cart_reach(cart: &Cart) -> Rect {
-    let r = cart.rect();
-    Rect::new(r.x - 4, r.y - 4, r.w + 8, r.h + 8)
 }
 
 /// How far (px) the side-on cart rolls for its wheel to turn round one

@@ -25,20 +25,38 @@ describe('InputController', () => {
 
   afterEach(() => detach());
 
-  it('矢印キーと WASD は十字キーになる', () => {
+  it('矢印キーと IJKL は十字キーになる', () => {
     key('keydown', 'ArrowUp');
-    key('keydown', 'KeyD');
+    key('keydown', 'KeyL');
     expect(input.read()).toBe(Button.Up | Button.Right);
+    key('keyup', 'ArrowUp');
+    key('keyup', 'KeyL');
+    const map: Array<[string, number]> = [
+      ['KeyI', Button.Up],
+      ['KeyJ', Button.Left],
+      ['KeyK', Button.Down],
+      ['KeyL', Button.Right],
+    ];
+    for (const [code, bit] of map) {
+      key('keydown', code);
+      expect(input.read(), code).toBe(bit);
+      key('keyup', code);
+    }
   });
 
-  it('ボタンのキーは SFC のボタンになる（Z=B, X=A, C=Y, V=X, Q=L, E=R, Enter=START, Shift=SELECT）', () => {
+  it('WASD は十字キーにしない（A・S・D はボタンに使う）', () => {
+    key('keydown', 'KeyW');
+    expect(input.read()).toBe(0);
+  });
+
+  it('ボタンのキーは SFC のボタンになる（F=A, D=B, S=Y, E=X, Q=L, Space=R, Enter=START, Shift=SELECT）', () => {
     const map: Array<[string, number]> = [
-      ['KeyZ', Button.B],
-      ['KeyX', Button.A],
-      ['KeyC', Button.Y],
-      ['KeyV', Button.X],
+      ['KeyF', Button.A],
+      ['KeyD', Button.B],
+      ['KeyS', Button.Y],
+      ['KeyE', Button.X],
       ['KeyQ', Button.L],
-      ['KeyE', Button.R],
+      ['Space', Button.R],
       ['Enter', Button.Start],
       ['ShiftLeft', Button.Select],
     ];
@@ -50,9 +68,9 @@ describe('InputController', () => {
   });
 
   it('キーを離すとそのボタンだけ離れる', () => {
-    key('keydown', 'KeyX');
-    key('keydown', 'KeyE');
-    key('keyup', 'KeyX');
+    key('keydown', 'KeyF');
+    key('keydown', 'Space');
+    key('keyup', 'KeyF');
     expect(input.read()).toBe(Button.R);
   });
 
@@ -64,7 +82,7 @@ describe('InputController', () => {
   it('入力欄に文字を打っている間のキーはボタンにしない', () => {
     const field = document.createElement('input');
     document.body.append(field);
-    key('keydown', 'KeyX', field);
+    key('keydown', 'KeyF', field);
     expect(input.read()).toBe(0);
     field.remove();
   });
@@ -85,15 +103,15 @@ describe('InputController', () => {
   });
 
   it('ウィンドウからフォーカスが外れると、押していたキーはすべて離れる', () => {
-    key('keydown', 'KeyW');
-    key('keydown', 'KeyE');
+    key('keydown', 'KeyI');
+    key('keydown', 'Space');
     window.dispatchEvent(new Event('blur'));
     expect(input.read()).toBe(0);
   });
 
   it('外した後のキーは受け付けない', () => {
     detach();
-    key('keydown', 'KeyX');
+    key('keydown', 'KeyF');
     expect(input.read()).toBe(0);
   });
 

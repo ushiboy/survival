@@ -5,7 +5,7 @@ const en: typeof ja = {
   controls: {
     title: 'Controls',
     dpad: 'D-pad',
-    arrowKeys: 'Arrow keys / WASD',
+    arrowKeys: 'Arrow keys / IJKL',
     roles: {
       move: 'Move',
       act: 'Examine / pick up / confirm',
@@ -108,7 +108,7 @@ const en: typeof ja = {
     copiedAll: 'Copied the noted spots',
     clearAll: 'Clear all',
     remove: 'Remove',
-    keys: 'Shift (SELECT) — skip 3 hours / O — change outfit',
+    keys: 'Shift (SELECT) — skip 3 hours / 0 — change outfit',
   },
   /** Item names (keys as the core names the kinds), read as written: the debug tools list them in that order. */
   items: {

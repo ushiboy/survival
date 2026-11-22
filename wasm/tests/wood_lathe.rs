@@ -159,7 +159,7 @@ fn without_a_lathe_the_castaway_stops_to_think_a_few_steps_from_the_wheel() {
 }
 
 #[test]
-fn pulling_the_cart_beside_the_wheel_a_sets_it_down_rather_than_giving_pause() {
+fn pulling_the_cart_beside_the_wheel_a_still_gives_pause() {
     let mut game = new_game();
     assert!(game.debug_set_wheel());
     let (x, y) = mill_site(&game);
@@ -168,6 +168,6 @@ fn pulling_the_cart_beside_the_wheel_a_sets_it_down_rather_than_giving_pause() {
     game.debug_give(ItemKind::Handcart);
     hold(&mut game, 0, 2);
     press(&mut game, Buttons::A);
-    assert!(!game.is_pondering());
-    assert!(!game.is_pulling_cart(), "set down");
+    assert!(game.is_pondering());
+    assert!(game.is_pulling_cart(), "A leaves the cart be");
 }

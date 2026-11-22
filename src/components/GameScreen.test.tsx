@@ -65,9 +65,9 @@ beforeEach(() => {
 describe('GameScreen', () => {
   it('押しているボタンを毎フレームゲームに渡す', async () => {
     await show(false);
-    key('keydown', 'KeyX');
+    key('keydown', 'KeyF');
     expect(frame()).toBe(Button.A);
-    key('keyup', 'KeyX');
+    key('keyup', 'KeyF');
     expect(frame()).toBe(0);
   });
 
@@ -82,13 +82,13 @@ describe('GameScreen', () => {
     it('SELECT（時間送り）はゲームに渡さない', async () => {
       await show(false);
       key('keydown', 'ShiftLeft');
-      key('keydown', 'KeyX');
+      key('keydown', 'KeyF');
       expect(frame()).toBe(Button.A);
     });
 
-    it('O キーで服装を切り替えない', async () => {
+    it('0 キーで服装を切り替えない', async () => {
       await show(false);
-      key('keydown', 'KeyO');
+      key('keydown', 'Digit0');
       expect(fake.outfitChanges).toBe(0);
     });
   });
@@ -101,10 +101,10 @@ describe('GameScreen', () => {
       key('keyup', 'ShiftLeft');
     });
 
-    it('O キーで服装を切り替える（押し続けても1回だけ）', async () => {
+    it('0 キーで服装を切り替える（押し続けても1回だけ）', async () => {
       await show(true);
-      key('keydown', 'KeyO');
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO', repeat: true }));
+      key('keydown', 'Digit0');
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit0', repeat: true }));
       expect(fake.outfitChanges).toBe(1);
     });
   });
@@ -125,7 +125,7 @@ describe('GameScreen', () => {
     unmount();
     expect(fake.step).toBeNull();
     expect(fake.disposed).toBe(1);
-    key('keydown', 'KeyO');
+    key('keydown', 'Digit0');
     expect(fake.outfitChanges).toBe(0);
   });
 });

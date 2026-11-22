@@ -32,7 +32,7 @@ interface Props {
 
 const STATUS_INTERVAL_FRAMES = 15;
 /** Debug key outside the joypad: cycle the castaway's outfit. */
-const OUTFIT_KEY = 'KeyO';
+const OUTFIT_KEY = 'Digit0';
 /** SNES output resolution (matches the Rust core). */
 const SCREEN_W = 256;
 const SCREEN_H = 224;

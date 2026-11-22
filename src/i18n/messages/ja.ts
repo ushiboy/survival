@@ -6,7 +6,7 @@ const ja = {
   controls: {
     title: '操作',
     dpad: '十字キー',
-    arrowKeys: '矢印キー / WASD',
+    arrowKeys: '矢印キー / IJKL',
     roles: {
       move: '移動',
       act: '調べる・拾う／決定',
@@ -109,7 +109,7 @@ const ja = {
     copiedAll: '記録した場所をコピーしました',
     clearAll: '全部消す',
     remove: '消す',
-    keys: 'Shift (SELECT) — 時刻を3時間進める／O — 服装の切替',
+    keys: 'Shift (SELECT) — 時刻を3時間進める／0 — 服装の切替',
   },
   /** Item names (keys as the core names the kinds), with how each reads: the debug tools list them in that order. */
   items: {

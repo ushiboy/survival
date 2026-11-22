@@ -12,15 +12,16 @@ use crate::common::math::{Dir, Rect};
 pub const CART_W: i32 = 8;
 pub const CART_ROWS: i32 = 6;
 /// Half the cart's footprint on the ground (px), across and along its
-/// poles: where reaching takes hold of it when it's set down. It's in no
+/// poles (the mill's door opens to it). It's in no
 /// one's way (the castaway walks through it, and pulling it bumps into
 /// things only as they do). Seen side on (poles left or right) its middle
 /// is its wheel's hub, and it rests on the ground under that.
 pub const CART_HALF: (i32, i32) = (11, 4);
 pub const CART_HALF_ALONG: (i32, i32) = (10, 6);
 const SIDE_GROUND: i32 = 4;
-/// How close (px) the castaway's feet must be to a cart set down for its
-/// load to be at hand.
+/// How close (px) the castaway's feet must be to the middle of a cart set
+/// down for its load to be at hand, and for Y to take it up (whichever way
+/// they face).
 pub const CART_REACH: i32 = 32;
 
 /// Where a pulled cart's middle stands from the feet of the castaway

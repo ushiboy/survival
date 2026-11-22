@@ -58,7 +58,7 @@ describe('ページの言語', () => {
     );
     expect(screen.getByRole('dialog', { name: 'Controls' })).toBeInTheDocument();
     expect(screen.getByText('L').nextElementSibling).toHaveTextContent('Q — Sleep');
-    expect(screen.getByText('D-pad').nextElementSibling).toHaveTextContent('Arrow keys / WASD — Move');
+    expect(screen.getByText('D-pad').nextElementSibling).toHaveTextContent('Arrow keys / IJKL — Move');
   });
 
   it('タッチ端末の操作説明も英語にする', () => {
