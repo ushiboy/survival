@@ -149,6 +149,20 @@ fn getting_out_of_the_bed_the_castaway_stands_beside_it_at_once() {
     assert!(game.player_is_idle(), "standing, not getting up off the floor");
 }
 
+#[test]
+fn pulling_the_cart_the_castaway_cant_lie_in_the_bed_and_ponders() {
+    let mut game = by_the_bed();
+    game.debug_give(ItemKind::Handcart);
+    hold(&mut game, 0, 2);
+    hold(&mut game, Buttons::LEFT, 2);
+    hold(&mut game, 0, 2);
+    press(&mut game, Buttons::A);
+    assert!(game.is_pondering(), "the cart wants setting down first");
+    assert!(game.is_pulling_cart(), "A leaves the cart be");
+    hold(&mut game, 0, 120);
+    assert_eq!(game.player_tile(), game.map().bedside(), "not in the bed");
+}
+
 /// The shelf made, the castaway in front of it, facing it.
 fn at_the_shelf() -> Game {
     let mut game = at_the_workbench();

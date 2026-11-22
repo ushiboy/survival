@@ -20,7 +20,7 @@ describe('ControlsHelp', () => {
     expect(role('R')).toHaveTextContent('走る');
     expect(role('L')).toHaveTextContent('バッグのタブを左へ');
     expect(role('R')).toHaveTextContent('バッグのタブを右へ');
-    expect(screen.queryByText(/WASD|Enter/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/IJKL|Enter/)).not.toBeInTheDocument();
   });
 
   it('開いたら閉じるボタンにフォーカスする', () => {
@@ -53,8 +53,10 @@ describe('ControlsHelp', () => {
   it('PC ではボタンごとにキーボードのキーも並べ、ゲームパッドのことを書く', () => {
     renderIn(<ControlsHelp keyboard onClose={() => {}} />);
     const role = (button: string) => screen.getByText(button, { selector: 'dt' }).nextElementSibling;
-    expect(role('十字キー')).toHaveTextContent('矢印キー / WASD — 移動');
+    expect(role('十字キー')).toHaveTextContent('矢印キー / IJKL — 移動');
+    expect(role('A')).toHaveTextContent('F — 調べる・拾う');
     expect(role('L')).toHaveTextContent('Q — 眠る');
+    expect(role('R')).toHaveTextContent('Space — 走る');
     expect(role('START')).toHaveTextContent('Enter — 開始／ポーズ');
     expect(screen.getByText(/ゲームパッドにも対応/)).toBeInTheDocument();
   });

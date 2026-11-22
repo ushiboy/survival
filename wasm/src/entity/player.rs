@@ -412,9 +412,6 @@ pub struct Situation {
     /// Fish are swimming in the water just ahead, and there's no rod to
     /// catch them with.
     pub fish_near: bool,
-    /// A goes to the handcart (it's being pulled, or set down just ahead):
-    /// a hint about the place doesn't take it.
-    pub cart_ahead: bool,
     /// Carrying what it takes to light a signal fire: the fire drill, a
     /// branch and a palm frond.
     pub kindling: bool,
@@ -577,7 +574,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead, kindling, fuel, hearth_full, fish_oil } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, kindling, fuel, hearth_full, fish_oil } = situation;
         self.eureka = self.eureka.saturating_sub(1);
         if self.action == Action::Collapsed {
             return None;
@@ -1015,13 +1012,13 @@ impl Player {
                 return None;
             }
             // Near the bank beside the turning wheel with no lathe in hand.
-            if tool != Some(ItemKind::WoodLathe) && !cart_ahead && self.lathe_near(map).is_some() {
+            if tool != Some(ItemKind::WoodLathe) && self.lathe_near(map).is_some() {
                 self.ponder();
                 return None;
             }
             // Near the ground beside the turning lathe, not yet marked out,
             // with no stakes in hand.
-            if tool != Some(ItemKind::MarkingStakes) && !cart_ahead && self.stakes_near(map).is_some() {
+            if tool != Some(ItemKind::MarkingStakes) && self.stakes_near(map).is_some() {
                 self.ponder();
                 return None;
             }
@@ -1516,7 +1513,7 @@ impl Player {
     }
 
     /// Stops to think (something here needs what isn't carried).
-    fn ponder(&mut self) {
+    pub fn ponder(&mut self) {
         self.action = Action::Ponder { t: 0 };
         self.moving = false;
         self.walk_timer = 0;

@@ -1,7 +1,7 @@
 //! Scenario: the handcart. Made, it doesn't go in the bag: the castaway
 //! pulls it, hitched right behind them (it swings round as they turn), and
-//! it carries a load of its own. A sets it down
-//! and, facing it, takes it up again. While pulling it the castaway can't
+//! it carries a load of its own. Y sets it down and, near it, takes it up
+//! again (A is for everything else). While pulling it the castaway can't
 //! run (walking is as fast as ever), and can't take it into the shallows
 //! or up a ladder.
 
@@ -110,7 +110,7 @@ fn pulling_the_cart_the_castaway_walks_as_fast_as_ever() {
 /// The same place as `pulling`, with no cart.
 fn pulling_none() -> Game {
     let mut game = pulling();
-    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::Y);
     hold(&mut game, 0, 2);
     // Step away from the cart set down, back to the same spot's row.
     let (x, y) = game.map().spots.mill.unwrap();
@@ -122,7 +122,7 @@ fn pulling_none() -> Game {
 #[test]
 fn a_set_down_cart_stays_put() {
     let mut game = pulling();
-    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::Y);
     hold(&mut game, 0, 2);
     assert!(!game.is_pulling_cart());
     let at = game.cart_at();
@@ -131,24 +131,87 @@ fn a_set_down_cart_stays_put() {
 }
 
 #[test]
-fn facing_a_set_down_cart_a_takes_it_up_again() {
+fn y_sets_the_pulled_cart_down() {
     let mut game = pulling();
-    hold(&mut game, Buttons::RIGHT, 30);
+    press(&mut game, Buttons::Y);
+    hold(&mut game, 0, 2);
+    assert!(!game.is_pulling_cart());
+}
+
+#[test]
+fn a_leaves_the_pulled_cart_hitched() {
+    let mut game = pulling();
     press(&mut game, Buttons::A);
     hold(&mut game, 0, 2);
+    assert!(game.is_pulling_cart(), "A is for other things");
+}
+
+/// A game with the cart set down after walking east, the castaway still
+/// at its poles.
+fn set_down() -> Game {
+    let mut game = pulling();
+    hold(&mut game, Buttons::RIGHT, 30);
+    press(&mut game, Buttons::Y);
+    hold(&mut game, 0, 2);
+    assert!(!game.is_pulling_cart());
+    game
+}
+
+#[test]
+fn facing_a_set_down_cart_y_takes_it_up_again() {
+    let mut game = set_down();
     // Turn round to the cart behind.
     hold(&mut game, Buttons::LEFT, 2);
     hold(&mut game, 0, 2);
-    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::Y);
     hold(&mut game, 0, 2);
     assert!(game.is_pulling_cart());
+}
+
+#[test]
+fn near_a_set_down_cart_y_takes_it_up_whichever_way_the_castaway_faces() {
+    for (dx, dy, face) in [(0, -20, Buttons::UP), (0, 12, Buttons::DOWN), (-20, 0, Buttons::LEFT), (24, 0, Buttons::RIGHT)] {
+        let mut game = set_down();
+        let (cx, cy) = game.cart_at().unwrap();
+        game.debug_place_player_px((cx + dx, cy + dy));
+        // Face away from it.
+        hold(&mut game, face, 1);
+        hold(&mut game, 0, 2);
+        press(&mut game, Buttons::Y);
+        hold(&mut game, 0, 2);
+        assert!(game.is_pulling_cart(), "from {:?}", (dx, dy));
+    }
+}
+
+#[test]
+fn far_from_a_set_down_cart_y_does_nothing() {
+    let mut game = set_down();
+    let at = game.cart_at();
+    hold(&mut game, Buttons::RIGHT, 60);
+    press(&mut game, Buttons::Y);
+    hold(&mut game, 0, 2);
+    assert!(!game.is_pulling_cart());
+    assert_eq!(game.cart_at(), at);
+}
+
+#[test]
+fn a_cart_taken_up_is_pulled_from_its_poles() {
+    let mut game = set_down();
+    let at = game.cart_at();
+    let (cx, cy) = at.unwrap();
+    game.debug_place_player_px((cx, cy - 20));
+    hold(&mut game, 0, 2);
+    press(&mut game, Buttons::Y);
+    hold(&mut game, 0, 2);
+    assert_eq!(game.cart_at(), at, "it doesn't jump to the castaway: they step round to it");
+    assert_eq!(game.player_facing(), survival_core::common::math::Dir::Right, "facing the way its poles point");
 }
 
 #[test]
 fn a_set_down_cart_is_not_in_the_way() {
     let mut game = pulling();
     hold(&mut game, Buttons::RIGHT, 30);
-    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::Y);
     hold(&mut game, 0, 2);
     let (cx, _) = game.cart_at().unwrap();
     hold(&mut game, Buttons::LEFT, 90);
@@ -205,7 +268,7 @@ fn the_cart_and_its_load_are_still_there_on_carrying_on() {
     let mut game = pulling();
     game.debug_load_cart(ItemKind::LauanTimber, 3);
     hold(&mut game, Buttons::RIGHT, 30);
-    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::Y);
     hold(&mut game, 0, 2);
     let saved = game.debug_save_json();
     let carried_on = Game::debug_continue(&saved).expect("the save loads");

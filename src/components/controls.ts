@@ -16,11 +16,11 @@ export interface Control {
 
 export const CONTROLS: Control[] = [
   { button: 'dpad', keys: 'arrows', role: 'move' },
-  { button: 'A', keys: 'X', role: 'act' },
-  { button: 'B', keys: 'Z', role: 'useTool' },
-  { button: 'X', keys: 'V', role: 'bag' },
-  { button: 'Y', keys: 'C', role: 'rotate' },
+  { button: 'A', keys: 'F', role: 'act' },
+  { button: 'B', keys: 'D', role: 'useTool' },
+  { button: 'X', keys: 'E', role: 'bag' },
+  { button: 'Y', keys: 'S', role: 'rotate' },
   { button: 'L', keys: 'Q', role: 'sleep' },
-  { button: 'R', keys: 'E', role: 'run' },
+  { button: 'R', keys: 'Space', role: 'run' },
   { button: 'START', keys: 'Enter', role: 'start' },
 ];
