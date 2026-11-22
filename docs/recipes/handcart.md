@@ -7,6 +7,7 @@
 | 材料（使い切る） | [スポーク車輪](../items/spoked-wheel.md) ×2、[ラワン材](../items/lauan-timber.md) ×2、[竹](../items/bamboo.md) ×2、[ロープ](../items/rope.md) ×2 |
 | 道具（減らない） | [石斧](../items/stone-axe.md) |
 | 作る場所 | どこでも |
+| 作れる数 | 持っている間は作れない（YOU HAVE ONE ALREADY。[作れる数](../README.md#作れる数)） |
 | 一覧での順番 | 26 |
 
 ## メモ

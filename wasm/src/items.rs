@@ -173,6 +173,22 @@ impl Slot {
     }
 }
 
+/// How many of a thing may be made. Chosen item by item
+/// (`ItemKind::make_limit`): a limit is lifted, or a new one put on, by
+/// changing what an item answers there. It's worked out from what's been
+/// made and what's had, so changing it needs no change to the save.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MakeLimit {
+    /// As many as wanted.
+    Any,
+    /// Not another while one is had (a handcart: YOU HAVE ONE ALREADY).
+    OneAtATime,
+    /// No more than this many ever (NOT NEEDED NOW): as many as the island
+    /// has use for, such as one for the one place it's set up in, or the
+    /// wheels a handcart takes.
+    UpTo(u32),
+}
+
 /// What using an item does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Use {
@@ -390,6 +406,19 @@ impl ItemKind {
             ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
             ItemKind::SignalFire => "STONES IN EARTH, WOOD STACKED ON. LIGHT A BRANCH AND A PALM FROND ON IT TO SEND UP SMOKE.",
             ItemKind::MarkingStakes => "STAKES AND A LINE TO MARK OUT GROUND FOR SOMETHING BIG.",
+        }
+    }
+
+    /// How many may be made (see `MakeLimit`). Those made only once are
+    /// set up where they're used, each in a single place on this island;
+    /// spoked wheels go only into the handcart. Look again at each if
+    /// another place or use comes to need more.
+    pub fn make_limit(self) -> MakeLimit {
+        match self {
+            ItemKind::LogBridge | ItemKind::Ladder | ItemKind::WaterWheel | ItemKind::WoodLathe | ItemKind::MarkingStakes => MakeLimit::UpTo(1),
+            ItemKind::SpokedWheel => MakeLimit::UpTo(2),
+            ItemKind::Handcart => MakeLimit::OneAtATime,
+            _ => MakeLimit::Any,
         }
     }
 

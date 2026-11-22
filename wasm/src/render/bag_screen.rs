@@ -480,7 +480,7 @@ fn draw_craft_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sp
     // A MAKE greyed while something's short; it can still be pressed, to
     // hear why.
     if let Mode::Recipe { recipe, confirming: false, .. } = menu.mode
-        && !(inventory.can_make(&RECIPES[recipe]) && menu.in_place_for(&RECIPES[recipe]))
+        && !menu.can_make_now(inventory, &RECIPES[recipe])
     {
         text_in(bg3, tiles, GRID_COL, LAST_ROW - 1, "A MAKE", HUD_DIM);
     }
@@ -521,7 +521,7 @@ fn draw_recipe_list(
             text(bg3, tiles, GRID_COL, row, ">");
         }
         // Bright if it can be made now, whichever way.
-        let ready = book.ways(i).iter().any(|&w| inventory.can_make(&RECIPES[w]) && menu.in_place_for(&RECIPES[w]));
+        let ready = book.ways(i).iter().any(|&w| menu.can_make_now(inventory, &RECIPES[w]));
         let name = r.makes.name();
         text_in(bg3, tiles, GRID_COL + 1, row, name, if ready { HUD_TEXT } else { HUD_DIM });
         if r.at_fire {

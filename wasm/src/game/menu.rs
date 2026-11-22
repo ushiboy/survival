@@ -30,7 +30,7 @@ use super::mill::MillWorks;
 use super::state::{Gear, HOOK_CELLS, Inventory};
 use crate::common::input::{Buttons, InputState};
 use crate::crafting::{RECIPES, RecipeOrder};
-use crate::items::{ItemKind, Slot, Use};
+use crate::items::{ItemKind, MakeLimit, Slot, Use};
 
 /// Frames a direction is held before the cursor repeats, and between
 /// repeats.
@@ -321,8 +321,23 @@ pub fn scrolled(scroll: usize, dy: i32, lines: usize) -> usize {
     (scroll as i32 + dy).clamp(0, last) as usize
 }
 
-/// Why `recipe` can't be made here and now, if it can't.
+/// Why `recipe` can't be made here and now, if it can't. A limit on how
+/// many may be made comes first: with one made already, gathering more
+/// materials wouldn't help.
 fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) -> Option<&'static str> {
+    match recipe.makes.make_limit() {
+        MakeLimit::Any => {}
+        MakeLimit::OneAtATime => {
+            if inv.cart.is_some() {
+                return Some("YOU HAVE ONE ALREADY");
+            }
+        }
+        MakeLimit::UpTo(n) => {
+            if inv.recipes.times_made(recipe.makes) >= n {
+                return Some("NOT NEEDED NOW");
+            }
+        }
+    }
     if !inv.can_make(recipe) {
         return Some(if recipe.tools.iter().all(|&t| inv.carries(t)) { "NOT ENOUGH MATERIALS" } else { "MISSING A TOOL" });
     }
@@ -331,10 +346,6 @@ fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) ->
     }
     if recipe.at_lathe && !menu.near_lathe {
         return Some("NEEDS A LATHE");
-    }
-    // A handcart: there's only ever the one.
-    if recipe.makes == ItemKind::Handcart && inv.cart.is_some() {
-        return Some("YOU HAVE ONE ALREADY");
     }
     None
 }
@@ -353,10 +364,16 @@ impl BagMenu {
         (!recipe.at_fire || self.near_fire) && (!recipe.at_lathe || self.near_lathe)
     }
 
+    /// Whether `recipe` can be made here and now (it's lit on the list):
+    /// nothing stands in the way, not even a limit on how many.
+    pub fn can_make_now(&self, inv: &Inventory, recipe: &crate::crafting::Recipe) -> bool {
+        why_not(self, inv, recipe).is_none()
+    }
+
     /// The recipes on the CRAFT list, top to bottom, sorted in the order
-    /// chosen (what can be made counts the fire and the lathe).
+    /// chosen (what can be made counts the fire, the lathe and any limit).
     pub fn recipe_list(&self, inv: &Inventory) -> Vec<usize> {
-        inv.recipes.sorted(|w| inv.can_make(&RECIPES[w]) && self.in_place_for(&RECIPES[w]))
+        inv.recipes.sorted(|w| self.can_make_now(inv, &RECIPES[w]))
     }
 
     /// The pages to choose from: the cart's only with it at hand, the
@@ -1156,6 +1173,99 @@ mod tests {
         press_a(&mut menu, &mut inv);
         assert_eq!(inv.bag, before, "nothing is used up");
         assert!(menu.notice.is_some());
+    }
+
+    /// The menu open on the first recipe for `kind`, beside a fire and the
+    /// lathe, with its materials and tools carried.
+    fn at_the_recipe_for(kind: ItemKind) -> (BagMenu, Inventory, usize) {
+        let index = RECIPES.iter().position(|r| r.makes == kind).unwrap();
+        let mut inv = Inventory::default();
+        inv.bag.set_rows(BASE_ROWS + 2);
+        for &(kind, n) in RECIPES[index].needs {
+            assert_eq!(inv.bag.stow(kind, n), 0);
+        }
+        for &kind in RECIPES[index].tools {
+            assert!(inv.bag.stow_one(kind));
+        }
+        let menu = BagMenu { mode: Mode::Recipe { recipe: index, scroll: 0, confirming: false }, near_fire: true, near_lathe: true, ..BagMenu::browse() };
+        (menu, inv, index)
+    }
+
+    /// The things that may be made only so many times, with how many.
+    fn limited() -> impl Iterator<Item = (ItemKind, u32)> {
+        ItemKind::ALL.into_iter().filter_map(|k| match k.make_limit() {
+            MakeLimit::UpTo(n) => Some((k, n)),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_limited_thing_is_made_until_as_many_as_needed_have_been() {
+        for (kind, n) in limited() {
+            let (mut menu, mut inv, index) = at_the_recipe_for(kind);
+            for _ in 1..n {
+                inv.recipes.made(index);
+            }
+            press_a(&mut menu, &mut inv);
+            assert!(matches!(menu.mode, Mode::Recipe { confirming: true, .. }), "{kind:?} asks to be made");
+        }
+    }
+
+    #[test]
+    fn a_limited_thing_isnt_made_once_as_many_as_needed_have_been() {
+        for (kind, n) in limited() {
+            let (mut menu, mut inv, index) = at_the_recipe_for(kind);
+            for _ in 0..n {
+                inv.recipes.made(index);
+            }
+            let before = inv.bag.clone();
+            press_a(&mut menu, &mut inv);
+            assert_eq!(menu.notice, Some("NOT NEEDED NOW"), "{kind:?}");
+            assert_eq!(inv.bag, before, "nothing is used up for {kind:?}");
+            assert!(!menu.can_make_now(&inv, &RECIPES[index]), "{kind:?} isn't lit on the list");
+        }
+    }
+
+    #[test]
+    fn a_thing_made_once_isnt_wanted_again_even_without_materials() {
+        let index = RECIPES.iter().position(|r| r.makes == ItemKind::Ladder).unwrap();
+        let mut inv = Inventory::default();
+        inv.recipes.made(index);
+        let mut menu = BagMenu { mode: Mode::Recipe { recipe: index, scroll: 0, confirming: false }, ..BagMenu::browse() };
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.notice, Some("NOT NEEDED NOW"), "not a hint to gather more for it");
+    }
+
+    #[test]
+    fn the_bridge_the_ladder_the_mill_parts_and_the_stakes_are_needed_only_once() {
+        for kind in [ItemKind::LogBridge, ItemKind::Ladder, ItemKind::WaterWheel, ItemKind::WoodLathe, ItemKind::MarkingStakes] {
+            assert_eq!(kind.make_limit(), MakeLimit::UpTo(1), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn spoked_wheels_are_needed_as_many_as_a_handcart_takes() {
+        let cart = RECIPES.iter().find(|r| r.makes == ItemKind::Handcart).unwrap();
+        let wheels = cart.needs.iter().find(|&&(k, _)| k == ItemKind::SpokedWheel).unwrap().1;
+        assert_eq!(ItemKind::SpokedWheel.make_limit(), MakeLimit::UpTo(wheels));
+    }
+
+    #[test]
+    fn things_of_everyday_use_can_be_made_again() {
+        let (mut menu, mut inv, index) = at_the_recipe_for(ItemKind::Rope);
+        inv.recipes.made(index);
+        press_a(&mut menu, &mut inv);
+        assert!(matches!(menu.mode, Mode::Recipe { confirming: true, .. }));
+        assert!(menu.can_make_now(&inv, &RECIPES[index]));
+    }
+
+    #[test]
+    fn a_second_handcart_isnt_lit_on_the_list() {
+        let (menu, mut inv) = at_the_handcart();
+        let index = RECIPES.iter().position(|r| r.makes == ItemKind::Handcart).unwrap();
+        assert!(menu.can_make_now(&inv, &RECIPES[index]));
+        inv.cart = Some(Bag::with_size(8, 6));
+        assert!(!menu.can_make_now(&inv, &RECIPES[index]));
     }
 
     /// The menu open on the stone knife's recipe, with two stones carried.

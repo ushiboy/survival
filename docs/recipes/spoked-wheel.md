@@ -7,6 +7,7 @@
 | 材料（使い切る） | [ラワン材](../items/lauan-timber.md) ×1、[枯れ枝](../items/branch.md) ×4 |
 | 道具（減らない） | [石器ナイフ](../items/stone-knife.md) |
 | 作る場所 | [木工旋盤](../items/wood-lathe.md)のそば（40px 以内） |
+| 作れる数 | 2個まで（リアカーに要る数。3個目からは NOT NEEDED NOW。[作れる数](../README.md#作れる数)） |
 | 一覧での順番 | 25 |
 
 ## メモ
