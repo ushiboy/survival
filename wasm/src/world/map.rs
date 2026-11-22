@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::river::River;
 use super::terrain::{Feature, Marking, Soil, Terrain, TileProps, tile_props};
-use crate::common::math::Rect;
+use crate::common::math::{Dir, Rect};
+use crate::game::mill::Furnishing;
 use crate::items::ItemKind;
 
 /// Size of a map cell in pixels (one metatile).
@@ -314,6 +315,63 @@ impl WorldMap {
     pub fn mill_room_bench(&self) -> (i32, i32) {
         let (x0, y0, _, _) = self.mill_room();
         (x0 + 3, y0 + 2)
+    }
+
+    /// The cells a furnishing stands in, in the mill's room: the shelf
+    /// against the north wall east of the workbench, west to east; the bed
+    /// head to the north wall east of the shelf (west of the middle: the
+    /// east is kept for what the water wheel drives), its rows north to
+    /// south. In the order of its feature's parts.
+    pub fn furnishing_cells(&self, f: Furnishing) -> Vec<(i32, i32)> {
+        let (x0, y0, _, _) = self.mill_room();
+        match f {
+            Furnishing::Shelf => (0..3).map(|dx| (x0 + 5 + dx, y0 + 2)).collect(),
+            Furnishing::Bed => (0..6).map(|i| (x0 + 9 + i % 2, y0 + 2 + i / 2)).collect(),
+        }
+    }
+
+    /// Where the castaway stands to make a furnishing (a cell), and which
+    /// way they face: in front of where it's to go.
+    pub fn furnishing_stand(&self, f: Furnishing) -> ((i32, i32), Dir) {
+        let cells = self.furnishing_cells(f);
+        match f {
+            Furnishing::Shelf => ((cells[1].0, cells[1].1 + 1), Dir::Up),
+            Furnishing::Bed => ((cells[5].0 + 1, cells[5].1), Dir::Left),
+        }
+    }
+
+    /// Where someone lying in the bed is (their feet, world px): the
+    /// middle of it.
+    pub fn bed_pillow(&self) -> (i32, i32) {
+        let cells = self.furnishing_cells(Furnishing::Bed);
+        let (x, y) = cells[3];
+        (x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE / 2)
+    }
+
+    /// Where someone getting out of the bed stands (a cell): beside its
+    /// foot.
+    pub fn bedside(&self) -> (i32, i32) {
+        self.furnishing_stand(Furnishing::Bed).0
+    }
+
+    /// Fits the mill's room out with `f`, set in its place. Returns the
+    /// cells whose look changed (and the row above, the north wall's face
+    /// the shelf rises against).
+    pub fn furnish(&mut self, f: Furnishing) -> Vec<(i32, i32)> {
+        let cells = self.furnishing_cells(f);
+        let mut changed = Vec::new();
+        for (i, &(x, y)) in cells.iter().enumerate() {
+            self.set_feature(
+                x,
+                y,
+                match f {
+                    Furnishing::Shelf => Feature::Shelf(i as u8),
+                    Furnishing::Bed => Feature::Bed(i as u8),
+                },
+            );
+            changed.extend([(x, y), (x, y - 1), (x, y + 1)]);
+        }
+        changed
     }
 
     /// Where the lathe stands in the mill's room, as `lathe_cells` takes

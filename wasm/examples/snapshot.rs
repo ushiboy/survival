@@ -15,6 +15,8 @@
 //! site (and the lathe beside it, the mill's ground marked out, its
 //! foundation laid, its frame raised, its walls up, its roof on),
 //! `SNAP_INSIDE=1` in the mill's room, just in from its door,
+//! `SNAP_FURNISH=shelf,bed` with the built mill fitted out with those,
+//! `SNAP_SHELVE=1` with everything given left on its shelf,
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
 //! a fish in the water that far from the castaway's feet. `SNAP_EVERY_FRAME=1`
@@ -72,6 +74,18 @@ fn main() {
     if std::env::var("SNAP_INSIDE").is_ok() {
         let (x, y) = game.map().mill_room_door()[1];
         game.debug_place_player((x, y - 2));
+    }
+    // SNAP_FURNISH=shelf,bed fits the built mill out with those (with
+    // SNAP_MILL=roof).
+    if let Ok(list) = std::env::var("SNAP_FURNISH") {
+        for name in list.split(',') {
+            let f = match name {
+                "shelf" => survival_core::game::mill::Furnishing::Shelf,
+                "bed" => survival_core::game::mill::Furnishing::Bed,
+                _ => panic!("SNAP_FURNISH takes shelf and bed"),
+            };
+            assert!(game.debug_furnish(f), "the mill is built (SNAP_MILL=roof)");
+        }
     }
     // SNAP_FISH=dx,dy puts a fish in the water that far from the feet.
     if let Ok(at) = std::env::var("SNAP_FISH") {
@@ -139,6 +153,11 @@ fn main() {
             };
             game.debug_give(kind);
         }
+    }
+    // SNAP_SHELVE=1 puts everything in the bag (as given) on the mill's
+    // shelf.
+    if std::env::var("SNAP_SHELVE").is_ok_and(|v| v == "1") {
+        game.debug_shelve_bag();
     }
     // SNAP_HP / SNAP_FOOD / SNAP_WATER=n start with that much (of 64).
     let gauge = |name: &str| std::env::var(name).ok().map(|n| n.parse().expect("gauges run 0..=64"));

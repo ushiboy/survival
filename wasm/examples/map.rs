@@ -494,7 +494,7 @@ fn ground_colour(map: &WorldMap, x: i32, y: i32) -> Rgb {
         Feature::SiteBench => [200, 150, 90],
         Feature::MillWall => [215, 190, 140],
         Feature::MillDoor => [120, 85, 55],
-        Feature::MillRoomWall => [215, 190, 140],
+        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) => [215, 190, 140],
         Feature::None => c,
     }
 }
@@ -665,7 +665,7 @@ fn cell_signature(map: &WorldMap) -> String {
                 Feature::SiteBench => 'B',
                 Feature::MillWall => '#',
                 Feature::MillDoor => 'D',
-                Feature::MillRoomWall => 'H',
+                Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) => 'H',
                 Feature::Framed(post) => {
                     if post {
                         'P'

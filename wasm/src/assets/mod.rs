@@ -65,6 +65,8 @@ pub struct PlayerSprites {
     pub lying: [SpriteId; 2],
     /// Curled up asleep (32x24, head left).
     pub sleeping: SpriteId,
+    /// Asleep on the back in the bed, seen from above (24x32).
+    pub in_bed: SpriteId,
     pub sitting: SpriteId,
     pub kneeling: SpriteId,
     /// Climbing a ladder, seen from behind: left hand up, right hand up.
@@ -107,6 +109,7 @@ impl PlayerSprites {
         let [lying, sitting, kneeling] = Self::wake_art(outfit);
         let lying = lying.map(|a| bank.add(&a));
         let sleeping = bank.add(&character::render_sleeping(outfit));
+        let in_bed = bank.add(&character::render_in_bed(outfit));
         Self {
             walk: walk_frames,
             walk_poses: walk,
@@ -123,6 +126,7 @@ impl PlayerSprites {
             drink: Self::drink_art(outfit).map(|a| bank.add(&a)),
             lying,
             sleeping,
+            in_bed,
             sitting: bank.add(&sitting[0]),
             kneeling: bank.add(&kneeling[0]),
             climb: std::array::from_fn(|i| bank.add(&character::render::render(&character::pose::climb(i), outfit).body)),
@@ -182,6 +186,7 @@ impl PlayerSprites {
         bank.replace(self.sitting, &sitting[0]);
         bank.replace(self.kneeling, &kneeling[0]);
         bank.replace(self.sleeping, &character::render_sleeping(outfit));
+        bank.replace(self.in_bed, &character::render_in_bed(outfit));
     }
 }
 
@@ -463,6 +468,8 @@ pub struct HudTiles {
     /// A bag cell's four 8x8 quarters: top-left, top-right, bottom-left,
     /// bottom-right.
     pub bag_cell: [HudTileId; 4],
+    /// A stretch of the shelf's board, on its screen.
+    pub shelf_board: HudTileId,
     /// Gauge segments indexed by filled pixels (0..=8).
     pub gauge: [HudTileId; 9],
     pub gauge_cap_left: HudTileId,
@@ -828,6 +835,7 @@ fn load_hud(vram: &mut Vram) -> HudTiles {
         upset_stomach: bank.add(&hud_art::icon_upset_stomach()),
         saved: hud_art::icon_saved().map(|a| bank.add(&a)),
         bag_cell: hud_art::bag_cell().map(|a| bank.add(&a)),
+        shelf_board: bank.add(&hud_art::shelf_board()),
         gauge,
         gauge_cap_left: bank.add(&hud_art::gauge_cap(false)),
         gauge_cap_right: bank.add(&hud_art::gauge_cap(true)),

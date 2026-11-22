@@ -708,6 +708,12 @@ impl Builder<'_> {
                 let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
                 Some(Box::new(move |px, py| lathe_top(ox + px, oy + py)))
             }
+            // What the mill's fitted out with (and the wall over the shelf,
+            // which rises up against it).
+            _ if furnishing_px(map, x * 16 + 8, y * 16 + 8, true).is_some() => {
+                let (wx, wy) = (x * 16, y * 16);
+                Some(Box::new(move |px, py| furnishing_px(map, wx + px, wy + py, false)))
+            }
             _ => None,
         };
         if let Some(top) = top {
@@ -2085,6 +2091,191 @@ fn tamp(art: &mut PixelArt, map: &WorldMap, x: i32, y: i32) {
 /// The bench beside the mill's ground: its pixel at `(x, y)` in its cell,
 /// if anything is there. A trestle table: a broad plank on two legs, the
 /// plan (a pale board scratched with lines) and a hank of rope on it.
+/// What the mill's room is fitted out with at world px `(wx, wy)`, if
+/// anything is drawn there: the shelf, rising from its cells up the north
+/// wall, and the bed. With `near`, whether anything is drawn anywhere in
+/// the cell round it (a cell's worth either way), to tell which cells to
+/// draw it in.
+fn furnishing_px(map: &WorldMap, wx: i32, wy: i32, near: bool) -> Option<u8> {
+    use crate::game::mill::Furnishing;
+    for f in Furnishing::ALL {
+        let cells = map.furnishing_cells(f);
+        let (cx, cy) = cells[0];
+        let made = match f {
+            Furnishing::Shelf => matches!(map.feature(cx, cy), Feature::Shelf(_)),
+            Furnishing::Bed => matches!(map.feature(cx, cy), Feature::Bed(_)),
+        };
+        if !made {
+            continue;
+        }
+        let (lx, ly) = (wx - cx * 16, wy - cy * 16);
+        let (w, top, bottom) = match f {
+            Furnishing::Shelf => (48, -SHELF_RISE, 16),
+            Furnishing::Bed => (32, 0, 48),
+        };
+        if near {
+            if (-8..w + 8).contains(&lx) && (top - 8..bottom + 8).contains(&ly) {
+                return Some(0);
+            }
+            continue;
+        }
+        let c = match f {
+            Furnishing::Shelf => shelf_px(lx, ly),
+            Furnishing::Bed => bed_px(lx, ly),
+        };
+        if c.is_some() {
+            return c;
+        }
+    }
+    None
+}
+
+/// How far the shelf rises above its cells, up the north wall (px).
+const SHELF_RISE: i32 = 26;
+
+/// The shelf (its cells' top-left at 0, 0; 48 wide): two uprights of lauan,
+/// three boards of pine across them, from the floor up the wall, and
+/// things left on them (always the same, however much is on it).
+fn shelf_px(x: i32, y: i32) -> Option<u8> {
+    if !(0..48).contains(&x) || !(-SHELF_RISE..16).contains(&y) {
+        return None;
+    }
+    // The boards: lit along the top, the front edge in shadow.
+    for board in [-SHELF_RISE + 2, -9, 8] {
+        if (board..board + 4).contains(&y) {
+            return Some(match y - board {
+                0 => grass::SAND[2],
+                1 => grass::SAND[1],
+                2 => grass::SAND[0],
+                _ => grass::SOIL,
+            });
+        }
+    }
+    // The uprights, at either end, down to the floor.
+    for post in [1, 44] {
+        if (post..post + 3).contains(&x) && y < 14 {
+            return Some(if x == post { grass::SAND[0] } else { grass::SOIL });
+        }
+    }
+    on_the_shelf(x, y)
+}
+
+/// What's left on the shelf (nothing on the top board, up against the
+/// roof): on the middle one bamboo laid along it and a few coconuts; on
+/// the bottom one logs stacked, their ends out, and a bundle of leaves.
+fn on_the_shelf(x: i32, y: i32) -> Option<u8> {
+    let round = |cx: f32, cy: f32, rx: f32, ry: f32| {
+        let (dx, dy) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+        dx * dx + dy * dy
+    };
+    // Middle board (its top at -9): bamboo, three poles, nodes along them.
+    if (5..27).contains(&x) && (-17..-9).contains(&y) {
+        let row = (-10 - y) / 3;
+        let (from, to) = match row {
+            0 => (5, 27),
+            1 => (6, 26),
+            _ => (8, 24),
+        };
+        if (from..to).contains(&x) && row < 3 {
+            let k = (-10 - y) % 3;
+            return Some(if x == from || x == to - 1 {
+                grass::SAND[2]
+            } else if (x + row * 3) % 7 == 0 {
+                grass::RAMP[2]
+            } else {
+                [grass::RAMP[3], grass::RAMP[4], grass::RAMP[5]][k as usize]
+            });
+        }
+    }
+    for (cx, cy) in [(31.5, -12.0), (38.5, -12.0), (35.0, -17.0)] {
+        let r = round(cx, cy, 3.2, 3.0);
+        if r <= 1.0 {
+            return Some(if r < 0.35 && (x as f32) < cx && (y as f32) < cy { grass::SAND[0] } else { grass::SOIL });
+        }
+    }
+    // Bottom board (its top at 8): logs, their ends out.
+    for (cx, cy) in [(8.5, 4.5), (15.5, 4.5), (22.5, 4.5), (12.0, -1.0), (19.0, -1.0)] {
+        let r = round(cx, cy, 3.6, 3.6);
+        if r <= 1.0 {
+            return Some(if r > 0.6 {
+                grass::SOIL
+            } else if r < 0.12 {
+                grass::SAND[0]
+            } else {
+                grass::SAND[2]
+            });
+        }
+    }
+    // A bundle of leaves, tied round the middle.
+    let r = round(34.5, 3.5, 8.0, 5.0);
+    if r <= 1.0 && y < 8 {
+        return Some(if (34..36).contains(&x) {
+            grass::SAND[1]
+        } else if r > 0.7 {
+            grass::RAMP[2]
+        } else if (x - y).rem_euclid(4) == 0 {
+            grass::RAMP[3]
+        } else if y < 2 {
+            grass::RAMP[5]
+        } else {
+            grass::RAMP[4]
+        });
+    }
+    None
+}
+
+/// The bed (its top-left cell's top-left at 0, 0; two cells wide, three
+/// long, the head to the north wall): a frame of lauan on short legs, a
+/// mat of woven palm fronds over leaves on it, a roll of leaves for a
+/// pillow at the head, and the bamboo slats it lies on showing at the
+/// foot.
+fn bed_px(x: i32, y: i32) -> Option<u8> {
+    if !(1..31).contains(&x) || !(0..46).contains(&y) {
+        return None;
+    }
+    // Short legs under the corners.
+    if y >= 42 {
+        return ((2..5).contains(&x) || (27..30).contains(&x)).then_some(grass::SOIL);
+    }
+    // The frame round it, lit along its top.
+    if !(3..=28).contains(&x) || !(2..=39).contains(&y) {
+        return Some(if y < 2 || x < 2 { grass::SAND[0] } else { grass::SOIL });
+    }
+    // The slats at the foot, a gap between each.
+    if y >= 34 {
+        return Some(if (x - 3) % 4 == 3 {
+            grass::RAMP[2]
+        } else if y == 34 {
+            grass::RAMP[5]
+        } else {
+            grass::RAMP[4]
+        });
+    }
+    // The pillow: a roll of leaves, their tips green at its ends.
+    if (5..27).contains(&x) && (4..11).contains(&y) {
+        if !(7..=24).contains(&x) {
+            return Some(grass::RAMP[3]);
+        }
+        return Some(match y {
+            4 => grass::WHITE,
+            10 => grass::SAND[0],
+            _ => grass::SAND[2],
+        });
+    }
+    // The mat, woven: a darker strand every third row, the weave offset
+    // row by row; leaves showing at its edges.
+    if x == 3 || x == 28 {
+        return Some(if y % 3 == 0 { grass::RAMP[3] } else { grass::SAND[0] });
+    }
+    Some(if y % 3 == 0 {
+        grass::SAND[0]
+    } else if (x + y / 3) % 4 == 0 {
+        grass::SAND[2]
+    } else {
+        grass::SAND[1]
+    })
+}
+
 fn site_bench_top(x: i32, y: i32) -> Option<u8> {
     // The plan on the plank: a pale board, lines scratched on it.
     if (2..=7).contains(&x) && (3..=6).contains(&y) {
@@ -2197,7 +2388,7 @@ fn mill_door_px(x: i32, y: i32, open: i32) -> u8 {
 }
 
 /// A thing's pixel at `(x, y)` in its cell, if any of it is there.
-type PixelTop = dyn Fn(i32, i32) -> Option<u8>;
+type PixelTop<'a> = dyn Fn(i32, i32) -> Option<u8> + 'a;
 
 /// How far the walls of the mill's room show along the floor's west and
 /// east edges (px): the tops of the walls, seen from above.
@@ -3050,7 +3241,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Framed(post) => b.framed(map, river.as_ref(), x, y, post, false),
         Feature::MillWall => b.framed(map, river.as_ref(), x, y, false, true),
         Feature::MillDoor => b.framed(map, river.as_ref(), x, y, false, false),
-        Feature::MillRoomWall => b.indoors(map, x, y),
+        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) => b.indoors(map, x, y),
         Feature::SiteBench => b.site_bench(x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),

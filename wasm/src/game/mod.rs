@@ -11,6 +11,7 @@ pub mod menu;
 pub mod mill;
 pub mod regions;
 pub mod save;
+pub mod shelf;
 pub mod state;
 
 use crate::assets::character::Outfit;
@@ -49,7 +50,7 @@ use cart::{CART_REACH, CART_ROWS, CART_W, Cart};
 pub use ending::EndingView;
 use fishing::{Float, Line};
 use menu::{BagMenu, Outcome};
-use mill::MillWorks;
+use mill::{Furnishing, MillWorks};
 use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
 use state::{Ailment, GameClock, Inventory, Rest, Vitals};
@@ -238,6 +239,9 @@ pub struct Game {
     /// the mill's roof to build it, while they're up there: they come back
     /// down there once it's done.
     roofing_from: Option<(i32, i32)>,
+    /// What the mill is being fitted out with, while the castaway works at
+    /// it (its materials already taken).
+    fitting: Option<Furnishing>,
     /// Going through the mill's door, while the screen fades.
     passage: Option<Passage>,
     /// Frames left of the sign that the game was saved.
@@ -367,6 +371,7 @@ impl Game {
             autosave: AutoSave::new(),
             bag_opened_with: None,
             roofing_from: None,
+            fitting: None,
             passage: None,
             saved_sign: 0,
             end: None,
@@ -398,6 +403,8 @@ impl Game {
                 inv.gear = s.inventory.gear;
                 inv.cart = s.inventory.cart.clone();
                 inv.had = s.inventory.had.clone();
+                inv.shelf = s.inventory.shelf.clone();
+                inv.looked_at = s.inventory.looked_at.clone();
                 let outfit = s.castaway.outfit();
                 if outfit != game.inventory.outfit {
                     game.equip(outfit);
@@ -446,7 +453,8 @@ impl Game {
             clock: save::Clock::of(&self.clock),
             vitals: self.vitals.clone(),
             castaway: save::Castaway {
-                at: self.player.body.px(),
+                // Asleep in the bed, as if just up beside it.
+                at: if self.player.in_bed { self.bedside_px() } else { self.player.body.px() },
                 facing: self.player.facing,
                 outfit: save::Castaway::outfit_index(&inv.outfit),
                 mill_noticed: self.mill_noticed,
@@ -478,7 +486,16 @@ impl Game {
     /// What the castaway carries, as saved.
     fn carried_now(&self) -> save::Carried {
         let inv = &self.inventory;
-        save::Carried { bag: inv.bag.clone(), torch: inv.torch, recipes: inv.recipes.clone(), gear: inv.gear, cart: inv.cart.clone(), had: inv.had.clone() }
+        save::Carried {
+            bag: inv.bag.clone(),
+            torch: inv.torch,
+            recipes: inv.recipes.clone(),
+            gear: inv.gear,
+            cart: inv.cart.clone(),
+            had: inv.had.clone(),
+            shelf: inv.shelf.clone(),
+            looked_at: inv.looked_at.clone(),
+        }
     }
 
     /// What is carried, as text to tell whether it changed.
@@ -618,6 +635,8 @@ impl Game {
             return;
         }
         let (near_fire, near_lathe, cart_at_hand) = (self.near_fire(), self.is_near_lathe(), self.cart_at_hand());
+        // What's on the shelf goes into what's made in the mill.
+        self.inventory.shelf_at_hand = self.is_in_mill_room() && self.works.has(Furnishing::Shelf);
         if self.menu.is_some() && self.bag_opened_with.is_none() {
             self.bag_opened_with = Some(self.carried_json());
         }
@@ -628,6 +647,9 @@ impl Game {
             // Only at the bench (the BUILD screen), where it's asked.
             if menu.works.is_some() {
                 menu.fit_to_build = self.works.next().is_none_or(|s| self.vitals.fit_to_work(s.hours * 60));
+                if self.works.next().is_none() {
+                    menu.fit_for = Furnishing::ALL.into_iter().filter(|f| self.vitals.fit_to_work(f.hours() * 60)).collect();
+                }
             }
             if menu.works.is_some() {
                 menu.works = Some(self.works.clone());
@@ -655,7 +677,7 @@ impl Game {
         }
         if self.player.is_asleep() {
             // No shelter's pitched under the mill's roof (its roof's as good).
-            self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter) && !self.is_in_mill_room();
+            self.player.sheltered = self.inventory.bag.has(ItemKind::Shelter) && !self.is_in_mill_room() && !self.player.in_bed;
             self.sleep_on();
             self.autosave.slept(SLEEP_MINUTES_PER_FRAME);
         } else if self.player.is_working() {
@@ -764,7 +786,22 @@ impl Game {
                     self.menu = Some(BagMenu::building(self.works.clone()));
                     return;
                 }
+                // The workbench in the built mill: fitting it out.
+                if self.is_in_mill_room() {
+                    self.menu = Some(BagMenu::fitting_out(self.works.clone()));
+                    return;
+                }
             }
+            Some(Deed::AtShelf) => {
+                self.menu = Some(BagMenu::at_the_shelf());
+                return;
+            }
+            // Pulling the cart, it's set down first (A again lies down).
+            Some(Deed::ToBed) if self.player.pulling => {
+                self.handle_cart();
+                self.autosave.note(Cue::Changed);
+            }
+            Some(Deed::ToBed) => self.player.lie_in_bed(self.map.bed_pillow()),
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
@@ -783,6 +820,12 @@ impl Game {
         self.go_through_mill_door();
         self.come_upon_the_mill_site();
         self.come_upon_the_narrow();
+        if was_asleep && !self.player.is_asleep() && self.player.in_bed {
+            // Out of bed, getting up beside it.
+            self.player.in_bed = false;
+            let (x, y) = self.map.bedside();
+            self.player.body.set_feet((x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
+        }
         if was_asleep && !self.player.is_asleep() {
             // Each waking is saved.
             self.autosave.woke();
@@ -1501,6 +1544,7 @@ impl Game {
             Outcome::Cook(i) => self.start_cooking(&RECIPES[i]),
             Outcome::Made(kind) => self.carry_off(kind),
             Outcome::Deliver(kind) => self.deliver(kind),
+            Outcome::Furnish(f) => self.start_furnishing(f),
             Outcome::Build => {
                 let Some(site) = self.map.spots.mill else { return };
                 let Some(stage) = self.works.next() else { return };
@@ -1522,6 +1566,34 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// Sets to fitting out the mill with `f`: its materials are taken (from
+    /// the bag, then the cart, then the shelf), and the castaway walks to
+    /// where it's to stand and works at it.
+    fn start_furnishing(&mut self, f: Furnishing) {
+        self.menu = None;
+        let cart_at_hand = self.cart_at_hand();
+        let inv = &mut self.inventory;
+        for &(kind, n) in f.needs() {
+            let mut left = n;
+            while left > 0 && inv.bag.take_kind(kind) {
+                left -= 1;
+            }
+            if cart_at_hand && let Some(cart) = &mut inv.cart {
+                while left > 0 && cart.take_kind(kind) {
+                    left -= 1;
+                }
+            }
+            if inv.shelf_at_hand {
+                left -= inv.shelf.take(kind, left);
+            }
+            debug_assert_eq!(left, 0, "materials at hand");
+        }
+        self.fitting = Some(f);
+        let (stand, face) = self.map.furnishing_stand(f);
+        self.player.start_work_at(stand, stand, face, f.hours() * 60 / SLEEP_MINUTES_PER_FRAME);
+        self.autosave.note(Cue::Changed);
     }
 
     /// Leaves as many of `kind` as the mill's next stage still takes at
@@ -1636,6 +1708,15 @@ impl Game {
         }
     }
 
+    /// Where the castaway's sprite would be (top-left, world px) standing
+    /// beside the bed, as they do on getting out of it.
+    fn bedside_px(&self) -> (i32, i32) {
+        let mut body = self.player.body.clone();
+        let (x, y) = self.map.bedside();
+        body.set_feet((x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
+        body.px()
+    }
+
     /// Whether the castaway is in the mill's room.
     pub fn is_in_mill_room(&self) -> bool {
         self.map.in_mill_room(self.player.body.feet())
@@ -1657,6 +1738,13 @@ impl Game {
 
     /// The mill's next stage is up, off the mill site's bank `site`.
     fn built(&mut self, site: (i32, i32)) {
+        // Something made for the built mill: it stands in its place.
+        if let Some(f) = self.fitting.take() {
+            self.works.furnish(f);
+            let changed = self.map.furnish(f);
+            self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+            return;
+        }
         // Down off the roof, to where they stood.
         if let Some(feet) = self.roofing_from.take() {
             self.player.body.set_feet(feet);
@@ -1680,7 +1768,13 @@ impl Game {
     /// more slowly) and sleep mends health (faster under a shelter; see
     /// `Vitals`). The castaway sleeps on until woken with a button.
     fn sleep_on(&mut self) {
-        let rest = if self.player.sheltered || self.is_in_mill_room() { Rest::Sheltered } else { Rest::Asleep };
+        let rest = if self.player.in_bed {
+            Rest::Bedded
+        } else if self.player.sheltered || self.is_in_mill_room() {
+            Rest::Sheltered
+        } else {
+            Rest::Asleep
+        };
         for _ in 0..SLEEP_MINUTES_PER_FRAME {
             self.clock.advance_minutes(1);
             self.vitals.on_minute(rest);
@@ -1768,7 +1862,7 @@ impl Game {
             return;
         };
         self.menu = None;
-        self.inventory.bag.use_up(recipe);
+        self.inventory.use_up(recipe);
         self.player.cook(recipe.needs[0].0, recipe.makes, at);
     }
 
@@ -2100,6 +2194,38 @@ impl Game {
         self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
         self.step_clear();
         true
+    }
+
+    /// Dev tools: fits the built mill out with `f` straight away (no
+    /// materials, no work). False if the mill isn't built yet.
+    pub fn debug_furnish(&mut self, f: Furnishing) -> bool {
+        if self.works.next().is_some() {
+            return false;
+        }
+        self.works.furnish(f);
+        self.inventory.look_at_furnishing(f);
+        let changed = self.map.furnish(f);
+        self.tileset.refresh(&self.map, &mut self.assets, &mut self.visual, &changed);
+        true
+    }
+
+    /// Dev tools: puts everything in the bag on the mill's shelf.
+    pub fn debug_shelve_bag(&mut self) {
+        while !self.inventory.bag.items().is_empty() {
+            let p = self.inventory.bag.remove(0);
+            self.inventory.shelf.put(p.kind, p.count);
+        }
+        self.inventory.settle_hand();
+    }
+
+    /// What the mill has been fitted out with.
+    pub fn furnished(&self) -> &[Furnishing] {
+        &self.works.furnished
+    }
+
+    /// What's on the mill's shelf.
+    pub fn shelf(&self) -> &shelf::Shelf {
+        &self.inventory.shelf
     }
 
     /// Dev tools: builds the mill's stages until `stages` are up (nothing
@@ -2568,6 +2694,11 @@ impl Game {
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    /// Whether the castaway is standing doing nothing.
+    pub fn player_is_idle(&self) -> bool {
+        self.player.is_idle()
     }
 
     pub fn player_tile(&self) -> (i32, i32) {

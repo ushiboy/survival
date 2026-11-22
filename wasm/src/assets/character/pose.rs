@@ -532,6 +532,18 @@ pub fn sleeping() -> Pose {
     }
 }
 
+/// Asleep on the back in the bed, seen from above: as standing front-on,
+/// eyes closed, the arms lying loose at the sides and the feet a little
+/// apart (the head on the pillow, at the top).
+pub fn in_bed() -> Pose {
+    Pose {
+        arms: [limb((7.9, 14.8), (6.6, 18.4), (6.4, 21.8), true), limb((16.1, 14.8), (17.4, 18.4), (17.6, 21.8), true)],
+        legs: [limb((10.0, 21.5), (9.4, 25.8), (9.0, 29.6), false), limb((14.0, 21.5), (14.6, 25.8), (15.0, 29.6), false)],
+        closed_eyes: true,
+        ..front_stand(View::Front)
+    }
+}
+
 /// Sitting up, facing right: legs out in front, propped on one hand.
 pub fn sitting() -> Pose {
     Pose {

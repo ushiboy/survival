@@ -177,6 +177,19 @@ pub fn bag_cell() -> [PixelArt; 4] {
     })
 }
 
+/// A stretch of a shelf's board, run along under a line of what's on the
+/// shelf: lit along its top, its front edge in shadow.
+pub fn shelf_board() -> PixelArt {
+    let mut a = PixelArt::filled(8, 8, 0);
+    for x in 0..8 {
+        a.set(x, 3, 3);
+        a.set(x, 4, 2);
+        a.set(x, 5, 2);
+        a.set(x, 6, 1);
+    }
+    a
+}
+
 /// Gauge middle segment with `fill` (0..=8) pixels filled.
 pub fn gauge_segment(fill: usize) -> PixelArt {
     let mut a = PixelArt::filled(8, 8, 0);
