@@ -7,6 +7,7 @@
 | 材料（使い切る） | [竹](../items/bamboo.md) ×2、[ロープ](../items/rope.md) ×2 |
 | 道具（減らない） | [石器ナイフ](../items/stone-knife.md) |
 | 作る場所 | どこでも |
+| 作れる数 | 1回だけ（2回目からは NOT NEEDED NOW。[作れる数](../README.md#作れる数)） |
 | 一覧での順番 | 28 |
 
 ## メモ

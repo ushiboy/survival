@@ -387,6 +387,11 @@ impl RecipeBook {
         }
     }
 
+    /// Whether `kind` has ever been made, whichever way.
+    pub fn ever_made(&self, kind: ItemKind) -> bool {
+        RECIPES.iter().zip(&self.used).any(|(r, &u)| u && r.makes == kind)
+    }
+
     /// Debug: knows every recipe (none of them fresh).
     pub fn learn_all(&mut self) {
         self.known.fill(true);
