@@ -19,6 +19,7 @@
 
 - レシピの材料: [石器ナイフ](../recipes/stone-knife.md)、[石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)、[水車](../recipes/water-wheel.md)（軸受け）、[木工旋盤](../recipes/wood-lathe.md)（軸受け）、[狼煙台](../recipes/signal-fire.md)（炉）
 - 水車小屋の土台の材料（×10。礎石にする）: メインドキュメントの「[水車小屋](../README.md#水車小屋)」
+- 水車小屋の作業台で作る囲炉裏の材料（×8。炉の縁に並べる）: メインドキュメントの「[小屋を整える](../README.md#小屋を整えるfit-out)」
 
 ## メモ
 

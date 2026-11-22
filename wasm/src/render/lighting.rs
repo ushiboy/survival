@@ -42,6 +42,10 @@ pub struct Lighting {
 }
 
 impl Lighting {
+    /// Lamplight in the mill's room after dark: as light as by day, a
+    /// little warmer.
+    pub const LAMPLIT: Lighting = Lighting { mul: [1.0, 0.96, 0.88], add: [0.0, 0.0, 0.0], darkness: 0.0 };
+
     pub fn at(minute_of_day: f32) -> Self {
         let m = minute_of_day.rem_euclid(1440.0);
         let i = KEYS.windows(2).position(|w| m >= w[0].minute && m < w[1].minute).unwrap_or(0);

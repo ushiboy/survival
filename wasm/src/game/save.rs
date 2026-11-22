@@ -34,11 +34,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 8;
+pub const SAVE_VERSION: u32 = 9;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -131,6 +131,21 @@ fn v7_to_v8(save: &mut Value) {
     if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
         inventory.insert("shelf".into(), serde_json::json!({ "stock": [] }));
         inventory.insert("looked_at".into(), serde_json::json!([]));
+    }
+}
+
+/// Version 9 added the fuel laid on the mill's hearth (when it will have
+/// burnt away) and whether a signal fire was lit with fish oil (its smoke
+/// black): a version 8 save has laid none on a hearth, and its signal
+/// fires' smoke is pale.
+fn v8_to_v9(save: &mut Value) {
+    if let Some(mill) = save.pointer_mut("/island/mill").and_then(Value::as_object_mut) {
+        mill.insert("hearth_until".into(), Value::Null);
+    }
+    if let Some(fires) = save.pointer_mut("/island/signal_fires").and_then(Value::as_array_mut) {
+        for fire in fires.iter_mut().filter_map(Value::as_object_mut) {
+            fire.insert("black".into(), Value::Bool(false));
+        }
     }
 }
 
@@ -337,6 +352,7 @@ mod tests {
         include_str!("save_samples/v6.json"),
         include_str!("save_samples/v7.json"),
         include_str!("save_samples/v8.json"),
+        include_str!("save_samples/v9.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -487,6 +503,22 @@ mod tests {
         assert_eq!(s.inventory.shelf.count(ItemKind::Stone), 12);
         assert_eq!(s.inventory.shelf.count(ItemKind::Bamboo), 7);
         assert_eq!(s.inventory.looked_at, vec![Furnishing::Shelf]);
+    }
+
+    #[test]
+    fn a_version_8_save_has_laid_nothing_on_a_hearth_and_its_smoke_is_pale() {
+        let s = load(8);
+        assert_eq!(s.island.mill.hearth_until, None);
+        assert!(s.island.signal_fires.iter().all(|f| !f.black));
+    }
+
+    #[test]
+    fn the_sample_keeps_the_hearths_fuel_the_lamps_and_black_smoke() {
+        let s = load(SAVE_VERSION);
+        assert!(s.island.mill.has(Furnishing::Hearth) && s.island.mill.has(Furnishing::Lamps));
+        assert_eq!(s.island.mill.hearth_until, Some(4320));
+        assert!(s.island.signal_fires.iter().any(|f| f.black));
+        assert_eq!(s.inventory.shelf.count(ItemKind::FishOil), 2);
     }
 
     #[test]

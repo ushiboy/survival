@@ -151,6 +151,7 @@ const en: typeof ja = {
     Handcart: { name: 'Handcart', reading: 'Handcart' },
     SignalFire: { name: 'Signal fire', reading: 'Signal fire' },
     MarkingStakes: { name: 'Marking stakes', reading: 'Marking stakes' },
+    FishOil: { name: 'Fish oil', reading: 'Fish oil' },
   },
 };
 

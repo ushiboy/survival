@@ -57,11 +57,12 @@ pub fn cue_of(deed: &Deed) -> Option<Cue> {
         | Deed::SetStakes(_)
         | Deed::Built(_)
         | Deed::SetSignalFire(_)
-        | Deed::LightSignalFire(_) => Some(Cue::Changed),
+        | Deed::LightSignalFire(_)
+        | Deed::StokeHearth => Some(Cue::Changed),
         // Passing: nothing is kept of them (what's left at the mill's
         // site from the BUILD screen is saved as the screen closes, as
         // with the bag).
-        Deed::Smoulder(_) | Deed::KickDust(_) | Deed::Cast(_) | Deed::ReelIn | Deed::AtBench | Deed::AtShelf | Deed::ToBed => None,
+        Deed::Smoulder(_) | Deed::KickDust(_) | Deed::Cast(_) | Deed::ReelIn | Deed::AtBench | Deed::AtShelf | Deed::ToBed | Deed::AskSignalOil(_) => None,
     }
 }
 

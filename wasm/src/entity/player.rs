@@ -71,6 +71,10 @@ const SHAKE_TOTAL: u32 = 4 * SHAKE_STEP;
 /// Picking something up (frames): crouch, take hold on `PICK_GRAB`, rise.
 const PICK_GRAB: u32 = 7;
 const PICK_TOTAL: u32 = 16;
+/// Laying fuel on the hearth (frames): crouch, lay it on at `STOKE_LAY`,
+/// rise.
+const STOKE_LAY: u32 = 12;
+const STOKE_TOTAL: u32 = 24;
 /// Digging (frames): crouching to drive the tool in twice (dirt flying at
 /// each), lifting out what's loosened, and standing.
 const DIG_STABS: [u32; 2] = [8, 22];
@@ -237,6 +241,10 @@ pub enum Action {
     },
     /// Crouching to pick something up.
     PickUp {
+        t: u32,
+    },
+    /// Crouching to lay fuel on the hearth in the mill.
+    Stoke {
         t: u32,
     },
     /// Scooping up water to carry (raw water).
@@ -410,6 +418,13 @@ pub struct Situation {
     /// Carrying what it takes to light a signal fire: the fire drill, a
     /// branch and a palm frond.
     pub kindling: bool,
+    /// Carrying something to burn (a pine cone or a branch).
+    pub fuel: bool,
+    /// Carrying fish oil (lighting a signal fire, the castaway's asked
+    /// whether to pour it on).
+    pub fish_oil: bool,
+    /// The hearth in the mill holds all the fuel it takes.
+    pub hearth_full: bool,
 }
 
 /// Something the castaway did to the world this frame, at a world pixel.
@@ -473,6 +488,11 @@ pub enum Deed {
     AtShelf,
     /// A at the bed in the mill: the castaway lies down in it.
     ToBed,
+    /// Fuel was laid on the hearth in the mill.
+    StokeHearth,
+    /// A at the signal fire in the cell, ready to light it, with fish oil
+    /// carried: asked whether to pour it on first.
+    AskSignalOil((i32, i32)),
     /// A signal fire was set down in the cell.
     SetSignalFire((i32, i32)),
     /// The signal fire in the cell caught.
@@ -557,7 +577,7 @@ impl Player {
     /// item taken). Picking up what's in reach takes priority over shaking
     /// for A.
     pub fn update(&mut self, input: &InputState, map: &WorldMap, situation: Situation) -> Option<Deed> {
-        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead, kindling } = situation;
+        let Situation { tool, item_in_reach, has_leaf, has_knife, fish_near, cart_ahead, kindling, fuel, hearth_full, fish_oil } = situation;
         self.eureka = self.eureka.saturating_sub(1);
         if self.action == Action::Collapsed {
             return None;
@@ -636,6 +656,11 @@ impl Player {
                 Action::Idle
             };
             return (t == PICK_GRAB).then_some(Deed::PickUp);
+        }
+        if let Action::Stoke { t } = self.action {
+            let t = t + 1;
+            self.action = if t >= STOKE_TOTAL { Action::Idle } else { Action::Stoke { t } };
+            return (t == STOKE_LAY).then_some(Deed::StokeHearth);
         }
         if let Action::Notice { t, climb } = self.action {
             self.notice(t + 1, climb, map);
@@ -896,10 +921,32 @@ impl Player {
                 self.walk_timer = 0;
                 return at;
             }
+            // The hearth in the mill: crouch to lay fuel on it (embers kept
+            // in its ash light it), or with nothing to burn, stop and think.
+            // Full, it takes no more.
+            if matches!(ahead, crate::world::Feature::Hearth(_)) {
+                if hearth_full {
+                    self.facing = before;
+                    return None;
+                }
+                if fuel {
+                    self.action = Action::Stoke { t: 0 };
+                    self.moving = false;
+                    self.walk_timer = 0;
+                } else {
+                    self.ponder();
+                }
+                return None;
+            }
             // A signal fire not yet lit: kneel to drill a fire into it, or
             // without what that takes, stop and think.
             if let Some(cell) = self.cold_signal_fire_ahead(map) {
                 self.turn_toward(signal_fire_middle(cell));
+                if kindling && fish_oil {
+                    self.moving = false;
+                    self.walk_timer = 0;
+                    return Some(Deed::AskSignalOil(cell));
+                }
                 if kindling {
                     self.action = Action::Drill { t: 0, signal: Some(cell) };
                     self.moving = false;
@@ -1506,6 +1553,14 @@ impl Player {
     }
 
     /// Lies down in the bed (with feet at `feet`, world px) and sleeps.
+    /// Kneels to drill a fire into the signal fire in `cell` (asked
+    /// first whether to pour fish oil on it).
+    pub fn light_signal(&mut self, cell: (i32, i32)) {
+        self.action = Action::Drill { t: 0, signal: Some(cell) };
+        self.moving = false;
+        self.walk_timer = 0;
+    }
+
     pub fn lie_in_bed(&mut self, feet: (i32, i32)) {
         self.body.set_feet(feet);
         self.in_bed = true;
@@ -1729,9 +1784,10 @@ impl Player {
             return;
         }
 
-        if let Action::PickUp { t } = self.action {
+        if let Action::PickUp { t } | Action::Stoke { t } = self.action {
             // Crouched for the middle of the move, standing at either end.
-            let low = (2..PICK_TOTAL - 3).contains(&t);
+            let total = if matches!(self.action, Action::Stoke { .. }) { STOKE_TOTAL } else { PICK_TOTAL };
+            let low = (2..total - 3).contains(&t);
             let gfx = if low { sprites.player.crouch[view] } else { sprites.player.walk[view][0].full };
             list.actor(depth, ObjEntry::new(cx, cy, gfx, OBJ_PLAYER, prio).flipped(flip));
             if shadows {

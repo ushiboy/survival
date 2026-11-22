@@ -152,6 +152,7 @@ const ja = {
     Handcart: { name: 'リアカー', reading: 'りあかー' },
     SignalFire: { name: '狼煙台', reading: 'のろしだい' },
     MarkingStakes: { name: '縄張りの杭', reading: 'なわばりのくい' },
+    FishOil: { name: '魚油', reading: 'ぎょゆ' },
   },
 };
 

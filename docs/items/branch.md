@@ -19,6 +19,7 @@
 ## 使い道
 
 - 焚き火の燃料（火起こし器で1本使う。[松ぼっくり](pine-cone.md)を持っていれば、そちらが先に使われる）
+- 水車小屋の[囲炉裏](../README.md#囲炉裏)の燃料（A で1本くべる。1本で1日燃え、7日分までくべておける。松ぼっくりが先）
 - [狼煙台](signal-fire.md)の火種（火を付けるたびに1本使う。松ぼっくりでは代わりにならない）
 - レシピの材料: [石斧](../recipes/stone-axe.md)、[木の槍](../recipes/wood-spear.md)、[松明](../recipes/torch.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[火起こし器](../recipes/fire-drill.md)、[釣り竿](../recipes/fishing-rod.md)、[ハシゴ](../recipes/ladder.md)、[掘り棒](../recipes/digging-stick.md)、[木工旋盤](../recipes/wood-lathe.md)、[スポーク車輪](../recipes/spoked-wheel.md)（スポーク）
 

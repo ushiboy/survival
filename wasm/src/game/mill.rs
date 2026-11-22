@@ -101,17 +101,32 @@ pub enum Furnishing {
     Shelf,
     /// Slept in, health mends faster, and ailments pass sooner.
     Bed,
+    /// Sunk in the floor, embers banked in its ash: fuel laid on it
+    /// catches without the fire drill, and it takes a week's at once. A
+    /// fire to cook by while it burns.
+    Hearth,
+    /// Shells of fish oil hung on the west wall: the room is lit at night
+    /// as by day, with no more fuel.
+    Lamps,
 }
+
+/// How many days' fuel the hearth takes at once (a piece burns a day).
+pub const HEARTH_FUEL_DAYS: u32 = 7;
+/// How long a piece of fuel on the hearth burns (in-game minutes): a day,
+/// as on a campfire.
+pub const HEARTH_BURN_MINUTES: u32 = crate::entity::campfire::BURN_MINUTES;
 
 impl Furnishing {
     /// In the order listed at the workbench.
-    pub const ALL: [Furnishing; 2] = [Furnishing::Bed, Furnishing::Shelf];
+    pub const ALL: [Furnishing; 4] = [Furnishing::Bed, Furnishing::Hearth, Furnishing::Lamps, Furnishing::Shelf];
 
     /// As the workbench lists it.
     pub fn name(self) -> &'static str {
         match self {
             Furnishing::Shelf => "SHELF",
             Furnishing::Bed => "BED",
+            Furnishing::Hearth => "HEARTH",
+            Furnishing::Lamps => "OIL LAMPS",
         }
     }
 
@@ -119,6 +134,8 @@ impl Furnishing {
         match self {
             Furnishing::Shelf => "A SHELF BY THE WALL. LEAVE ON IT AS MUCH AS YOU LIKE.",
             Furnishing::Bed => "A BED UP OFF THE FLOOR. SLEEP IN IT TO HEAL FASTER AND GET WELL SOONER.",
+            Furnishing::Hearth => "A FIRE PIT SUNK IN THE FLOOR. EMBERS KEPT IN ITS ASH LIGHT WHAT'S LAID ON IT. COOK OVER IT.",
+            Furnishing::Lamps => "SHELLS OF OIL ON THE WALL. THEY LIGHT THE ROOM AT NIGHT AS BY DAY.",
         }
     }
 
@@ -132,12 +149,22 @@ impl Furnishing {
             // it, lashed with rope; leaves stuffed in for a mattress, and
             // palm fronds woven into a mat over it.
             Furnishing::Bed => &[(ItemKind::LauanTimber, 2), (ItemKind::Bamboo, 4), (ItemKind::Rope, 2), (ItemKind::Leaf, 10), (ItemKind::PalmFrond, 4)],
+            // A pit dug in the floor, lined with stones and bedded in clay
+            // worked with earth.
+            Furnishing::Hearth => &[(ItemKind::Stone, 8), (ItemKind::Clay, 4), (ItemKind::Soil, 4)],
+            // Shells of fish oil, wicks of husk fibre, hung on rope.
+            Furnishing::Lamps => &[(ItemKind::SeaShell, 4), (ItemKind::Rope, 2), (ItemKind::Husk, 1), (ItemKind::FishOil, 2)],
         }
     }
 
     /// Tools carried to make it (not used up).
     pub fn tools(self) -> &'static [ItemKind] {
-        &[ItemKind::StoneAxe, ItemKind::StoneKnife]
+        match self {
+            Furnishing::Shelf | Furnishing::Bed => &[ItemKind::StoneAxe, ItemKind::StoneKnife],
+            // The pit dug with the stick, the clay spread with the spade.
+            Furnishing::Hearth => &[ItemKind::DiggingStick, ItemKind::BambooSpade],
+            Furnishing::Lamps => &[ItemKind::StoneKnife],
+        }
     }
 
     /// How long making it takes (game hours).
@@ -145,6 +172,8 @@ impl Furnishing {
         match self {
             Furnishing::Shelf => 4,
             Furnishing::Bed => 6,
+            Furnishing::Hearth => 5,
+            Furnishing::Lamps => 2,
         }
     }
 
@@ -163,6 +192,9 @@ pub struct MillWorks {
     pub built: usize,
     pub delivered: Vec<u32>,
     pub furnished: Vec<Furnishing>,
+    /// When the fuel laid on the hearth will have burnt away (in-game
+    /// minutes since the start), if any was ever laid on.
+    pub hearth_until: Option<u32>,
 }
 
 impl MillWorks {
@@ -211,6 +243,25 @@ impl MillWorks {
         if !self.has(f) {
             self.furnished.push(f);
         }
+    }
+
+    /// Whether the hearth is burning at `now`.
+    pub fn hearth_burning(&self, now: u32) -> bool {
+        self.has(Furnishing::Hearth) && self.hearth_until.is_some_and(|until| now < until)
+    }
+
+    /// Whether the hearth takes another piece of fuel at `now`: it holds
+    /// no more than `HEARTH_FUEL_DAYS` days' worth.
+    pub fn hearth_takes_fuel(&self, now: u32) -> bool {
+        let left = self.hearth_until.map_or(0, |until| until.saturating_sub(now));
+        left + HEARTH_BURN_MINUTES <= HEARTH_FUEL_DAYS * HEARTH_BURN_MINUTES
+    }
+
+    /// A piece of fuel is laid on the hearth at `now`: it burns a day
+    /// more (catching from the embers if it had gone out).
+    pub fn stoke_hearth(&mut self, now: u32) {
+        let from = self.hearth_until.map_or(now, |until| until.max(now));
+        self.hearth_until = Some(from + HEARTH_BURN_MINUTES);
     }
 
     /// The next stage is built: on to the one after, nothing left for it

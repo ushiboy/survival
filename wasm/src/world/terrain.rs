@@ -314,6 +314,14 @@ pub enum Feature {
     /// and three long (`dx + 2 * dy` from its top-left cell, the head end
     /// north). Slept in. In the way.
     Bed(u8),
+    /// The hearth made for the mill, sunk in its room's floor, two cells
+    /// by two (`dx + 2 * dy` from its top-left cell). Fuel is laid on it.
+    /// In the way.
+    Hearth(u8),
+    /// A cell under one of the oil lamps made for the mill, along its
+    /// room's west wall (`0` the north one). The lamp is a sprite; the cell
+    /// is drawn as the floor. In the way (no walking under the lamps).
+    Lamp(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -347,7 +355,9 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::MillWall
         | Feature::MillRoomWall
         | Feature::Shelf(_)
-        | Feature::Bed(_) => true,
+        | Feature::Bed(_)
+        | Feature::Hearth(_)
+        | Feature::Lamp(_) => true,
         Feature::Marking(m) => m.stake,
         Feature::Framed(post) => post,
         _ => false,

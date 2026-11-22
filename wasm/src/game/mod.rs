@@ -80,6 +80,14 @@ const FELLED_FRONDS: u32 = 3;
 /// The chance, once a day, that a signal fire's smoke is seen by a small
 /// plane passing the island.
 const RESCUE_CHANCE: f32 = 1.0 / 128.0;
+/// How many times likelier black smoke (fish oil poured on the fire) is
+/// to be seen than pale: dark against the sky, it shows from far off.
+const BLACK_SMOKE_ODDS: f32 = 2.0;
+
+/// The chance a day's signal fire smoke is seen, black or pale.
+fn rescue_chance(black: bool) -> f32 {
+    if black { RESCUE_CHANCE * BLACK_SMOKE_ODDS } else { RESCUE_CHANCE }
+}
 /// How long after a signal fire is lit (in-game minutes) its smoke may be
 /// seen: some time in its day of burning, not the moment it's lit.
 const SEEN_FROM: u32 = 60;
@@ -199,6 +207,9 @@ pub struct Game {
     /// smoke is to be seen and the castaway rescued, if it is to be.
     signal_day: Option<u32>,
     rescue_at: Option<u32>,
+    /// Asked at a signal fire, the castaway said to pour fish oil on it as
+    /// it's lit (not saved: lighting it is under way).
+    pour_oil: bool,
     /// Dev tools: whether smoke is always (`Some(true)`) or never
     /// (`Some(false)`) seen, instead of by chance.
     rescue_luck: Option<bool>,
@@ -305,6 +316,11 @@ impl Game {
                 map.set_feature(x, y, f);
             }
             map.restore_trees(&s.island.fruit, &s.island.bark);
+            // What the mill is fitted out with stands in its cells (set
+            // again, so they're right whatever the save kept of them).
+            for &f in &s.island.mill.furnished {
+                map.furnish(f);
+            }
         }
         let items = match save {
             Some(s) => s.island.items.iter().map(|l| Item::lying(l.kind, (l.at.0 as f32, l.at.1 as f32)).with_count(l.count)).collect(),
@@ -355,6 +371,7 @@ impl Game {
             signal_fires: save.map_or_else(Vec::new, |s| s.island.signal_fires.clone()),
             signal_day: save.and_then(|s| s.island.signal_day),
             rescue_at: save.and_then(|s| s.island.rescue_at),
+            pour_oil: false,
             rescue_luck: None,
             shell_day: 0,
             shell_cap: 0,
@@ -739,6 +756,9 @@ impl Game {
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
             fish_near: !self.inventory.carries(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
             kindling: self.inventory.carries(ItemKind::FireDrill) && self.inventory.bag.has(ItemKind::Branch) && self.inventory.bag.has(ItemKind::PalmFrond),
+            fuel: fuel(&self.inventory.bag).is_some(),
+            hearth_full: !self.works.hearth_takes_fuel(self.clock.total_minutes()),
+            fish_oil: self.inventory.bag.has(ItemKind::FishOil),
             cart_ahead: self
                 .cart
                 .as_ref()
@@ -802,6 +822,11 @@ impl Game {
                 self.autosave.note(Cue::Changed);
             }
             Some(Deed::ToBed) => self.player.lie_in_bed(self.map.bed_pillow()),
+            Some(Deed::StokeHearth) => self.stoke_hearth(),
+            Some(Deed::AskSignalOil(cell)) => {
+                self.menu = Some(BagMenu::at_the_signal_fire(cell));
+                return;
+            }
             Some(Deed::SetSignalFire(cell)) => self.set_signal_fire(cell),
             Some(Deed::LightSignalFire(cell)) => self.light_signal_fire(cell),
             None => {
@@ -1077,12 +1102,16 @@ impl Game {
         }
         bag.take_kind(ItemKind::Branch);
         bag.take_kind(ItemKind::PalmFrond);
+        // Fish oil poured on (if the castaway said so when asked): the
+        // smoke goes up black.
+        let black = std::mem::take(&mut self.pour_oil) && bag.take_kind(ItemKind::FishOil);
         self.signal_fires[i].lit_at = Some(now);
+        self.signal_fires[i].black = black;
         self.map.set_feature(cell.0, cell.1, Feature::SignalFire(true));
         self.particles.sparks((cell.0 * TILE_SIZE + TILE_SIZE / 2, cell.1 * TILE_SIZE - 4), 3);
         if self.signal_day != Some(self.clock.day) {
             self.signal_day = Some(self.clock.day);
-            let seen = self.rescue_luck.unwrap_or_else(|| self.rng.chance(RESCUE_CHANCE));
+            let seen = self.rescue_luck.unwrap_or_else(|| self.rng.chance(rescue_chance(black)));
             if seen {
                 // Made sure of (dev tools), it's seen as soon as it can be.
                 let after = if self.rescue_luck == Some(true) { SEEN_FROM } else { self.rng.between(SEEN_FROM as i32, SEEN_UNTIL as i32) as u32 };
@@ -1096,6 +1125,7 @@ impl Game {
     fn tend_signal_fires(&mut self, now: u32) {
         for fire in self.signal_fires.iter_mut().filter(|f| f.burnt_out(now)) {
             fire.lit_at = None;
+            fire.black = false;
             self.map.set_feature(fire.cell.0, fire.cell.1, Feature::SignalFire(false));
         }
     }
@@ -1545,6 +1575,11 @@ impl Game {
             Outcome::Made(kind) => self.carry_off(kind),
             Outcome::Deliver(kind) => self.deliver(kind),
             Outcome::Furnish(f) => self.start_furnishing(f),
+            Outcome::LightSignal(cell, pour) => {
+                self.menu = None;
+                self.pour_oil = pour;
+                self.player.light_signal(cell);
+            }
             Outcome::Build => {
                 let Some(site) = self.map.spots.mill else { return };
                 let Some(stage) = self.works.next() else { return };
@@ -1849,16 +1884,44 @@ impl Game {
         (fx - lx).pow(2) + (fy - ly).pow(2) <= NEAR_LATHE * NEAR_LATHE
     }
 
-    /// The campfire the castaway stands by, if any.
-    fn nearest_fire(&self) -> Option<&Campfire> {
+    /// Where the fire the castaway stands by is (a campfire, or the
+    /// burning hearth in the mill), if any: the middle of it.
+    fn nearest_fire(&self) -> Option<(i32, i32)> {
         let (fx, fy) = self.player.body.feet();
-        self.fires.iter().filter(|f| f.within((fx, fy), NEAR_FIRE)).min_by_key(|f| (f.x - fx).pow(2) + (f.y - fy).pow(2))
+        let hearth = self.hearth_fire().filter(|&(x, y)| (x - fx).pow(2) + (y - fy).pow(2) <= NEAR_FIRE * NEAR_FIRE);
+        self.fires.iter().filter(|f| f.within((fx, fy), NEAR_FIRE)).map(|f| (f.x, f.y)).chain(hearth).min_by_key(|&(x, y)| (x - fx).pow(2) + (y - fy).pow(2))
+    }
+
+    /// Where the hearth's fire is in the mill (world px, the middle of
+    /// it), while it burns.
+    fn hearth_fire(&self) -> Option<(i32, i32)> {
+        if !self.works.hearth_burning(self.clock.total_minutes()) {
+            return None;
+        }
+        let (x, y) = self.map.furnishing_cells(Furnishing::Hearth)[0];
+        let (dx, dy) = crate::render::tileset::HEARTH_FIRE;
+        Some((x * TILE_SIZE + dx, y * TILE_SIZE + dy))
+    }
+
+    /// A piece of fuel (a pine cone first, else a branch) is laid on the
+    /// hearth: it burns a day more, catching from the embers in its ash
+    /// if it had gone out.
+    fn stoke_hearth(&mut self) {
+        let now = self.clock.total_minutes();
+        if !self.works.hearth_takes_fuel(now) || !fuel(&self.inventory.bag).is_some_and(|kind| self.inventory.bag.take_kind(kind)) {
+            return;
+        }
+        self.inventory.settle_hand();
+        self.works.stoke_hearth(now);
+        if let Some(at) = self.hearth_fire() {
+            self.particles.sparks((at.0, at.1 - 6), 3);
+        }
     }
 
     /// Takes a recipe's materials and kneels to cook it over the nearest
     /// fire; it goes in the bag when done.
     fn start_cooking(&mut self, recipe: &Recipe) {
-        let Some(at) = self.nearest_fire().map(|f| (f.x, f.y)) else {
+        let Some(at) = self.nearest_fire() else {
             return;
         };
         self.menu = None;
@@ -1971,6 +2034,14 @@ impl Game {
         }
         let lighting = Lighting::at(self.clock.minute_f());
         let night = lighting.darkness > NIGHT_THRESHOLD;
+        let inside = self.map.in_mill_room(self.player.body.feet());
+        // Once the sun is going down, the lamps in the mill are lit: in
+        // the room it's as light as by day.
+        let lamps_lit = self.works.has(Furnishing::Lamps) && lighting.darkness > 0.0;
+        let lamplit = inside && lamps_lit;
+        let hearth_fire = self.hearth_fire();
+        let hearth_dying = !self.works.hearth_burning(self.clock.total_minutes() + HEARTH_DYING_MINUTES);
+        let lamps = self.works.has(Furnishing::Lamps).then(|| self.map.furnishing_cells(Furnishing::Lamps));
         // The sign that the game was saved plays through its pictures.
         let saved_sign = (self.saved_sign > 0).then(|| ((SAVED_SIGN_FRAMES - self.saved_sign) / SAVED_SIGN_HOLD) as usize);
         let mut camera = self.camera;
@@ -2015,8 +2086,11 @@ impl Game {
         // CGRAM: base palette → water cycling → time-of-day tint.
         f.cgram.clone_from(&self.base_cgram);
         lighting::cycle_water(&mut f.cgram, self.frame_count);
-        lighting.apply(&mut f.cgram);
-        let inside = self.map.in_mill_room(self.player.body.feet());
+        if lamplit {
+            Lighting::LAMPLIT.apply(&mut f.cgram);
+        } else {
+            lighting.apply(&mut f.cgram);
+        }
         if inside {
             // The dark round the mill's room.
             f.cgram.colors[0] = crate::ppu::palette::Rgb555::BLACK;
@@ -2043,10 +2117,11 @@ impl Game {
         bag_screen::clear(&mut f.bg3);
 
         // Colour math + HDMA tables.
-        if night {
-            // Every light: a torch carried and each campfire.
+        if night && !lamplit {
+            // Every light: a torch carried, each campfire and the hearth.
             let torch = self.inventory.torch_lit().then(|| self.player.center());
-            let lights: Vec<(i32, i32)> = torch.into_iter().chain(self.fires.iter().map(|f| f.flame_point())).collect();
+            let hearth = hearth_fire.map(|(x, y)| (x, y - 8));
+            let lights: Vec<(i32, i32)> = torch.into_iter().chain(self.fires.iter().map(|f| f.flame_point())).chain(hearth).collect();
             let at = (camera.x, camera.y);
             let assets = &mut self.assets;
             let lit = light_canvas::lay(&mut f.bg3, &mut assets.vram.hud_tiles, &assets.hud, at, &lights);
@@ -2085,6 +2160,12 @@ impl Game {
         }
         for fire in &self.signal_fires {
             fire.draw(list, &camera, sprites, self.frame_count);
+        }
+        if let Some(at) = hearth_fire {
+            draw_hearth_fire(list, &camera, sprites, at, hearth_dying, self.frame_count);
+        }
+        if let Some(cells) = &lamps {
+            draw_lamps(list, &camera, sprites, cells, lamps_lit, self.frame_count);
         }
         draw_mill_posts(list, &camera, sprites, &self.map, night);
         for crab in &self.crabs {
@@ -2147,6 +2228,21 @@ impl Game {
     /// Dev tools: the island's map, as the game holds it.
     pub fn map(&self) -> &WorldMap {
         &self.map
+    }
+
+    /// Dev tools: lays `days` pieces of fuel on the mill's hearth (no more
+    /// than it takes), if it's made. Whether it was.
+    pub fn debug_stoke_hearth(&mut self, days: u32) -> bool {
+        if !self.works.has(Furnishing::Hearth) {
+            return false;
+        }
+        let now = self.clock.total_minutes();
+        for _ in 0..days {
+            if self.works.hearth_takes_fuel(now) {
+                self.works.stoke_hearth(now);
+            }
+        }
+        true
     }
 
     /// Dev tools: lays a log bridge across the river's narrow (as if one
@@ -2576,6 +2672,12 @@ impl Game {
     /// How many signal fires are burning.
     pub fn burning_signal_fires(&self) -> usize {
         self.signal_fires.iter().filter(|f| f.burning()).count()
+    }
+
+    /// How many signal fires are sending up black smoke (fish oil poured
+    /// on them).
+    pub fn black_smoking_signal_fires(&self) -> usize {
+        self.signal_fires.iter().filter(|f| f.burning() && f.black).count()
     }
 
     /// Whether the castaway has been rescued (the game has ended so).
@@ -3088,6 +3190,42 @@ fn draw_mill_posts(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, ma
     }
 }
 
+/// How long before the hearth's fuel has burnt away its fire dies down
+/// (in-game minutes), as a campfire's does.
+const HEARTH_DYING_MINUTES: u32 = 2 * 60;
+/// Frames per flame animation step, for the hearth and the lamps.
+const FLAME_FRAME: u32 = 5;
+
+/// Draws the fire burning on the hearth in the mill, `at` its middle
+/// (lively flames, as a campfire's; small once it's dying down). Unlit by
+/// the night tint, as it lights itself.
+fn draw_hearth_fire(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, (x, y): (i32, i32), dying: bool, clock: u32) {
+    let (wx, wy) = (x - 8, y - 13);
+    if !camera.sees(wx, wy, 16, 16) {
+        return;
+    }
+    let flames = if dying { &sprites.fire.small } else { &sprites.fire.flames };
+    let frame = (clock / FLAME_FRAME) as usize % flames.len();
+    let (sx, sy) = camera.to_screen(wx, wy);
+    list.actor(y + 8, ObjEntry::new(sx, sy, flames[frame], OBJ_CRAB, 2));
+}
+
+/// Draws the oil lamps hung high on the mill's west wall, one in each of
+/// `cells` (lit, their flames flickering out of step).
+fn draw_lamps(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, cells: &[(i32, i32)], lit: bool, clock: u32) {
+    for (k, &(x, y)) in cells.iter().enumerate() {
+        let (wx, wy) = (x * TILE_SIZE, y * TILE_SIZE - 10);
+        if !camera.sees(wx, wy, 16, 16) {
+            continue;
+        }
+        let gfx = if lit { sprites.lamp_lit[(clock / FLAME_FRAME + k as u32 * 2) as usize % 3] } else { sprites.lamp };
+        let (sx, sy) = camera.to_screen(wx, wy);
+        // Sorted by its cell's foot: behind anyone south of it, in front
+        // of anyone north of it (no one stands in its cell).
+        list.actor(y * TILE_SIZE + TILE_SIZE - 1, ObjEntry::new(sx, sy, gfx, OBJ_CRAB, 2));
+    }
+}
+
 /// Draws the handcart where it stands, its poles pointing the way it was
 /// last pulled (at night in the dark palette, as things on the ground are).
 fn draw_cart(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, cart: &Cart, night: bool, handle_depth: Option<i32>) {
@@ -3125,5 +3263,15 @@ fn draw_cart(list: &mut DrawList, camera: &Camera, sprites: &SpriteIds, cart: &C
     if let Some((gfx, (hx, hy), flip)) = handle {
         let (sx, sy) = camera.to_screen(cart.at.0 + hx, cart.at.1 + hy);
         list.actor(handle_depth.unwrap_or(cart.at.1), ObjEntry::new(sx, sy, gfx, OBJ_FX, 2).flipped(flip));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn black_smoke_is_likelier_to_be_seen_than_pale() {
+        assert!(rescue_chance(true) > rescue_chance(false));
     }
 }

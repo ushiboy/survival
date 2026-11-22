@@ -235,6 +235,88 @@ pub fn icon_raw_water() -> PixelArt {
     PixelArt::parse(&rows, &legend)
 }
 
+/// A cupped leaf holding fish oil, 16x16: amber, with a sheen on it.
+pub fn icon_fish_oil() -> PixelArt {
+    let i = |c| ix(FX_LEGEND, c);
+    let rows = [
+        "................",
+        "................",
+        "................",
+        "................",
+        "..oooooooooooo..",
+        ".oyyyyyyyyyyyyo.",
+        ".oyyycyyyyyyyyo.",
+        "ocyyyyyyyyyyyyco",
+        "ogccyyyyyyyyccGo",
+        "ogGccccccccccGGo",
+        ".ogGGwccccwwGGo.",
+        ".oggGGGGGGGGGgo.",
+        "..oggGGGGGGggo..",
+        "...oogggggoo....",
+        ".....ooooo......",
+        "................",
+    ];
+    let legend = [('o', i('o')), ('g', i('g')), ('G', i('G')), ('w', i('w')), ('c', i('c')), ('y', i('y'))];
+    PixelArt::parse(&rows, &legend)
+}
+
+/// An oil lamp hung on a wall, 16x16, the wall at its left: a wooden
+/// arm out of the wall, braced below, and from its end a scallop shell of
+/// fish oil on a cord. Lit (`flame` 0-2, a flicker), a small flame burns
+/// at the wick on the shell's lip.
+pub fn wall_lamp(flame: Option<usize>) -> PixelArt {
+    let i = |c| ix(ITEM_LEGEND, c);
+    let k = |c| ix(super::palettes::CRAB_LEGEND, c);
+    let mut rows = [
+        "................",
+        "oooooooooooo....",
+        "owWWWWWWWWWwo...",
+        "odddddddddddo...",
+        "od......dooo....",
+        "od.....d.o......",
+        "od....d..d......",
+        "od...d...d......",
+        "od..d....d......",
+        "oddd.....d......",
+        "odd....SSSSS....",
+        "od....SpppppS...",
+        "o....SppAAAppS..",
+        "......SpppppS...",
+        ".......SSSSS....",
+        "................",
+    ]
+    .map(String::from);
+    if let Some(frame) = flame {
+        // The flame's three rows, over the wick at the shell's lip.
+        let shapes = [["....r...", "...fFr..", "...FYf.."], ["...r....", "...Ffr..", "...FYf.."], ["....r...", "...rFf..", "...fYF.."]];
+        for (dy, part) in shapes[frame % 3].iter().enumerate() {
+            let row = &mut rows[7 + dy];
+            let mut chars: Vec<char> = row.chars().collect();
+            for (dx, c) in part.chars().enumerate() {
+                if c != '.' {
+                    chars[8 + dx] = c;
+                }
+            }
+            *row = chars.into_iter().collect();
+        }
+    }
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    let legend = [
+        ('o', i('o')),
+        ('d', i('d')),
+        ('w', i('w')),
+        ('W', i('W')),
+        ('S', k('l')),
+        ('p', i('f')),
+        ('A', i('W')),
+        ('r', k('R')),
+        ('f', k('q')),
+        ('F', k('l')),
+        ('Y', k('w')),
+    ];
+    PixelArt::parse(&rows, &legend)
+}
+
 /// The stone axe standing upright, 16x32: a knapped stone set against the
 /// top of the handle and bound on with crossed turns of vine.
 pub fn icon_stone_axe() -> PixelArt {
