@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       # Node, pnpm and wasm-pack at the versions in mise.toml
-      - uses: jdx/mise-action@v5.2.7
+      - uses: jdx/mise-action@v5.2.8
 
       # Rust at the version in rust-toolchain.toml (with the wasm target)
       - name: Install Rust
