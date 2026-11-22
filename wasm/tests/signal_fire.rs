@@ -7,6 +7,7 @@ mod common;
 
 use common::{hold, new_game, press, save_op_within};
 use survival_core::common::input::Buttons;
+use survival_core::game::menu::Page;
 use survival_core::game::{Game, SaveOp};
 use survival_core::items::ItemKind;
 use survival_core::world::{Feature, Terrain};
@@ -360,4 +361,67 @@ fn a_signal_fire_a_few_cells_off_is_out_of_reach() {
     assert!(!game.is_pondering());
     hold(&mut game, 0, LIGHTING);
     assert_eq!(game.burning_signal_fires(), 0);
+}
+
+/// With fish oil carried, A at the cold signal fire opens the screen
+/// asking whether to pour it on; then A (yes) or B (no), and the fire is
+/// lit.
+fn light_asked(game: &mut Game, pour: bool) {
+    press(game, Buttons::A);
+    assert_eq!(game.bag_page(), Some(Page::Signal), "asked whether to pour the fish oil on");
+    assert_eq!(game.bag_pages(), vec![Page::Signal]);
+    press(game, if pour { Buttons::A } else { Buttons::B });
+    assert_eq!(game.bag_page(), None);
+    hold(game, 0, LIGHTING);
+}
+
+#[test]
+fn fish_oil_poured_on_the_signal_fire_sends_up_black_smoke() {
+    let mut game = ready_to_light();
+    game.debug_give(ItemKind::FishOil);
+    light_asked(&mut game, true);
+    assert_eq!(game.burning_signal_fires(), 1);
+    assert_eq!(game.carried(ItemKind::FishOil), 0, "poured on");
+    assert_eq!(game.black_smoking_signal_fires(), 1);
+}
+
+#[test]
+fn saying_no_to_the_fish_oil_lights_the_fire_and_keeps_the_oil() {
+    let mut game = ready_to_light();
+    game.debug_give(ItemKind::FishOil);
+    light_asked(&mut game, false);
+    assert_eq!(game.burning_signal_fires(), 1);
+    assert_eq!(game.carried(ItemKind::FishOil), 1, "kept");
+    assert_eq!(game.black_smoking_signal_fires(), 0);
+}
+
+#[test]
+fn closing_the_question_lights_nothing() {
+    let mut game = ready_to_light();
+    game.debug_give(ItemKind::FishOil);
+    press(&mut game, Buttons::A);
+    press(&mut game, Buttons::X);
+    assert_eq!(game.bag_page(), None);
+    hold(&mut game, 0, LIGHTING);
+    assert_eq!(game.burning_signal_fires(), 0);
+    assert_eq!(game.carried(ItemKind::Branch), 1);
+}
+
+#[test]
+fn without_fish_oil_nothing_is_asked_and_the_smoke_is_pale() {
+    let mut game = ready_to_light();
+    press(&mut game, Buttons::A);
+    assert_eq!(game.bag_page(), None);
+    hold(&mut game, 0, LIGHTING);
+    assert_eq!(game.burning_signal_fires(), 1);
+    assert_eq!(game.black_smoking_signal_fires(), 0);
+}
+
+#[test]
+fn black_smoke_is_kept_on_carrying_on_from_a_save() {
+    let mut game = ready_to_light();
+    game.debug_give(ItemKind::FishOil);
+    light_asked(&mut game, true);
+    let carried_on = Game::debug_continue(&game.debug_save_json()).expect("the save loads");
+    assert_eq!(carried_on.black_smoking_signal_fires(), 1);
 }

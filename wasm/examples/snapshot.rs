@@ -15,7 +15,8 @@
 //! site (and the lathe beside it, the mill's ground marked out, its
 //! foundation laid, its frame raised, its walls up, its roof on),
 //! `SNAP_INSIDE=1` in the mill's room, just in from its door,
-//! `SNAP_FURNISH=shelf,bed` with the built mill fitted out with those,
+//! `SNAP_FURNISH=shelf,bed,hearth,lamps` with the built mill fitted out with those,
+//! `SNAP_HEARTH=n` with n days' fuel burning on its hearth,
 //! `SNAP_SHELVE=1` with everything given left on its shelf,
 //! and `SNAP_HOURS=n` to start `n`
 //! hours later in the day, `SNAP_RECIPES=all` to know every recipe, and `SNAP_FISH=dx,dy` to put
@@ -82,10 +83,17 @@ fn main() {
             let f = match name {
                 "shelf" => survival_core::game::mill::Furnishing::Shelf,
                 "bed" => survival_core::game::mill::Furnishing::Bed,
-                _ => panic!("SNAP_FURNISH takes shelf and bed"),
+                "hearth" => survival_core::game::mill::Furnishing::Hearth,
+                "lamps" => survival_core::game::mill::Furnishing::Lamps,
+                _ => panic!("SNAP_FURNISH takes shelf, bed, hearth and lamps"),
             };
             assert!(game.debug_furnish(f), "the mill is built (SNAP_MILL=roof)");
         }
+    }
+    // SNAP_HEARTH=n lays n days' fuel on the mill's hearth (with
+    // SNAP_FURNISH=hearth): it burns.
+    if let Some(days) = std::env::var("SNAP_HEARTH").ok().and_then(|n| n.parse().ok()) {
+        assert!(game.debug_stoke_hearth(days), "the hearth is made (SNAP_FURNISH=hearth)");
     }
     // SNAP_FISH=dx,dy puts a fish in the water that far from the feet.
     if let Ok(at) = std::env::var("SNAP_FISH") {
@@ -149,6 +157,7 @@ fn main() {
                 "clay" => ItemKind::Clay,
                 "soil" => ItemKind::Soil,
                 "signal fire" | "signal" => ItemKind::SignalFire,
+                "fish oil" | "oil" => ItemKind::FishOil,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);

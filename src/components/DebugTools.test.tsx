@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DebugTools } from './DebugTools';
 import type { GameStatus } from '../game/status';
-import type { DebugItem, GameCore } from '../game/wasmCore';
+import type { DebugItem, DebugMaking, GameCore } from '../game/wasmCore';
 import { renderIn } from '../test/intl';
 
 /** A stand-in for the game with just what the debug tools call. */
@@ -21,6 +21,8 @@ function fakeCore() {
     debugMill: () => ({ steps: ['WHEEL', 'LATHE', 'STAKES', 'FOUNDATION'], done: 0 }),
     debugMillAdvance: vi.fn(() => true),
     debugGiveMillStage: vi.fn(() => 0),
+    debugMakings: (): DebugMaking[] => [],
+    debugGiveMakings: vi.fn(() => 0),
   };
 }
 
@@ -63,6 +65,51 @@ describe('DebugTools のアイテム', () => {
     core.debugItems = () => [{ index: 0, key: 'Unknown', name: 'SOMETHING NEW', maxStack: 1 }];
     renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
     expect(shown()).toEqual(['SOMETHING NEW']);
+  });
+});
+
+describe('DebugTools のレシピの材料', () => {
+  /** Two ways of making rope, a stone knife and the hearth, numbered as the core numbers them. */
+  function withMakings() {
+    const core = fakeCore();
+    core.debugMakings = () => [
+      { index: 0, kind: 'recipe', key: 'StoneKnife', name: 'STONE KNIFE', firstNeed: 'Stone' },
+      { index: 1, kind: 'recipe', key: 'Rope', name: 'ROPE', firstNeed: 'Husk' },
+      { index: 2, kind: 'recipe', key: 'Rope', name: 'ROPE', firstNeed: 'Bark' },
+      { index: 3, kind: 'furnishing', key: 'Hearth', name: 'HEARTH', firstNeed: 'Stone' },
+    ];
+    return core;
+  }
+
+  const groups = () =>
+    within(screen.getByRole('combobox', { name: 'レシピ' }))
+      .getAllByRole('group')
+      .map((g) => [g.getAttribute('label'), within(g).getAllByRole('option').map((o) => o.textContent)]);
+
+  it('レシピと作業台の設備を、日本語の名前の五十音順に分けて並べる', () => {
+    renderIn(<DebugTools core={withMakings() as unknown as GameCore} status={null} />);
+    expect(groups()).toEqual([
+      ['道具や物', ['石器ナイフ', 'ロープ（椰子の殻から）', 'ロープ（樹皮から）']],
+      ['作業台の設備', ['囲炉裏']],
+    ]);
+  });
+
+  it('選んだレシピの材料と道具をまとめて持たせる', async () => {
+    const core = withMakings();
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'レシピ' }), 'ロープ（樹皮から）');
+    await userEvent.click(screen.getByRole('button', { name: '材料と道具を持たせる' }));
+    expect(core.debugGiveMakings).toHaveBeenCalledWith(2);
+    expect(screen.getByText('ロープ（樹皮から）の材料と道具を持たせました')).toBeInTheDocument();
+  });
+
+  it('入りきらなかった数を知らせる', async () => {
+    const core = withMakings();
+    core.debugGiveMakings = vi.fn(() => 3);
+    renderIn(<DebugTools core={core as unknown as GameCore} status={null} />);
+    await userEvent.click(screen.getByRole('button', { name: '材料と道具を持たせる' }));
+    expect(core.debugGiveMakings).toHaveBeenCalledWith(0);
+    expect(screen.getByText('石器ナイフの材料と道具を持たせました（3 個は入りきりません）')).toBeInTheDocument();
   });
 });
 

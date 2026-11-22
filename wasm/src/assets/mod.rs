@@ -196,6 +196,7 @@ pub struct BagSprites {
     pub coconut: SpriteId,
     pub timber: SpriteId,
     pub raw_water: SpriteId,
+    pub fish_oil: SpriteId,
     /// Upright, turned.
     pub stone_axe: [SpriteId; 2],
     pub fire_drill: SpriteId,
@@ -311,6 +312,7 @@ impl BagSprites {
             ItemKind::Clay => (self.clay, palettes::OBJ_FX),
             ItemKind::Soil => (self.soil, palettes::OBJ_CRAB),
             ItemKind::SignalFire => (self.signal_fire, palettes::OBJ_FX),
+            ItemKind::FishOil => (self.fish_oil, palettes::OBJ_FX),
         }
     }
 }
@@ -420,6 +422,10 @@ pub struct SpriteIds {
     pub lean_to: SpriteId,
     pub fire: FireSprites,
     pub signal_fire: SignalFireSprites,
+    /// An oil lamp hung on the mill's west wall (16x16): unlit, and lit
+    /// with its flame flickering.
+    pub lamp: SpriteId,
+    pub lamp_lit: [SpriteId; 3],
     /// The posts of the mill's frame: the back (north) ones and the taller
     /// front (south) ones.
     pub mill_post: [SpriteId; 2],
@@ -621,6 +627,7 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
         coconut: bank.add(&item_art::icon_coconut()),
         timber: bank.add(&item_art::icon_timber()),
         raw_water: bank.add(&item_art::icon_raw_water()),
+        fish_oil: bank.add(&item_art::icon_fish_oil()),
         stone_axe: [bank.add(&stone_axe), bank.add(&stone_axe.rotated_cw())],
         fire_drill: bank.add(&item_art::fire_drill(16)),
         wood_spear: {
@@ -802,6 +809,8 @@ fn load_sprites(vram: &mut Vram) -> SpriteIds {
             lying: bank.add(&item_art::signal_fire_lying()),
             smoke: smoke_frames().map(|a| bank.add(&a)),
         },
+        lamp: bank.add(&item_art::wall_lamp(None)),
+        lamp_lit: [0, 1, 2].map(|f| bank.add(&item_art::wall_lamp(Some(f)))),
         fire: FireSprites { ring: bank.add(&fire_ring()), flames: flames(12.0, 4.6).map(|a| bank.add(&a)), small: flames(6.0, 3.0).map(|a| bank.add(&a)) },
     }
 }

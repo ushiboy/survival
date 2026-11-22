@@ -193,6 +193,16 @@ pub const RECIPES: &[Recipe] = &[
         at_fire: false,
         at_lathe: false,
     },
+    // Fish cut up with the knife and boiled in the bark pot (kept: the
+    // oil is skimmed off into a folded leaf).
+    Recipe {
+        name: "FishOil",
+        makes: ItemKind::FishOil,
+        needs: &[(ItemKind::Fish, 2), (ItemKind::Leaf, 1)],
+        tools: &[ItemKind::StoneKnife, ItemKind::BarkContainer],
+        at_fire: true,
+        at_lathe: false,
+    },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind once
@@ -632,6 +642,15 @@ mod tests {
         assert!(recipe.needs.iter().any(|&(k, _)| k == ItemKind::Bamboo), "bamboo poles to pull it by");
         assert!(recipe.tools.contains(&ItemKind::StoneAxe));
         assert!(!ItemKind::Handcart.goes_in_bag());
+    }
+
+    #[test]
+    fn fish_oil_is_rendered_from_fish_in_the_bark_pot_over_a_fire_and_held_in_a_leaf() {
+        let recipe = &RECIPES[index(ItemKind::FishOil)];
+        assert!(recipe.at_fire && !recipe.at_lathe);
+        assert!(recipe.needs.iter().any(|&(k, n)| k == ItemKind::Fish && n > 1), "it takes more than one fish");
+        assert!(recipe.needs.iter().any(|&(k, _)| k == ItemKind::Leaf), "a leaf to hold it in");
+        assert!(recipe.tools.contains(&ItemKind::StoneKnife) && recipe.tools.contains(&ItemKind::BarkContainer));
     }
 
     #[test]

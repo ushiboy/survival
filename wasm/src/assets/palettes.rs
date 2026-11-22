@@ -335,7 +335,19 @@ pub fn base_cgram() -> Cgram {
             c(206, 240, 252), // b/l/i water
         ],
     );
-    cg.set_obj_palette(OBJ_SHADOW, &[c(20, 28, 56)]);
+    cg.set_obj_palette(
+        OBJ_SHADOW,
+        &[
+            c(20, 28, 56),
+            c(0, 0, 0),
+            c(0, 0, 0),
+            // Black smoke off a signal fire with fish oil on it, at the
+            // same places as the pale smoke's (`smoke`): lit, mid, shaded.
+            c(92, 86, 80),
+            c(58, 54, 50),
+            c(30, 28, 28),
+        ],
+    );
     cg.set_obj_palette(
         OBJ_WATER_FX,
         &[

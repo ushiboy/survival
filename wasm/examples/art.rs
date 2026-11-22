@@ -202,7 +202,7 @@ fn on_sheet(f: Feature) -> bool {
         // The mill's room, kept off the island: seen in snapshots inside it
         // (`SNAP_INSIDE=1`), with what it's fitted out with
         // (`SNAP_FURNISH`).
-        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) => false,
+        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) | Feature::Hearth(_) | Feature::Lamp(_) => false,
     }
 }
 

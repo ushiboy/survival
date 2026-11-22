@@ -48,6 +48,13 @@ const en: typeof ja = {
     given: 'Gave {item} ×{given}',
     givenSome: "Gave {item} ×{given} ({left} didn't fit)",
     noRoom: 'No room in the bag for {item}',
+    making: 'Recipe',
+    makingGroups: { recipe: 'Tools and things', furnishing: 'Workbench fittings' },
+    makingFrom: '{item} (from {from})',
+    furnishings: { Bed: 'Bed', Hearth: 'Hearth', Lamps: 'Oil lamps', Shelf: 'Shelf' },
+    giveMakings: 'Give materials and tools',
+    givenMakings: 'Gave the materials and tools for {making}',
+    givenMakingsSome: "Gave the materials and tools for {making} ({left} didn't fit)",
     learnRecipes: 'Unlock all recipes',
     learnedRecipes: 'Unlocked all recipes',
     move: 'Move',
@@ -151,6 +158,7 @@ const en: typeof ja = {
     Handcart: { name: 'Handcart', reading: 'Handcart' },
     SignalFire: { name: 'Signal fire', reading: 'Signal fire' },
     MarkingStakes: { name: 'Marking stakes', reading: 'Marking stakes' },
+    FishOil: { name: 'Fish oil', reading: 'Fish oil' },
   },
 };
 

@@ -5,7 +5,7 @@
 //! see by: they're for being seen.
 
 use crate::assets::SpriteIds;
-use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_WATER_FX};
+use crate::assets::palettes::{OBJ_CRAB, OBJ_FX, OBJ_SHADOW, OBJ_WATER_FX};
 use crate::ppu::oam::ObjEntry;
 use crate::render::camera::Camera;
 use crate::render::sprites::DrawList;
@@ -27,12 +27,14 @@ pub struct SignalFire {
     pub cell: (i32, i32),
     /// When it was lit (in-game minutes since the start), while it burns.
     pub lit_at: Option<u32>,
+    /// Fish oil was poured on it as it was lit: its smoke goes up black.
+    pub black: bool,
 }
 
 impl SignalFire {
     /// One just set down, unlit.
     pub fn new(cell: (i32, i32)) -> Self {
-        Self { cell, lit_at: None }
+        Self { cell, lit_at: None, black: false }
     }
 
     pub fn burning(&self) -> bool {
@@ -69,6 +71,9 @@ impl SignalFire {
         if !self.burning() {
             return;
         }
+        // Black smoke shares the shadows' palette (dark, and see-through
+        // by day like the pale smoke).
+        let palette = if self.black { OBJ_SHADOW } else { OBJ_WATER_FX };
         // Puffs rise one after another, billowing out as they go and
         // leaning off with the wind, thinning away at the top.
         for k in 0..PUFFS {
@@ -90,7 +95,7 @@ impl SignalFire {
             }
             let (sx, sy) = camera.to_screen(px, py);
             // Over the trees' crowns, as smoke rises above them.
-            list.actor(fy - 2 - k as i32, ObjEntry::new(sx, sy, s.smoke[frame], OBJ_WATER_FX, 3));
+            list.actor(fy - 2 - k as i32, ObjEntry::new(sx, sy, s.smoke[frame], palette, 3));
         }
     }
 }

@@ -321,12 +321,18 @@ impl WorldMap {
     /// against the north wall east of the workbench, west to east; the bed
     /// head to the north wall east of the shelf (west of the middle: the
     /// east is kept for what the water wheel drives), its rows north to
-    /// south. In the order of its feature's parts.
+    /// south; the hearth under the bed, midway down to the south wall (a
+    /// row nearer the wall, the pot hook rising over it), its rows north
+    /// to south; the lamps, one in each cell, high on the west wall from
+    /// north to south (out of the way). In the order of its feature's
+    /// parts.
     pub fn furnishing_cells(&self, f: Furnishing) -> Vec<(i32, i32)> {
         let (x0, y0, _, _) = self.mill_room();
         match f {
             Furnishing::Shelf => (0..3).map(|dx| (x0 + 5 + dx, y0 + 2)).collect(),
             Furnishing::Bed => (0..6).map(|i| (x0 + 9 + i % 2, y0 + 2 + i / 2)).collect(),
+            Furnishing::Hearth => (0..4).map(|i| (x0 + 9 + i % 2, y0 + 9 + i / 2)).collect(),
+            Furnishing::Lamps => (0..4).map(|i| (x0 + 1, y0 + 3 + 3 * i)).collect(),
         }
     }
 
@@ -337,6 +343,9 @@ impl WorldMap {
         match f {
             Furnishing::Shelf => ((cells[1].0, cells[1].1 + 1), Dir::Up),
             Furnishing::Bed => ((cells[5].0 + 1, cells[5].1), Dir::Left),
+            Furnishing::Hearth => ((cells[3].0 + 1, cells[3].1), Dir::Left),
+            // Between the second lamp and the third.
+            Furnishing::Lamps => ((cells[1].0 + 1, cells[1].1 + 1), Dir::Left),
         }
     }
 
@@ -361,14 +370,13 @@ impl WorldMap {
         let cells = self.furnishing_cells(f);
         let mut changed = Vec::new();
         for (i, &(x, y)) in cells.iter().enumerate() {
-            self.set_feature(
-                x,
-                y,
-                match f {
-                    Furnishing::Shelf => Feature::Shelf(i as u8),
-                    Furnishing::Bed => Feature::Bed(i as u8),
-                },
-            );
+            let feature = match f {
+                Furnishing::Shelf => Feature::Shelf(i as u8),
+                Furnishing::Bed => Feature::Bed(i as u8),
+                Furnishing::Hearth => Feature::Hearth(i as u8),
+                Furnishing::Lamps => Feature::Lamp(i as u8),
+            };
+            self.set_feature(x, y, feature);
             changed.extend([(x, y), (x, y - 1), (x, y + 1)]);
         }
         changed

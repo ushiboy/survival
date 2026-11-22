@@ -71,7 +71,8 @@ On exit it prints the player's tile position and how many ground tiles are held 
 | `SNAP_UPSET=1` | with an upset stomach |
 | `SNAP_MILL=wheel` / `lathe` / `stakes` / `foundation` | with the water wheel set at the mill site (`lathe`: and the wood lathe beside it; `stakes`: and the mill's ground marked out with the marking stakes; `foundation`: and the mill's foundation laid; `frame`: and its frame raised; `walls`: and its walls up; `roof`: and its roof on, its door hung) |
 | `SNAP_INSIDE=1` | in the mill's room, just in from its door (with `SNAP_MILL=roof`) |
-| `SNAP_FURNISH=shelf,bed` | with the built mill fitted out with those (with `SNAP_MILL=roof`) |
+| `SNAP_FURNISH=shelf,bed,hearth,lamps` | with the built mill fitted out with those (with `SNAP_MILL=roof`) |
+| `SNAP_HEARTH=3` | with that many days' fuel burning on the mill's hearth (with `SNAP_FURNISH=hearth`) |
 | `SNAP_SHELVE=1` | with everything in the bag (as `SNAP_GIVE` gave it) left on the mill's shelf |
 | `SNAP_LUCK=1` | with a signal fire's smoke always seen (lit, the castaway is rescued some time that day) |
 | `SNAP_RESCUED=1` | rescued straight away: the ending plays (the cuts from frame 120, 300 frames each, then the records from frame 1020) |

@@ -19,7 +19,7 @@
 
 - レシピの材料: [石斧](../recipes/stone-axe.md)、[シェルター](../recipes/shelter.md)、[背負子](../recipes/pack-frame.md)、[釣り竿](../recipes/fishing-rod.md)、[ハシゴ](../recipes/ladder.md)、[丸太橋](../recipes/log-bridge.md)、[水車](../recipes/water-wheel.md)、[竹のスコップ](../recipes/bamboo-spade.md)、[道具帯](../recipes/tool-belt.md)、[木工旋盤](../recipes/wood-lathe.md)、[リアカー](../recipes/handcart.md)、[縄張りの杭](../recipes/marking-stakes.md)
 - 水車小屋の骨組みの材料（×4。継ぎ目を縛る）と、屋根の材料（×4。垂木と茅を縛る）: メインドキュメントの「[水車小屋](../README.md#水車小屋)」
-- 水車小屋の作業台で作る設備の材料: 棚（×2）、寝床（×2）。メインドキュメントの「[小屋を整える](../README.md#小屋を整えるfit-out)」
+- 水車小屋の作業台で作る設備の材料: 棚（×2）、寝床（×2）、灯明（×2。腕木に吊る）。メインドキュメントの「[小屋を整える](../README.md#小屋を整えるfit-out)」
 
 ## メモ
 

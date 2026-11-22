@@ -132,6 +132,11 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         draw_fit_out_page(bg3, tiles, inventory, menu);
         return;
     }
+    // And the question at a signal fire about to be lit.
+    if menu.page() == Page::Signal {
+        draw_signal_page(bg3, tiles, list, sprites, inventory, menu);
+        return;
+    }
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
     let pages = menu.pages();
@@ -317,6 +322,7 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Furnishing { .. } => "A MAKE   B BACK",
         Mode::Shelve { .. } => "A PUT ON SHELF   B CLOSE",
         Mode::Shelf { .. } => "A TAKE INTO BAG   B CLOSE",
+        Mode::PourOil => "A YES   B NO",
     };
     // A second line, under the first, for what Y does (only where it
     // does something).
@@ -502,6 +508,23 @@ fn draw_fit_out_page(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory
             draw_help(bg3, tiles, menu);
         }
     }
+}
+
+/// At a signal fire about to be lit, with fish oil carried: the oil (its
+/// picture, and how much is carried) and the question whether to pour it
+/// on.
+fn draw_signal_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu) {
+    text(bg3, tiles, GRID_COL, TAB_ROW, "LIGHTING THE SIGNAL FIRE");
+    let oil = ItemKind::FishOil;
+    text(bg3, tiles, GRID_COL, GRID_ROW, oil.name());
+    text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("HAVE {}", inventory.bag.count(oil).min(99)));
+    let (gfx, pal) = sprites.bag.icon(oil, false);
+    list.sky(ObjEntry::new((ICON_RIGHT as i32 * 8) - CELL, GRID_ROW as i32 * 8, gfx, pal, 3));
+    for (i, line) in wrap(oil.description(), desc_width(1)).iter().enumerate() {
+        text(bg3, tiles, GRID_COL, DESC_ROW + i, line);
+    }
+    text(bg3, tiles, GRID_COL, NOTICE_ROW, "POUR FISH OIL ON IT?");
+    draw_help(bg3, tiles, menu);
 }
 
 /// The first row of what a furnishing takes, on its page (above where a

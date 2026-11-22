@@ -701,6 +701,9 @@ impl Builder<'_> {
     /// The dark round the room is see-through, onto the backdrop (black
     /// while inside).
     fn indoors(&mut self, map: &WorldMap, x: i32, y: i32) -> MetatileId {
+        if let Feature::Hearth(part) = map.feature(x, y) {
+            return self.hearth_tile(map, x, y, part);
+        }
         let mut art = compose(|px, py| mill_room_px(map, x * 16 + px as i32, y * 16 + py as i32));
         let top: Option<Box<PixelTop>> = match map.feature(x, y) {
             Feature::SiteBench => Some(Box::new(site_bench_top)),
@@ -731,6 +734,22 @@ impl Builder<'_> {
             }
         }
         self.unique_art(PAL_GRASS, &art)
+    }
+
+    /// A cell of the hearth in the mill's room (rock palette, for its grey
+    /// stones and ash): the floor round it, the hearth outlined on it.
+    fn hearth_tile(&mut self, map: &WorldMap, x: i32, y: i32, part: u8) -> MetatileId {
+        let (ox, oy) = ((part % 2) as i32 * 16, (part / 2) as i32 * 16);
+        let top = |px: i32, py: i32| hearth_px(ox + px, oy + py);
+        let art = compose(|px, py| {
+            let (px, py) = (px as i32, py as i32);
+            top(px, py).unwrap_or_else(|| {
+                let edge = [(-1, 0), (1, 0), (0, -1)].iter().any(|&(dx, dy)| top(px + dx, py + dy).is_some());
+                let shadow = (1..=2).any(|d| top(px, py - d).is_some()) && (px + py) % 2 == 0;
+                if edge || shadow { rock::STONE[0] } else { floor_in_rock(mill_room_px(map, x * 16 + px, y * 16 + py)) }
+            })
+        });
+        self.unique_art(PAL_ROCK, &art)
     }
 
     /// The bench beside the mill's ground (grass palette): a plank laid on
@@ -2104,6 +2123,10 @@ fn furnishing_px(map: &WorldMap, wx: i32, wy: i32, near: bool) -> Option<u8> {
         let made = match f {
             Furnishing::Shelf => matches!(map.feature(cx, cy), Feature::Shelf(_)),
             Furnishing::Bed => matches!(map.feature(cx, cy), Feature::Bed(_)),
+            // Its cells are drawn in the rock palette (`hearth_tile`).
+            Furnishing::Hearth => false,
+            // Sprites (`Game::draw_lamps`).
+            Furnishing::Lamps => false,
         };
         if !made {
             continue;
@@ -2112,6 +2135,8 @@ fn furnishing_px(map: &WorldMap, wx: i32, wy: i32, near: bool) -> Option<u8> {
         let (w, top, bottom) = match f {
             Furnishing::Shelf => (48, -SHELF_RISE, 16),
             Furnishing::Bed => (32, 0, 48),
+            Furnishing::Hearth => (0, 0, 0),
+            Furnishing::Lamps => (0, 0, 0),
         };
         if near {
             if (-8..w + 8).contains(&lx) && (top - 8..bottom + 8).contains(&ly) {
@@ -2122,6 +2147,8 @@ fn furnishing_px(map: &WorldMap, wx: i32, wy: i32, near: bool) -> Option<u8> {
         let c = match f {
             Furnishing::Shelf => shelf_px(lx, ly),
             Furnishing::Bed => bed_px(lx, ly),
+            Furnishing::Hearth => None,
+            Furnishing::Lamps => None,
         };
         if c.is_some() {
             return c;
@@ -2132,6 +2159,115 @@ fn furnishing_px(map: &WorldMap, wx: i32, wy: i32, near: bool) -> Option<u8> {
 
 /// How far the shelf rises above its cells, up the north wall (px).
 const SHELF_RISE: i32 = 26;
+
+/// The middle of the hearth's fire (px from its cells' top-left).
+pub const HEARTH_FIRE: (i32, i32) = (16, 19);
+
+/// The stones laid round the hearth's pit (middle, and half width and
+/// height, px from its cells' top-left): rounded, a little uneven.
+const HEARTH_STONES: [(f32, f32, f32, f32); 18] = [
+    (3.0, 3.5, 3.0, 2.6),
+    (9.0, 3.0, 3.0, 2.6),
+    (15.0, 3.5, 3.0, 2.6),
+    (21.0, 3.0, 3.0, 2.6),
+    (27.0, 3.5, 3.0, 2.6),
+    (3.0, 26.0, 3.0, 2.6),
+    (9.0, 26.5, 3.0, 2.6),
+    (15.0, 26.0, 3.0, 2.6),
+    (22.0, 26.5, 3.0, 2.6),
+    (28.0, 26.0, 3.0, 2.6),
+    (2.5, 9.0, 2.6, 3.0),
+    (2.0, 15.0, 2.6, 3.0),
+    (2.5, 21.0, 2.6, 3.0),
+    (29.0, 8.5, 2.6, 3.0),
+    (29.5, 14.5, 2.6, 3.0),
+    (29.0, 20.5, 2.6, 3.0),
+    (15.5, 27.5, 2.0, 1.5),
+    (6.0, 27.0, 2.0, 1.5),
+];
+
+/// The hearth (rock palette; `x`, `y` from its top-left cell's top-left,
+/// 32 by 32), sunk in the floor: rounded stones laid round a pit, the
+/// pit's far wall in shade, a bed of ash, and four pieces of wood laid in
+/// toward the middle, their ends charred. The fire is a sprite. `None` is
+/// the floor round it.
+fn hearth_px(x: i32, y: i32) -> Option<u8> {
+    let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+    // The stones, lit from the top left, outlined dark.
+    let mut near_stone = false;
+    for &(cx, cy, rx, ry) in &HEARTH_STONES {
+        let (dx, dy) = ((fx - cx) / rx, (fy - cy) / ry);
+        let d = dx * dx + dy * dy;
+        if d <= 1.0 {
+            let light = -dx * 0.5 - dy * 0.7;
+            return Some(if light > 0.55 {
+                rock::STONE[5]
+            } else if light > 0.0 {
+                rock::STONE[4]
+            } else if light > -0.5 {
+                rock::STONE[3]
+            } else {
+                rock::STONE[2]
+            });
+        }
+        near_stone |= d <= 1.6;
+    }
+    let pit = (5..27).contains(&x) && (5..26).contains(&y);
+    if near_stone && !pit {
+        return Some(rock::STONE[0]);
+    }
+    // The edge of the pit.
+    if (4..28).contains(&x) && (4..27).contains(&y) && !pit {
+        return Some(rock::STONE[0]);
+    }
+    if !pit {
+        return None;
+    }
+    let (cx, cy) = HEARTH_FIRE;
+    // Four pieces of wood laid in toward the middle, charred at the ends.
+    for (sx, sy) in [(-1.0f32, -0.45f32), (1.0, -0.45), (-1.0, 0.5), (1.0, 0.5)] {
+        for t in 3..11 {
+            let (lx, ly) = ((cx as f32 + sx * t as f32).round() as i32, (cy as f32 + sy * t as f32).round() as i32);
+            if x == lx && y == ly {
+                return Some(if t > 4 { rock::WOOD[2] } else { rock::STONE[0] });
+            }
+            if x == lx && y == ly + 1 {
+                return Some(rock::WOOD[0]);
+            }
+            if t > 4 && x == lx && y == ly - 1 {
+                return Some(rock::WOOD[1]);
+            }
+        }
+    }
+    // The pit's far wall, in shade, laid in courses.
+    if y < 9 {
+        return Some(if y == 8 || (x + (y % 2) * 3) % 6 == 0 { rock::STONE[1] } else { rock::STONE[2] });
+    }
+    // Ash, darker toward the sides of the pit.
+    if x == 5 || x == 26 || y == 25 {
+        return Some(rock::STONE[2]);
+    }
+    let n = hash_unit(x, y, 0xA5);
+    Some(if n < 0.25 {
+        rock::STONE[3]
+    } else if n > 0.85 {
+        rock::STONE[5]
+    } else {
+        rock::STONE[4]
+    })
+}
+
+/// The floor of the mill's room in the rock palette, for the hearth's
+/// cells: its sand and soil and shade, as near as the palette has them.
+fn floor_in_rock(c: u8) -> u8 {
+    match c {
+        c if c == grass::SAND[0] => rock::SAND[0],
+        c if c == grass::SAND[1] => rock::SAND[1],
+        c if c == grass::SAND[2] => rock::SAND[2],
+        c if c == grass::SOIL => rock::WOOD[1],
+        _ => rock::STONE[0],
+    }
+}
 
 /// The shelf (its cells' top-left at 0, 0; 48 wide): two uprights of lauan,
 /// three boards of pine across them, from the floor up the wall, and
@@ -3241,7 +3377,7 @@ fn cell_tiles(b: &mut Builder, props: &PropSet, map: &WorldMap, x: i32, y: i32) 
         Feature::Framed(post) => b.framed(map, river.as_ref(), x, y, post, false),
         Feature::MillWall => b.framed(map, river.as_ref(), x, y, false, true),
         Feature::MillDoor => b.framed(map, river.as_ref(), x, y, false, false),
-        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) => b.indoors(map, x, y),
+        Feature::MillRoomWall | Feature::Shelf(_) | Feature::Bed(_) | Feature::Hearth(_) | Feature::Lamp(_) => b.indoors(map, x, y),
         Feature::SiteBench => b.site_bench(x, y),
         Feature::Flower => b.prop(5, &props.flowers, x % 2 == 1, x, y),
         Feature::ClayBed(c) => b.clay_bed(x, y, c),

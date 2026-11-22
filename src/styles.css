@@ -108,6 +108,10 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
+.side-panel.wide {
+  width: 440px;
+}
+
 .side-panel-head {
   display: flex;
   align-items: center;
@@ -165,6 +169,17 @@ body {
   align-items: center;
   gap: 8px;
   padding: 3px 0;
+}
+
+/* A row's heading and buttons keep to one line; a long list beside them narrows instead. */
+.row > span:first-child,
+.row > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.row > select {
+  min-width: 0;
 }
 
 button {

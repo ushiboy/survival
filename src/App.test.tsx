@@ -10,7 +10,7 @@ import { renderIn } from './test/intl';
 const mounts = vi.hoisted(() => ({ count: 0 }));
 
 /** A stand-in for the game with just what the debug tools read on opening. */
-const fakeCore = { debugItems: () => [], debugPlaces: () => [], debugMill: () => ({ steps: [], done: 0 }) };
+const fakeCore = { debugItems: () => [], debugPlaces: () => [], debugMill: () => ({ steps: [], done: 0 }), debugMakings: () => [] };
 
 vi.mock('./components/GameScreen', () => ({
   GameScreen: ({ fit, debug, onCore }: { fit?: boolean; debug?: boolean; onCore?: (core: unknown) => void }) => {

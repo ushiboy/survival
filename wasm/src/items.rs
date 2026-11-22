@@ -132,6 +132,10 @@ pub enum ItemKind {
     /// hand and driven in round the turning wood lathe (B), they mark out
     /// the ground the mill is to stand on.
     MarkingStakes,
+    /// Oil rendered from fish in the bark pot over a fire, held in a
+    /// folded leaf. It fills the mill's lamps, and poured on a signal fire
+    /// it sends up black smoke.
+    FishOil,
 }
 
 /// Where a piece of gear goes.
@@ -209,7 +213,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, numbered as the debug tools give them (add new kinds
     /// here too; the page lists them by its own names for them).
-    pub const ALL: [ItemKind; 46] = [
+    pub const ALL: [ItemKind; 47] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -256,6 +260,7 @@ impl ItemKind {
         ItemKind::Handcart,
         ItemKind::SignalFire,
         ItemKind::MarkingStakes,
+        ItemKind::FishOil,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -282,7 +287,8 @@ impl ItemKind {
             | ItemKind::GrilledFish
             | ItemKind::PineCone
             | ItemKind::Clay
-            | ItemKind::Soil => (1, 1),
+            | ItemKind::Soil
+            | ItemKind::FishOil => (1, 1),
             ItemKind::Branch
             | ItemKind::DiggingStick
             | ItemKind::StoneAxe
@@ -353,6 +359,7 @@ impl ItemKind {
             ItemKind::Handcart => "HANDCART",
             ItemKind::SignalFire => "SIGNAL FIRE",
             ItemKind::MarkingStakes => "MARKING STAKES",
+            ItemKind::FishOil => "FISH OIL",
         }
     }
 
@@ -406,6 +413,7 @@ impl ItemKind {
             ItemKind::Handcart => "A BED ON TWO WHEELS WITH BAMBOO POLES TO PULL IT BY. IT CARRIES FAR MORE THAN A BAG.",
             ItemKind::SignalFire => "STONES IN EARTH, WOOD STACKED ON. LIGHT A BRANCH AND A PALM FROND ON IT TO SEND UP SMOKE.",
             ItemKind::MarkingStakes => "STAKES AND A LINE TO MARK OUT GROUND FOR SOMETHING BIG.",
+            ItemKind::FishOil => "OIL BOILED OUT OF FISH, IN A FOLDED LEAF. IT BURNS WITH A SMOKY FLAME.",
         }
     }
 
@@ -534,7 +542,7 @@ impl ItemKind {
 
     /// Whether it can lie on the ground (water can only be poured away).
     pub fn can_put_down(self) -> bool {
-        self != ItemKind::RawWater
+        !matches!(self, ItemKind::RawWater | ItemKind::FishOil)
     }
 
     /// Whether it goes in the bag once made or picked up (a lit torch is
@@ -547,7 +555,7 @@ impl ItemKind {
     /// said once it's done.
     pub fn discard_words(self) -> (&'static str, &'static str) {
         match self {
-            ItemKind::RawWater => ("POUR OUT", "POURED IT OUT"),
+            ItemKind::RawWater | ItemKind::FishOil => ("POUR OUT", "POURED IT OUT"),
             _ => ("PUT DOWN", "PUT IT DOWN"),
         }
     }

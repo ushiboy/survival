@@ -131,10 +131,14 @@ pub enum Page {
     ShelveCart,
     /// At the shelf: what's on it, taken off into the bag or the cart.
     Shelf,
+    /// At a signal fire about to be lit, with fish oil carried: whether to
+    /// pour it on.
+    Signal,
 }
 
 impl Page {
-    pub const ALL: [Page; 9] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Build, Page::FitOut, Page::ShelveBag, Page::ShelveCart, Page::Shelf];
+    pub const ALL: [Page; 10] =
+        [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Build, Page::FitOut, Page::ShelveBag, Page::ShelveCart, Page::Shelf, Page::Signal];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -147,6 +151,7 @@ impl Page {
             Page::ShelveBag => "BAG",
             Page::ShelveCart => "CART",
             Page::Shelf => "SHELF",
+            Page::Signal => "SIGNAL FIRE",
         }
     }
 }
@@ -272,6 +277,9 @@ pub enum Mode {
     Shelf {
         choice: usize,
     },
+    /// At a signal fire about to be lit, asked whether to pour fish oil on
+    /// it.
+    PourOil,
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -300,6 +308,9 @@ pub enum Outcome {
     /// The mill's next stage is to be built: everything it takes is in,
     /// and the tools are carried. The bag closes.
     Build,
+    /// The signal fire in the cell is to be lit, fish oil poured on it or
+    /// not. The screen closes.
+    LightSignal((i32, i32), bool),
 }
 
 #[derive(Clone, Debug)]
@@ -330,6 +341,9 @@ pub struct BagMenu {
     /// The shelf's screen is open (at the shelf in the mill): its pages
     /// are there only then, on their own.
     pub at_shelf: bool,
+    /// The signal fire (its cell) about to be lit, while asking whether to
+    /// pour fish oil on it (that page is there only then, on its own).
+    pub signal: Option<(i32, i32)>,
     held_frames: u32,
 }
 
@@ -430,6 +444,8 @@ impl BagMenu {
         Page::ALL
             .into_iter()
             .filter(|&p| match p {
+                _ if self.signal.is_some() => p == Page::Signal,
+                Page::Signal => false,
                 _ if self.works.is_some() => p == if self.works.as_ref().is_some_and(|w| w.next().is_some()) { Page::Build } else { Page::FitOut },
                 Page::ShelveBag | Page::Shelf => self.at_shelf,
                 Page::ShelveCart => self.at_shelf && self.cart_at_hand,
@@ -453,8 +469,15 @@ impl BagMenu {
             works: None,
             fit_for: Furnishing::ALL.to_vec(),
             at_shelf: false,
+            signal: None,
             held_frames: 0,
         }
+    }
+
+    /// Opens the question at the signal fire in `cell`, about to be lit
+    /// with fish oil carried: whether to pour it on.
+    pub fn at_the_signal_fire(cell: (i32, i32)) -> Self {
+        Self { mode: Mode::PourOil, signal: Some(cell), ..Self::browse() }
     }
 
     /// Opens the workbench in the built mill: what can be made to fit it
@@ -548,6 +571,7 @@ impl BagMenu {
             Mode::Shelve { cart: false } => Page::ShelveBag,
             Mode::Shelve { cart: true } => Page::ShelveCart,
             Mode::Shelf { .. } => Page::Shelf,
+            Mode::PourOil => Page::Signal,
             _ => Page::Items,
         }
     }
@@ -569,6 +593,7 @@ impl BagMenu {
                 Mode::Shelve { cart: page == Page::ShelveCart }
             }
             Page::Shelf => Mode::Shelf { choice: 0 },
+            Page::Signal => Mode::PourOil,
         };
     }
 
@@ -734,6 +759,13 @@ impl BagMenu {
             Mode::Furnishing { which, confirming } => self.update_furnishing(input, inv, which, confirming),
             Mode::Shelve { cart } => self.update_shelve(input, inv, cart, step),
             Mode::Shelf { choice } => self.update_shelf(input, inv, choice, step),
+            // A pours the fish oil on as the fire is lit; B lights it
+            // without.
+            Mode::PourOil => match self.signal {
+                Some(cell) if input.pressed(Buttons::A) => Outcome::LightSignal(cell, true),
+                Some(cell) if input.pressed(Buttons::B) => Outcome::LightSignal(cell, false),
+                _ => Outcome::Stay,
+            },
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Sorting { choice, pick } => {
                 let orders = RecipeOrder::ALL;

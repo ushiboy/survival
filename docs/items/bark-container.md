@@ -18,6 +18,7 @@
 ## 使い道
 
 - 焚き火で[生水](raw-water.md)を沸かす（レシピ: [沸かした水](../recipes/boiled-water.md)）
+- 魚を煮て油を取る（レシピの道具: [魚油](../recipes/fish-oil.md)。鍋は減らない）
 
 ## メモ
 
