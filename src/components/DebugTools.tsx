@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useLocale, useMessages, useTranslations } from 'use-intl';
 import { locationLine, overBudget, snapshotCommand, type GameStatus } from '../game/status';
 import { loadNotes, notesReport, saveNotes, SPOT_KINDS, type SpotKind, type SpotNote } from '../game/spotNotes';
-import type { DebugItem, GameCore } from '../game/wasmCore';
+import type { DebugItem, DebugMaking, GameCore } from '../game/wasmCore';
 
 interface Props {
   core: GameCore;
@@ -38,12 +38,48 @@ function namedItems(items: DebugItem[], names: Partial<Record<string, ItemName>>
   return named.sort((a, b) => collator.compare(a.reading, b.reading));
 }
 
+/** The groups the makings are listed in, in order. */
+const MAKING_KINDS: Array<DebugMaking['kind']> = ['recipe', 'furnishing'];
+
+/**
+ * The makings with the page's names for them, sorted like the items within
+ * each kind. An item made more than one way is told apart by its first
+ * material.
+ */
+function namedMakings(
+  makings: DebugMaking[],
+  names: Partial<Record<string, ItemName>>,
+  furnishings: Partial<Record<string, string>>,
+  from: (item: string, first: string) => string,
+  locale: string,
+) {
+  const named = makings.map((m) => {
+    if (m.kind === 'furnishing') {
+      const name = furnishings[m.key] ?? m.name;
+      return { ...m, label: name, reading: name };
+    }
+    const own = names[m.key];
+    return { ...m, label: own?.name ?? m.name, reading: own?.reading ?? m.name };
+  });
+  const twice = new Set(named.filter((m, i) => named.findIndex((o) => o.kind === m.kind && o.key === m.key) !== i).map((m) => m.key));
+  const labelled = named.map((m) =>
+    m.kind === 'recipe' && twice.has(m.key) ? { ...m, label: from(m.label, names[m.firstNeed]?.name ?? m.firstNeed) } : m,
+  );
+  const collator = new Intl.Collator(locale);
+  return labelled.sort((a, b) => collator.compare(a.reading, b.reading));
+}
+
 /** Debug tools, shown with `?debug=true`: note where you are, put any item in the bag, move anywhere. */
 export function DebugTools({ core, status }: Props) {
   const t = useTranslations('debug');
   const names: Partial<Record<string, ItemName>> = useMessages().items;
   const locale = useLocale();
   const items = useMemo(() => namedItems(core.debugItems(), names, locale), [core, names, locale]);
+  const furnishingNames: Partial<Record<string, string>> = useMessages().debug.furnishings;
+  const makings = useMemo(
+    () => namedMakings(core.debugMakings(), names, furnishingNames, (item, from) => t('makingFrom', { item, from }), locale),
+    [core, names, furnishingNames, t, locale],
+  );
   const places = useMemo(() => core.debugPlaces(), [core]);
   const stepNames: Partial<Record<string, string>> = useMessages().debug.millSteps;
   // Read every render: building in the game moves it on too.
@@ -62,6 +98,8 @@ export function DebugTools({ core, status }: Props) {
   const [memo, setMemo] = useState('');
   const [notes, setNotes] = useState<SpotNote[]>(loadNotes);
   const item = items.find((it) => it.index === index);
+  const [makingIndex, setMakingIndex] = useState(() => makings.find((m) => m.kind === MAKING_KINDS[0])?.index ?? 0);
+  const making = makings.find((m) => m.index === makingIndex);
 
   const copy = (text: string, done: string) => {
     navigator.clipboard.writeText(text).then(
@@ -91,6 +129,14 @@ export function DebugTools({ core, status }: Props) {
         : given > 0
           ? t('givenSome', { item: item.name, given, left: n - given })
           : t('noRoom', { item: item.name }),
+    );
+  };
+
+  const giveMakings = () => {
+    if (!making) return;
+    const left = core.debugGiveMakings(making.index);
+    setMessage(
+      left > 0 ? t('givenMakingsSome', { making: making.label, left }) : t('givenMakings', { making: making.label }),
     );
   };
 
@@ -279,6 +325,38 @@ export function DebugTools({ core, status }: Props) {
             {t('giveStack', { max: item.maxStack })}
           </button>
         )}
+      </div>
+      <div className="row">
+        <span>{t('making')}</span>
+        <select
+          aria-label={t('making')}
+          value={makingIndex}
+          onChange={(e) => {
+            setMakingIndex(Number(e.target.value));
+            e.currentTarget.blur();
+          }}
+        >
+          {MAKING_KINDS.map((kind) => (
+            <optgroup key={kind} label={t(`makingGroups.${kind}`)}>
+              {makings
+                .filter((m) => m.kind === kind)
+                .map((m) => (
+                  <option key={m.index} value={m.index}>
+                    {m.label}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+        <button
+          disabled={!making}
+          onClick={(e) => {
+            giveMakings();
+            release(e);
+          }}
+        >
+          {t('giveMakings')}
+        </button>
       </div>
       <div className="row">
         <button

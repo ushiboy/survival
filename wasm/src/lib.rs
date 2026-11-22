@@ -33,7 +33,66 @@ pub fn debug_item_names() -> Vec<String> {
 /// page looks its names up by it. Indexed as `debug_item_names`.
 #[wasm_bindgen]
 pub fn debug_item_keys() -> Vec<String> {
-    items::ItemKind::ALL.iter().map(|k| serde_json::to_value(k).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()).collect()
+    items::ItemKind::ALL.iter().map(|&k| key_of(k)).collect()
+}
+
+/// What a save calls `v` (`StoneKnife`, `Hearth`).
+fn key_of(v: impl serde::Serialize) -> String {
+    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
+}
+
+/// Debug: what each of the things `GameHandle::debug_give_makings` hands
+/// over the makings of is: `recipe` or `furnishing`.
+#[wasm_bindgen]
+pub fn debug_making_kinds() -> Vec<String> {
+    game::debug_makings()
+        .into_iter()
+        .map(|m| match m {
+            game::Making::Recipe(_) => "recipe".to_string(),
+            game::Making::Furnishing(_) => "furnishing".to_string(),
+        })
+        .collect()
+}
+
+/// Debug: the key of what each making makes (the item's, as
+/// `debug_item_keys`, or the furnishing's), for the page to name it by.
+#[wasm_bindgen]
+pub fn debug_making_keys() -> Vec<String> {
+    game::debug_makings()
+        .into_iter()
+        .map(|m| match m {
+            game::Making::Recipe(i) => key_of(crafting::RECIPES[i].makes),
+            game::Making::Furnishing(f) => key_of(f),
+        })
+        .collect()
+}
+
+/// Debug: each making's name in the game, for one the page has no name for.
+#[wasm_bindgen]
+pub fn debug_making_names() -> Vec<String> {
+    game::debug_makings()
+        .into_iter()
+        .map(|m| match m {
+            game::Making::Recipe(i) => crafting::RECIPES[i].makes.name().to_string(),
+            game::Making::Furnishing(f) => f.name().to_string(),
+        })
+        .collect()
+}
+
+/// Debug: the key of each making's first material, telling apart two ways
+/// of making the same item.
+#[wasm_bindgen]
+pub fn debug_making_first_needs() -> Vec<String> {
+    game::debug_makings()
+        .into_iter()
+        .map(|m| {
+            let needs = match m {
+                game::Making::Recipe(i) => crafting::RECIPES[i].needs,
+                game::Making::Furnishing(f) => f.needs(),
+            };
+            needs.first().map_or_else(String::new, |&(k, _)| key_of(k))
+        })
+        .collect()
 }
 
 /// Debug: how many of the item at that index fit in one stack.
@@ -163,6 +222,13 @@ impl GameHandle {
     /// bag, then the cart); returns how many didn't fit anywhere.
     pub fn debug_give_mill_stage(&mut self) -> u32 {
         self.game.debug_give_mill_stage()
+    }
+
+    /// Debug: hands over everything the `index`th of the makings
+    /// (`debug_making_keys`) takes (into the bag, then the cart); returns
+    /// how many didn't fit anywhere.
+    pub fn debug_give_makings(&mut self, index: usize) -> u32 {
+        self.game.debug_give_makings(index)
     }
 
     /// Debug: makes every recipe known.

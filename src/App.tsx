@@ -101,7 +101,7 @@ export function App({ debug = DEBUG }: Props) {
             </SidePanel>
           )}
           {debug && debugOpen && core && (
-            <SidePanel title={t('debug.title')} onClose={() => setDebugOpen(false)}>
+            <SidePanel title={t('debug.title')} onClose={() => setDebugOpen(false)} wide>
               <DebugTools core={core} status={status} />
             </SidePanel>
           )}

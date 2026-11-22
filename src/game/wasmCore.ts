@@ -3,6 +3,10 @@ import init, {
   debug_item_keys,
   debug_item_max_stack,
   debug_item_names,
+  debug_making_first_needs,
+  debug_making_keys,
+  debug_making_kinds,
+  debug_making_names,
   screen_height,
   screen_width,
 } from '../../wasm/pkg/survival_core';
@@ -38,6 +42,19 @@ export interface DebugItem {
   maxStack: number;
 }
 
+/** Something the debug panel can hand over the makings of: a recipe, or a furnishing made at the mill's workbench. */
+export interface DebugMaking {
+  /** Index to pass to `GameCore.debugGiveMakings`. */
+  index: number;
+  kind: 'recipe' | 'furnishing';
+  /** What it makes, as the core names it (an item's key like `StoneKnife`, or a furnishing's like `Hearth`). */
+  key: string;
+  /** Its name in the game (`STONE KNIFE`, `HEARTH`), for one the page has no name for. */
+  name: string;
+  /** The key of its first material (to tell two ways of making an item apart); empty if it takes none. */
+  firstNeed: string;
+}
+
 /** How far the water mill has got, for the debug panel. */
 export interface DebugMill {
   /** The steps it goes up in: `WHEEL`, `LATHE`, `STAKES`, then each stage by its name (`FOUNDATION`, ...). */
@@ -69,6 +86,10 @@ export interface GameCore {
   debugItems(): DebugItem[];
   /** Debug: puts up to `count` of an item in the bag; returns how many fitted. */
   debugGive(index: number, count: number): number;
+  /** Debug: every recipe and furnishing whose makings can be handed over. */
+  debugMakings(): DebugMaking[];
+  /** Debug: hands over the materials (topped up to what it takes) and tools not carried for one of `debugMakings` (into the bag, then the cart); returns how many didn't fit. */
+  debugGiveMakings(index: number): number;
   /** Debug: makes every recipe known. */
   debugLearnRecipes(): void;
   /** Debug: moves the castaway to the cell, or the nearest one they can stand on; returns where, or null. */
@@ -177,6 +198,19 @@ export async function loadGameCore(seed: number): Promise<GameCore> {
       return debug_item_names().map((name, index) => ({ index, key: keys[index], name, maxStack: debug_item_max_stack(index) }));
     },
     debugGive: (index, count) => handle.debug_give(index, count),
+    debugMakings: () => {
+      const kinds = debug_making_kinds();
+      const keys = debug_making_keys();
+      const firstNeeds = debug_making_first_needs();
+      return debug_making_names().map((name, index) => ({
+        index,
+        kind: kinds[index] === 'furnishing' ? 'furnishing' : 'recipe',
+        key: keys[index],
+        name,
+        firstNeed: firstNeeds[index],
+      }));
+    },
+    debugGiveMakings: (index) => handle.debug_give_makings(index),
     debugLearnRecipes: () => handle.debug_learn_recipes(),
     debugMoveTo: (x, y) => {
       const at = handle.debug_move_to(x, y);

@@ -55,6 +55,20 @@ use regions::Regions;
 use save::{SAVE_VERSION, SaveData};
 use state::{Ailment, GameClock, Inventory, Rest, Vitals};
 
+/// Something the dev tools can hand over the makings of: a recipe (by its
+/// place in `RECIPES`) or a furnishing made at the mill's workbench.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Making {
+    Recipe(usize),
+    Furnishing(Furnishing),
+}
+
+/// Dev tools: every recipe, then every furnishing, as
+/// `Game::debug_give_makings` numbers them.
+pub fn debug_makings() -> Vec<Making> {
+    (0..RECIPES.len()).map(Making::Recipe).chain(Furnishing::ALL.map(Making::Furnishing)).collect()
+}
+
 const START_HOUR: u32 = 7;
 /// Above this darkness the sun casts no shadows and night darkness begins.
 const NIGHT_THRESHOLD: f32 = 0.35;
@@ -2377,8 +2391,29 @@ impl Game {
     /// there is one. Returns how many didn't fit anywhere.
     pub fn debug_give_mill_stage(&mut self) -> u32 {
         let Some(stage) = self.works.next() else { return 0 };
-        let tools = stage.tools.iter().filter(|&&t| !self.inventory.carries(t)).map(|&t| (t, 1));
-        let wanted: Vec<(ItemKind, u32)> = tools.chain(stage.needs.iter().map(|&(k, _)| (k, self.works.still_needs(k)))).collect();
+        let needs: Vec<(ItemKind, u32)> = stage.needs.iter().map(|&(k, _)| (k, self.works.still_needs(k))).collect();
+        self.debug_hand_over(&needs, stage.tools)
+    }
+
+    /// Dev tools: hands over everything the `index`th of `debug_makings`
+    /// takes: its materials, topped up to what it takes, and the tools not
+    /// carried (into the bag, then the cart). Returns how many didn't fit
+    /// anywhere.
+    pub fn debug_give_makings(&mut self, index: usize) -> u32 {
+        let (needs, tools) = match debug_makings().get(index) {
+            Some(&Making::Recipe(i)) => (RECIPES[i].needs, RECIPES[i].tools),
+            Some(&Making::Furnishing(f)) => (f.needs(), f.tools()),
+            None => return 0,
+        };
+        let needs: Vec<(ItemKind, u32)> = needs.iter().map(|&(k, n)| (k, n.saturating_sub(self.inventory.bag.count(k)))).collect();
+        self.debug_hand_over(&needs, tools)
+    }
+
+    /// Gives `needs` and each of `tools` not carried, into the bag and then
+    /// the cart; how many didn't fit anywhere.
+    fn debug_hand_over(&mut self, needs: &[(ItemKind, u32)], tools: &[ItemKind]) -> u32 {
+        let tools = tools.iter().filter(|&&t| !self.inventory.carries(t)).map(|&t| (t, 1));
+        let wanted: Vec<(ItemKind, u32)> = tools.chain(needs.iter().copied()).filter(|&(_, n)| n > 0).collect();
         let mut left = 0;
         for (kind, n) in wanted {
             let rest = n - self.debug_give_n(kind, n);
