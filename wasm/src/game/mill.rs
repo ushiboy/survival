@@ -92,12 +92,77 @@ pub fn post_foot((cx, cy): (i32, i32)) -> (i32, i32) {
     (cx * 16 + 8, cy * 16 + 8 + POST_FOOT)
 }
 
+/// Something made at the workbench in the mill once it's built, to fit
+/// it out: made as the castaway likes, in any order, one of each. It
+/// stands in its own place in the room.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Furnishing {
+    /// Things are left on it, as many as like.
+    Shelf,
+    /// Slept in, health mends faster, and ailments pass sooner.
+    Bed,
+}
+
+impl Furnishing {
+    /// In the order listed at the workbench.
+    pub const ALL: [Furnishing; 2] = [Furnishing::Bed, Furnishing::Shelf];
+
+    /// As the workbench lists it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Furnishing::Shelf => "SHELF",
+            Furnishing::Bed => "BED",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Furnishing::Shelf => "A SHELF BY THE WALL. LEAVE ON IT AS MUCH AS YOU LIKE.",
+            Furnishing::Bed => "A BED UP OFF THE FLOOR. SLEEP IN IT TO HEAL FASTER AND GET WELL SOONER.",
+        }
+    }
+
+    /// Materials used up.
+    pub fn needs(self) -> &'static [(ItemKind, u32)] {
+        match self {
+            // Posts and feet of lauan (hard and strong), boards of pine
+            // (long and straight), lashed with rope.
+            Furnishing::Shelf => &[(ItemKind::LauanTimber, 2), (ItemKind::PineTimber, 2), (ItemKind::Rope, 2)],
+            // A frame and legs of lauan, bamboo split into slats across
+            // it, lashed with rope; leaves stuffed in for a mattress, and
+            // palm fronds woven into a mat over it.
+            Furnishing::Bed => &[(ItemKind::LauanTimber, 2), (ItemKind::Bamboo, 4), (ItemKind::Rope, 2), (ItemKind::Leaf, 10), (ItemKind::PalmFrond, 4)],
+        }
+    }
+
+    /// Tools carried to make it (not used up).
+    pub fn tools(self) -> &'static [ItemKind] {
+        &[ItemKind::StoneAxe, ItemKind::StoneKnife]
+    }
+
+    /// How long making it takes (game hours).
+    pub fn hours(self) -> u32 {
+        match self {
+            Furnishing::Shelf => 4,
+            Furnishing::Bed => 6,
+        }
+    }
+
+    /// Whether it comes to mind: every material it takes has been had
+    /// (as with recipes; the tools don't count).
+    pub fn thought_of(self, had: impl Fn(ItemKind) -> bool) -> bool {
+        self.needs().iter().all(|&(k, _)| had(k))
+    }
+}
+
 /// How far the mill has got: the stages built, and what has been left at
-/// the site for the next (by its line in `needs`).
+/// the site for the next (by its line in `needs`); then, once it's built,
+/// what it has been fitted out with.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MillWorks {
     pub built: usize,
     pub delivered: Vec<u32>,
+    pub furnished: Vec<Furnishing>,
 }
 
 impl MillWorks {
@@ -134,6 +199,18 @@ impl MillWorks {
     /// Whether everything the next stage takes has been left at the site.
     pub fn all_in(&self) -> bool {
         self.next().is_some_and(|s| s.needs.iter().all(|&(k, _)| self.still_needs(k) == 0))
+    }
+
+    /// Whether the mill has been fitted out with `f`.
+    pub fn has(&self, f: Furnishing) -> bool {
+        self.furnished.contains(&f)
+    }
+
+    /// The mill is fitted out with `f` (once only).
+    pub fn furnish(&mut self, f: Furnishing) {
+        if !self.has(f) {
+            self.furnished.push(f);
+        }
     }
 
     /// The next stage is built: on to the one after, nothing left for it
@@ -179,6 +256,30 @@ mod tests {
         w.finish();
         assert_eq!(w.built, 1);
         assert_eq!(w.delivered(ItemKind::Stone), 0);
+    }
+
+    #[test]
+    fn every_furnishing_takes_something_and_some_time() {
+        for f in Furnishing::ALL {
+            assert!(!f.needs().is_empty() && f.hours() > 0, "{}", f.name());
+        }
+    }
+
+    #[test]
+    fn the_mill_is_fitted_out_with_each_furnishing_once() {
+        let mut w = MillWorks::default();
+        w.furnish(Furnishing::Shelf);
+        w.furnish(Furnishing::Shelf);
+        assert_eq!(w.furnished, vec![Furnishing::Shelf]);
+        assert!(w.has(Furnishing::Shelf) && !w.has(Furnishing::Bed));
+    }
+
+    #[test]
+    fn a_furnishing_comes_to_mind_once_all_its_materials_have_been_had() {
+        let needs = Furnishing::Shelf.needs();
+        let (last, rest) = needs.split_last().unwrap();
+        assert!(!Furnishing::Shelf.thought_of(|k| rest.iter().any(|&(r, _)| r == k)));
+        assert!(Furnishing::Shelf.thought_of(|k| k == last.0 || rest.iter().any(|&(r, _)| r == k)));
     }
 
     #[test]

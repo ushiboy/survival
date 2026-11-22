@@ -40,6 +40,12 @@ pub fn render_sleeping(outfit: &Outfit) -> crate::ppu::pattern::PixelArt {
     render::render(&pose::sleeping(), outfit).body.transposed()
 }
 
+/// Asleep on the back in the bed, seen from above (head at the top):
+/// 24x32.
+pub fn render_in_bed(outfit: &Outfit) -> crate::ppu::pattern::PixelArt {
+    render::render(&pose::in_bed(), outfit).body
+}
+
 /// A colour ramp: dark, base, light.
 pub type Ramp = [Rgb555; 3];
 

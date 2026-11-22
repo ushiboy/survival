@@ -1,6 +1,8 @@
 //! Survival-related state: time of day and the castaway's vitals.
 
 use super::bag::{BASE_ROWS, Bag};
+use super::mill::Furnishing;
+use super::shelf::Shelf;
 use crate::assets::character::Outfit;
 use crate::crafting::{Recipe, RecipeBook};
 use crate::items::{ItemKind, Slot};
@@ -64,8 +66,11 @@ pub enum Rest {
         ran: u32,
     },
     Asleep,
-    /// Asleep under a shelter.
+    /// Asleep under a shelter (or the mill's roof).
     Sheltered,
+    /// Asleep in a bed (in the mill): under a roof, and lying up off the
+    /// floor, health mends faster still, and ailments pass sooner.
+    Bedded,
 }
 
 impl Rest {
@@ -171,9 +176,13 @@ impl Vitals {
     const THIRST_MINUTES: f32 = 68.0;
     const HUNGER_MINUTES: f32 = 600.0;
     /// Minutes of sleep for a sixty-fourth of health to come back, in the
-    /// open and under a shelter.
+    /// open, under a shelter and in a bed.
     const SLEEP_MEND_MINUTES: f32 = 15.0;
     const SHELTER_MEND_MINUTES: f32 = 10.0;
+    const BED_MEND_MINUTES: f32 = 6.0;
+    /// How many minutes an ailment wears off by for each one asleep in a
+    /// bed (resting well, it passes sooner).
+    const BED_CURES: u32 = 2;
     /// Minutes of tiredness one minute of sleep pays back.
     const SLEEP_PAYS: u32 = 2;
     /// How many times as tiring a minute running is as a minute walking.
@@ -261,7 +270,8 @@ impl Vitals {
         let (food_effort, water_effort) = match rest {
             Rest::Awake { .. } => (Self::AWAKE_EFFORT, Self::AWAKE_EFFORT),
             Rest::Asleep => (4, 12),
-            Rest::Sheltered => (1, 4),
+            // A bed is under a roof as a shelter is: breath takes the same.
+            Rest::Sheltered | Rest::Bedded => (1, 4),
         };
         self.food_spent += food_effort;
         if self.food_spent >= Self::FOOD_DECAY_MINUTES * Self::AWAKE_EFFORT {
@@ -287,8 +297,9 @@ impl Vitals {
                 wear += self.points(1.0, per);
             }
         }
+        let cure = if rest == Rest::Bedded { Self::BED_CURES } else { 1 };
         for a in &mut self.ailments {
-            a.left -= 1;
+            a.left = a.left.saturating_sub(cure);
         }
         self.ailments.retain(|a| a.left > 0);
         let mut mend = 0.0;
@@ -303,7 +314,11 @@ impl Vitals {
             let paid = self.tired.min(Self::SLEEP_PAYS);
             self.tired -= paid;
             mend = if self.nourished() {
-                let per = if rest == Rest::Sheltered { Self::SHELTER_MEND_MINUTES } else { Self::SLEEP_MEND_MINUTES };
+                let per = match rest {
+                    Rest::Bedded => Self::BED_MEND_MINUTES,
+                    Rest::Sheltered => Self::SHELTER_MEND_MINUTES,
+                    _ => Self::SLEEP_MEND_MINUTES,
+                };
                 self.points(1.0, per)
             } else {
                 // Hungry or thirsty: sleep only makes up for being tired.
@@ -372,6 +387,14 @@ pub struct Inventory {
     /// first (gear, the belt and the cart are filled from it), so this is
     /// all the castaway has had. Recipes come to mind from it.
     pub had: Vec<ItemKind>,
+    /// What has been left on the shelf in the mill (once it's made).
+    pub shelf: Shelf,
+    /// The shelf is at hand (the castaway is in the mill's room, and it's
+    /// made): what's on it goes into what's made there.
+    pub shelf_at_hand: bool,
+    /// The furnishings opened at the mill's workbench (those thought of
+    /// and not yet opened are marked "!" in its list).
+    pub looked_at: Vec<Furnishing>,
 }
 
 /// What's held and worn. The tool in hand is one carried in the bag or
@@ -461,10 +484,46 @@ impl Inventory {
         self.bag.has(kind) || self.gear.on_belt(kind)
     }
 
+    /// How many of `kind` there are to make things with: in the bag, and
+    /// on the shelf while it's at hand.
+    /// Whether `f` has come to mind (as listed at the workbench) and not
+    /// been opened there yet.
+    pub fn is_fresh_furnishing(&self, f: Furnishing) -> bool {
+        f.thought_of(|k| self.has_had(k)) && !self.looked_at.contains(&f)
+    }
+
+    /// `f` has been opened at the workbench.
+    pub fn look_at_furnishing(&mut self, f: Furnishing) {
+        if !self.looked_at.contains(&f) {
+            self.looked_at.push(f);
+        }
+    }
+
+    pub fn have(&self, kind: ItemKind) -> u32 {
+        self.bag.count(kind) + if self.shelf_at_hand { self.shelf.count(kind) } else { 0 }
+    }
+
     /// Whether everything a recipe needs is at hand: its materials in the
-    /// bag, and its tools carried (in the bag or on the belt).
+    /// bag (or on the shelf, while it's at hand), and its tools carried
+    /// (in the bag or on the belt).
     pub fn can_make(&self, recipe: &Recipe) -> bool {
-        recipe.needs.iter().all(|&(kind, n)| self.bag.count(kind) >= n) && recipe.tools.iter().all(|&kind| self.carries(kind))
+        recipe.needs.iter().all(|&(kind, n)| self.have(kind) >= n) && recipe.tools.iter().all(|&kind| self.carries(kind))
+    }
+
+    /// Takes a recipe's materials: out of the bag first, the rest off the
+    /// shelf (while it's at hand). The caller has checked they can be made
+    /// (`can_make`).
+    pub fn use_up(&mut self, recipe: &Recipe) {
+        for &(kind, n) in recipe.needs {
+            let mut left = n;
+            while left > 0 && self.bag.take_kind(kind) {
+                left -= 1;
+            }
+            if self.shelf_at_hand {
+                left -= self.shelf.take(kind, left);
+            }
+            debug_assert_eq!(left, 0, "materials at hand");
+        }
     }
 
     /// Lets go of a tool in hand that's no longer carried.
@@ -636,7 +695,18 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { bag: Bag::default(), torch: None, recipes: RecipeBook::default(), outfit: Outfit::CASTAWAY, gear: Gear::default(), cart: None, had: Vec::new() }
+        Self {
+            bag: Bag::default(),
+            torch: None,
+            recipes: RecipeBook::default(),
+            outfit: Outfit::CASTAWAY,
+            gear: Gear::default(),
+            cart: None,
+            had: Vec::new(),
+            shelf: Shelf::default(),
+            shelf_at_hand: false,
+            looked_at: Vec::new(),
+        }
     }
 }
 
@@ -752,6 +822,26 @@ mod tests {
         let before = tired_out().hp;
         assert!(slept(Rest::Asleep) > before);
         assert!(slept(Rest::Sheltered) > slept(Rest::Asleep));
+    }
+
+    #[test]
+    fn sleeping_in_a_bed_mends_health_faster_than_under_a_shelter() {
+        let slept = |rest| {
+            let mut v = tired_out();
+            pass(&mut v, 2 * HOUR, rest);
+            v.hp
+        };
+        assert!(slept(Rest::Bedded) > slept(Rest::Sheltered));
+    }
+
+    #[test]
+    fn a_bed_keeps_hunger_and_thirst_as_a_shelter_does() {
+        let used = |rest| {
+            let mut v = Vitals::new();
+            pass(&mut v, 8 * HOUR, rest);
+            (v.food, v.water)
+        };
+        assert_eq!(used(Rest::Bedded), used(Rest::Sheltered));
     }
 
     #[test]
@@ -1036,6 +1126,33 @@ mod tests {
         assert!(inv.bag.has(ItemKind::StoneKnife));
     }
 
+    // The shelf in the mill: what's on it counts toward making things
+    // while it's at hand (in the mill's room).
+
+    #[test]
+    fn whats_on_the_shelf_goes_into_what_is_made_in_the_mill() {
+        let knife = recipe(ItemKind::StoneKnife);
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Stone, 1);
+        inv.shelf.put(ItemKind::Stone, 1);
+        assert!(!inv.can_make(knife), "away from the shelf");
+        inv.shelf_at_hand = true;
+        assert!(inv.can_make(knife));
+        inv.use_up(knife);
+        assert_eq!(inv.have(ItemKind::Stone), 0);
+    }
+
+    #[test]
+    fn materials_are_taken_from_the_bag_before_the_shelf() {
+        let knife = recipe(ItemKind::StoneKnife);
+        let mut inv = Inventory { shelf_at_hand: true, ..Inventory::default() };
+        inv.bag.stow(ItemKind::Stone, 1);
+        inv.shelf.put(ItemKind::Stone, 5);
+        inv.use_up(knife);
+        assert!(!inv.bag.has(ItemKind::Stone));
+        assert_eq!(inv.shelf.count(ItemKind::Stone), 4);
+    }
+
     // The tool belt, worn at the waist: tools hung on it are carried out
     // of the bag.
 
@@ -1306,6 +1423,16 @@ mod tests {
         let mut v = upset();
         pass(&mut v, Ailment::UpsetStomach.minutes(), Rest::Asleep);
         assert!(!v.has(Ailment::UpsetStomach));
+    }
+
+    #[test]
+    fn an_upset_stomach_passes_faster_in_a_bed() {
+        let mut bed = upset();
+        pass(&mut bed, Ailment::UpsetStomach.minutes() / 2, Rest::Bedded);
+        assert!(!bed.has(Ailment::UpsetStomach));
+        let mut shelter = upset();
+        pass(&mut shelter, Ailment::UpsetStomach.minutes() / 2, Rest::Sheltered);
+        assert!(shelter.has(Ailment::UpsetStomach), "elsewhere it takes its full time");
     }
 
     #[test]

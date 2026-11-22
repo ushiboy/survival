@@ -191,6 +191,10 @@ const WAKE_SKIPPABLE: u32 = 20;
 /// Frames after lying down before a button press wakes the castaway (so
 /// the press that lay them down doesn't).
 const SLEEP_SETTLE: u32 = 30;
+/// How far below where they'd stand the castaway is drawn lying in the bed
+/// (px): their feet are kept at its middle, the head on its pillow.
+const IN_BED_DROP: i32 = 6;
+
 /// Frames between the Zs drifting up from a sleeper.
 const SNORE_EVERY: u32 = 40;
 
@@ -341,12 +345,15 @@ pub enum Action {
         t: u32,
         site: (i32, i32),
     },
-    /// Walking over to the middle of the mill's ground off the mill
-    /// site's bank `site`, to build its next stage there (`Work`), which
-    /// takes `frames`.
+    /// Walking over to `stand` (a cell; the middle of the mill's ground
+    /// off the mill site's bank `site`, or where a furnishing goes in its
+    /// room) and turning to `face`, to work there (`Work`), which takes
+    /// `frames`.
     ToWork {
         t: u32,
         site: (i32, i32),
+        stand: (i32, i32),
+        face: Dir,
         frames: u32,
     },
     /// Building the mill's next stage, for `frames` (time hurries on
@@ -459,8 +466,13 @@ pub enum Deed {
     /// The mill's next stage was built off the mill site's bank (the
     /// cell).
     Built((i32, i32)),
-    /// A at the bench beside the mill's ground: the BUILD screen opens.
+    /// A at the bench beside the mill's ground: the BUILD screen opens
+    /// (or, in the built mill, its workbench).
     AtBench,
+    /// A at the shelf in the mill: its screen opens.
+    AtShelf,
+    /// A at the bed in the mill: the castaway lies down in it.
+    ToBed,
     /// A signal fire was set down in the cell.
     SetSignalFire((i32, i32)),
     /// The signal fire in the cell caught.
@@ -479,6 +491,8 @@ pub struct Player {
     /// Sleeping under a pitched shelter (one is carried): only the
     /// shelter is drawn.
     pub sheltered: bool,
+    /// Lying in the bed in the mill (asleep, or about to get out of it).
+    pub in_bed: bool,
     /// A lit torch is carried (`Some(true)` once it's burning low): it's
     /// held up while standing and walking.
     pub torch: Option<bool>,
@@ -521,6 +535,7 @@ impl Player {
             body: Body::new(px, py, HITBOX),
             facing: Dir::Down,
             sheltered: false,
+            in_bed: false,
             torch: None,
             weak: false,
             can_run: true,
@@ -745,10 +760,10 @@ impl Player {
             self.action = if t >= PITCH_TOTAL { Action::Idle } else { Action::Stake { t, site } };
             return (t == PITCH_SET).then_some(Deed::SetStakes(site));
         }
-        if let Action::ToWork { t, site, frames } = self.action {
-            match self.step_to_stand(t + 1, crate::world::map::stakes_stand(site), Dir::Down, map) {
+        if let Action::ToWork { t, site, stand, face, frames } = self.action {
+            match self.step_to_stand(t + 1, stand, face, map) {
                 Some(true) => self.action = Action::Work { t: 0, site, frames },
-                Some(false) => self.action = Action::ToWork { t: t + 1, site, frames },
+                Some(false) => self.action = Action::ToWork { t: t + 1, site, stand, face, frames },
                 None => {}
             }
             return None;
@@ -868,10 +883,18 @@ impl Player {
             // The bench beside the mill's ground: what building it takes
             // is looked over there.
             let (rx, ry) = self.reach_point();
-            if map.feature(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE)) == crate::world::Feature::SiteBench {
+            let ahead = map.feature(rx.div_euclid(TILE_SIZE), ry.div_euclid(TILE_SIZE));
+            let at = match ahead {
+                crate::world::Feature::SiteBench => Some(Deed::AtBench),
+                // The shelf and bed made for the mill.
+                crate::world::Feature::Shelf(_) => Some(Deed::AtShelf),
+                crate::world::Feature::Bed(_) => Some(Deed::ToBed),
+                _ => None,
+            };
+            if at.is_some() {
                 self.moving = false;
                 self.walk_timer = 0;
-                return Some(Deed::AtBench);
+                return at;
             }
             // A signal fire not yet lit: kneel to drill a fire into it, or
             // without what that takes, stop and think.
@@ -1130,10 +1153,12 @@ impl Player {
         self.torch = None;
     }
 
-    /// Wakes from sleep: sitting up, getting up and looking round.
+    /// Wakes from sleep: sitting up, getting up and looking round; or, in
+    /// the bed, up at once (the game sets them beside it), so as not to
+    /// look as though fallen out of it.
     pub fn wake(&mut self) {
         if self.is_asleep() {
-            self.action = Action::WakeUp { t: WAKE_SIT, end: WAKE_FROM_SLEEP_END };
+            self.action = if self.in_bed { Action::Idle } else { Action::WakeUp { t: WAKE_SIT, end: WAKE_FROM_SLEEP_END } };
         }
     }
 
@@ -1468,7 +1493,26 @@ impl Player {
     pub fn start_work(&mut self, site: (i32, i32), frames: u32) {
         self.moving = false;
         self.walk_timer = 0;
-        self.action = Action::ToWork { t: 0, site, frames };
+        self.action = Action::ToWork { t: 0, site, stand: crate::world::map::stakes_stand(site), face: Dir::Down, frames };
+    }
+
+    /// Sets off to work at `stand` (a cell), facing `face`, for `frames`
+    /// (fitting out the mill: `site` is where the work is done, handed
+    /// back when it's over).
+    pub fn start_work_at(&mut self, site: (i32, i32), stand: (i32, i32), face: Dir, frames: u32) {
+        self.moving = false;
+        self.walk_timer = 0;
+        self.action = Action::ToWork { t: 0, site, stand, face, frames };
+    }
+
+    /// Lies down in the bed (with feet at `feet`, world px) and sleeps.
+    pub fn lie_in_bed(&mut self, feet: (i32, i32)) {
+        self.body.set_feet(feet);
+        self.in_bed = true;
+        self.action = Action::Sleep { t: 0 };
+        self.facing = Dir::Down;
+        self.moving = false;
+        self.walk_timer = 0;
     }
 
     /// Sets to building the mill's next stage off the mill site's bank
@@ -1608,16 +1652,20 @@ impl Player {
 
         if let Action::Sleep { t } = self.action {
             // Curled up asleep, Zs drifting up from the head; under a
-            // shelter only the shelter shows, the Zs rising from its ridge.
+            // shelter only the shelter shows, the Zs rising from its ridge;
+            // in the bed, lying on the back, the head on the pillow.
             let (lx, ly) = (sx - 15, sy + 6);
-            let (hx, hy) = if self.sheltered {
+            let (hx, hy) = if self.in_bed {
+                list.actor(depth, ObjEntry::new(cx, cy + IN_BED_DROP, sprites.player.in_bed, OBJ_PLAYER, prio));
+                (sx + 4, cy + IN_BED_DROP)
+            } else if self.sheltered {
                 list.actor(depth, ObjEntry::new(sx - 12, sy, sprites.lean_to, OBJ_FX, prio));
                 (sx + 6, sy - 2)
             } else {
                 list.actor(depth, ObjEntry::new(lx, ly, sprites.player.sleeping, OBJ_PLAYER, prio));
                 (sx - 10, sy + 4)
             };
-            if shadows {
+            if shadows && !self.in_bed {
                 list.shadow(ObjEntry::new(lx, sy + 15, sprites.shadow_lying, OBJ_SHADOW, ACTOR_PRIORITY));
             }
             for k in 0..2u32 {

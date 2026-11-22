@@ -19,7 +19,8 @@ use serde_json::Value;
 
 use super::bag::Bag;
 use super::cart::Cart;
-use super::mill::{MILL_STAGES, MillWorks};
+use super::mill::{Furnishing, MILL_STAGES, MillWorks};
+use super::shelf::Shelf;
 use super::state::{GameClock, Gear, Vitals};
 use crate::assets::character::Outfit;
 use crate::common::math::Dir;
@@ -33,11 +34,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 7;
+pub const SAVE_VERSION: u32 = 8;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -118,6 +119,21 @@ fn v6_to_v7(save: &mut Value) {
     *made = Value::Object(times);
 }
 
+/// Version 8 added what the water mill has been fitted out with at its
+/// workbench (on the island), and what has been left on its shelf
+/// (carried along with the castaway's things, as it goes into what's made
+/// in the mill): a version 7 save has fitted out nothing and left nothing
+/// on a shelf.
+fn v7_to_v8(save: &mut Value) {
+    if let Some(mill) = save.pointer_mut("/island/mill").and_then(Value::as_object_mut) {
+        mill.insert("furnished".into(), serde_json::json!([]));
+    }
+    if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
+        inventory.insert("shelf".into(), serde_json::json!({ "stock": [] }));
+        inventory.insert("looked_at".into(), serde_json::json!([]));
+    }
+}
+
 fn had_by_a_version_5_save(save: &Value) -> Vec<ItemKind> {
     fn read<T: serde::de::DeserializeOwned>(save: &Value, at: &str) -> Option<T> {
         save.pointer(at).and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -132,7 +148,13 @@ fn had_by_a_version_5_save(save: &Value) -> Vec<ItemKind> {
     let named = |n: &String| RECIPES.iter().find(|r| r.name == n);
     kinds.extend(names("known").iter().filter_map(named).flat_map(|r| r.needs.iter().map(|&(k, _)| k)));
     kinds.extend(names("made").iter().filter_map(named).map(|r| r.makes));
-    if let Some(mill) = read::<MillWorks>(save, "/island/mill") {
+    // The mill as a version 5 save kept it (before it was fitted out).
+    #[derive(serde::Deserialize)]
+    struct Mill {
+        built: usize,
+        delivered: Vec<u32>,
+    }
+    if let Some(mill) = read::<Mill>(save, "/island/mill") {
         let built = MILL_STAGES.iter().take(mill.built).flat_map(|s| s.needs.iter().map(|&(k, _)| k));
         let left = MILL_STAGES.get(mill.built).into_iter().flat_map(|s| s.needs.iter().zip(&mill.delivered).filter(|&(_, &n)| n > 0).map(|(&(k, _), _)| k));
         kinds.extend(built.chain(left));
@@ -222,6 +244,10 @@ pub struct Carried {
     pub cart: Option<Bag>,
     /// Every kind of thing that has been in the bag.
     pub had: Vec<ItemKind>,
+    /// What has been left on the shelf in the mill.
+    pub shelf: Shelf,
+    /// The furnishings opened at the mill's workbench.
+    pub looked_at: Vec<Furnishing>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -310,6 +336,7 @@ mod tests {
         include_str!("save_samples/v5.json"),
         include_str!("save_samples/v6.json"),
         include_str!("save_samples/v7.json"),
+        include_str!("save_samples/v8.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -443,6 +470,23 @@ mod tests {
     #[test]
     fn the_sample_keeps_how_many_times_each_thing_was_made() {
         assert_eq!(load(SAVE_VERSION).inventory.recipes.times_made(ItemKind::StoneKnife), 3);
+    }
+
+    #[test]
+    fn a_version_7_save_has_fitted_out_nothing_and_left_nothing_on_a_shelf() {
+        let s = load(7);
+        assert!(s.island.mill.furnished.is_empty());
+        assert!(s.inventory.shelf.lines().is_empty());
+        assert!(s.inventory.looked_at.is_empty());
+    }
+
+    #[test]
+    fn the_sample_keeps_what_the_mill_is_fitted_out_with_and_whats_on_its_shelf() {
+        let s = load(SAVE_VERSION);
+        assert!(s.island.mill.has(Furnishing::Shelf));
+        assert_eq!(s.inventory.shelf.count(ItemKind::Stone), 12);
+        assert_eq!(s.inventory.shelf.count(ItemKind::Bamboo), 7);
+        assert_eq!(s.inventory.looked_at, vec![Furnishing::Shelf]);
     }
 
     #[test]

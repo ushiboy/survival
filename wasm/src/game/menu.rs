@@ -26,7 +26,7 @@
 //! slot straight away, from the items page.
 
 use super::bag::{BAG_W, Bag, Placed, footprint};
-use super::mill::MillWorks;
+use super::mill::{Furnishing, MillWorks};
 use super::state::{Gear, HOOK_CELLS, Inventory};
 use crate::common::input::{Buttons, InputState};
 use crate::crafting::{RECIPES, RecipeOrder};
@@ -121,10 +121,20 @@ pub enum Page {
     /// Leaving materials at the mill's site and building its next stage
     /// (only near its marked-out ground, while there's a stage to build).
     Build,
+    /// Fitting out the mill (at its workbench, once it's built): what can
+    /// be made for it, and making it.
+    FitOut,
+    /// At the shelf: putting things from the bag on it.
+    ShelveBag,
+    /// At the shelf: putting things from the cart on it (only with the
+    /// cart at hand).
+    ShelveCart,
+    /// At the shelf: what's on it, taken off into the bag or the cart.
+    Shelf,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Build];
+    pub const ALL: [Page; 9] = [Page::Items, Page::Craft, Page::Gear, Page::Cart, Page::Build, Page::FitOut, Page::ShelveBag, Page::ShelveCart, Page::Shelf];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -133,6 +143,10 @@ impl Page {
             Page::Gear => "GEAR",
             Page::Cart => "CART",
             Page::Build => "BUILD",
+            Page::FitOut => "FIT OUT",
+            Page::ShelveBag => "BAG",
+            Page::ShelveCart => "CART",
+            Page::Shelf => "SHELF",
         }
     }
 }
@@ -182,6 +196,9 @@ pub fn equip_slot(gear: &Gear, kind: ItemKind) -> Option<Slot> {
 
 /// Recipes listed on one page of the crafting list.
 pub const RECIPES_PER_PAGE: usize = 8;
+
+/// Kinds listed on one page of what's on the shelf.
+pub const SHELF_PER_PAGE: usize = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -235,6 +252,26 @@ pub enum Mode {
         row: usize,
         confirming: bool,
     },
+    /// At the workbench, choosing from what can be made to fit out the
+    /// mill (`choice` is a place in `furnishings`).
+    FitOut {
+        choice: usize,
+    },
+    /// Looking over one furnishing (`confirming` while asking whether to
+    /// make it).
+    Furnishing {
+        which: Furnishing,
+        confirming: bool,
+    },
+    /// At the shelf, the cursor (`BagMenu::cursor`) on a cell of the bag
+    /// or (`cart`) of the cart's load, to put what's there on the shelf.
+    Shelve {
+        cart: bool,
+    },
+    /// At the shelf, on a line of what's on it (`choice`), to take it off.
+    Shelf {
+        choice: usize,
+    },
 }
 
 /// What the game must do after a frame of the bag screen.
@@ -256,6 +293,10 @@ pub enum Outcome {
     /// As many of a kind as the mill's next stage still takes are to be
     /// left at its site (from the bag, then the cart).
     Deliver(ItemKind),
+    /// The mill is to be fitted out with this: everything it takes is at
+    /// hand (in the bag, the cart and on the shelf), and the tools are
+    /// carried. The screen closes.
+    Furnish(Furnishing),
     /// The mill's next stage is to be built: everything it takes is in,
     /// and the tools are carried. The bag closes.
     Build,
@@ -282,6 +323,13 @@ pub struct BagMenu {
     /// bench beside its ground (the build page is there only then, on its
     /// own, not among the bag's pages).
     pub works: Option<MillWorks>,
+    /// The furnishings the castaway is fit to see through making (their
+    /// hours of work wouldn't leave them close to collapse), while the
+    /// workbench is open.
+    pub fit_for: Vec<Furnishing>,
+    /// The shelf's screen is open (at the shelf in the mill): its pages
+    /// are there only then, on their own.
+    pub at_shelf: bool,
     held_frames: u32,
 }
 
@@ -382,9 +430,12 @@ impl BagMenu {
         Page::ALL
             .into_iter()
             .filter(|&p| match p {
-                _ if self.works.is_some() => p == Page::Build,
+                _ if self.works.is_some() => p == if self.works.as_ref().is_some_and(|w| w.next().is_some()) { Page::Build } else { Page::FitOut },
+                Page::ShelveBag | Page::Shelf => self.at_shelf,
+                Page::ShelveCart => self.at_shelf && self.cart_at_hand,
+                _ if self.at_shelf => false,
                 Page::Cart => self.cart_at_hand,
-                Page::Build => false,
+                Page::Build | Page::FitOut => false,
                 _ => true,
             })
             .collect()
@@ -400,8 +451,54 @@ impl BagMenu {
             cart_at_hand: false,
             fit_to_build: true,
             works: None,
+            fit_for: Furnishing::ALL.to_vec(),
+            at_shelf: false,
             held_frames: 0,
         }
+    }
+
+    /// Opens the workbench in the built mill: what can be made to fit it
+    /// out, with what it has been fitted out with so far.
+    pub fn fitting_out(works: MillWorks) -> Self {
+        Self { mode: Mode::FitOut { choice: 0 }, works: Some(works), ..Self::browse() }
+    }
+
+    /// Opens the shelf's screen, on the bag's page.
+    pub fn at_the_shelf() -> Self {
+        Self { mode: Mode::Shelve { cart: false }, at_shelf: true, ..Self::browse() }
+    }
+
+    /// What's listed at the workbench: each furnishing thought of (every
+    /// material it takes has been had), made or not.
+    pub fn furnishings(&self, inv: &Inventory) -> Vec<Furnishing> {
+        Furnishing::ALL.into_iter().filter(|f| f.thought_of(|k| inv.has_had(k))).collect()
+    }
+
+    /// Whether the mill has been fitted out with `f` already.
+    pub fn furnished(&self, f: Furnishing) -> bool {
+        self.works.as_ref().is_some_and(|w| w.has(f))
+    }
+
+    /// How many of `kind` are at hand to fit out the mill with: in the
+    /// bag, on the shelf (while it's at hand) and in the cart (while it
+    /// is).
+    pub fn to_furnish_with(&self, inv: &Inventory, kind: ItemKind) -> u32 {
+        inv.have(kind) + inv.cart.as_ref().filter(|_| self.cart_at_hand).map_or(0, |c| c.count(kind))
+    }
+
+    /// Why the mill can't be fitted out with `f` now, if it can't: made
+    /// already, then the materials, the tools and the strength for it.
+    pub fn why_not_furnish(&self, inv: &Inventory, f: Furnishing) -> Option<&'static str> {
+        if self.furnished(f) {
+            return Some("NOT NEEDED NOW");
+        }
+        if f.needs().iter().any(|&(k, n)| self.to_furnish_with(inv, k) < n) {
+            return Some("NOT ENOUGH MATERIALS");
+        }
+        if !f.tools().iter().all(|&t| inv.carries(t)) {
+            return Some("MISSING A TOOL");
+        }
+        (!self.fit_for.contains(&f)).then_some("TOO WEAK TO BUILD")
     }
 
     /// Opens the BUILD screen (at the bench beside the mill's ground), on
@@ -447,6 +544,10 @@ impl BagMenu {
             Mode::Gear { .. } | Mode::GearPick { .. } => Page::Gear,
             Mode::Cart { .. } => Page::Cart,
             Mode::Build { .. } => Page::Build,
+            Mode::FitOut { .. } | Mode::Furnishing { .. } => Page::FitOut,
+            Mode::Shelve { cart: false } => Page::ShelveBag,
+            Mode::Shelve { cart: true } => Page::ShelveCart,
+            Mode::Shelf { .. } => Page::Shelf,
             _ => Page::Items,
         }
     }
@@ -462,6 +563,12 @@ impl BagMenu {
                 Mode::Cart { in_cart: false }
             }
             Page::Build => Mode::Build { row: 0, confirming: false },
+            Page::FitOut => Mode::FitOut { choice: 0 },
+            Page::ShelveBag | Page::ShelveCart => {
+                self.cursor = (0, 0);
+                Mode::Shelve { cart: page == Page::ShelveCart }
+            }
+            Page::Shelf => Mode::Shelf { choice: 0 },
         };
     }
 
@@ -471,7 +578,9 @@ impl BagMenu {
     /// taken.
     fn switch_page(&mut self, dx: i32) -> bool {
         let on_tabs = matches!(self.mode, Mode::Tabs(_));
-        if !on_tabs && !matches!(self.mode, Mode::Browse | Mode::Crafting { .. } | Mode::Gear { .. } | Mode::Cart { .. }) {
+        let page_mode =
+            matches!(self.mode, Mode::Browse | Mode::Crafting { .. } | Mode::Gear { .. } | Mode::Cart { .. } | Mode::Shelve { .. } | Mode::Shelf { .. });
+        if !on_tabs && !page_mode {
             return false;
         }
         let page = self.page();
@@ -621,6 +730,10 @@ impl BagMenu {
             Mode::Holding(held) => self.update_holding(input, inv, held, step),
             Mode::Cart { in_cart } => self.update_cart(input, inv, in_cart, step),
             Mode::Build { row, confirming } => self.update_build(input, inv, row, confirming, step),
+            Mode::FitOut { choice } => self.update_fit_out(input, inv, choice, step),
+            Mode::Furnishing { which, confirming } => self.update_furnishing(input, inv, which, confirming),
+            Mode::Shelve { cart } => self.update_shelve(input, inv, cart, step),
+            Mode::Shelf { choice } => self.update_shelf(input, inv, choice, step),
             Mode::Crafting { choice } => self.update_crafting(input, inv, choice, step),
             Mode::Sorting { choice, pick } => {
                 let orders = RecipeOrder::ALL;
@@ -790,7 +903,7 @@ impl BagMenu {
         }
         if !recipe.makes.goes_in_bag() && !recipe.at_fire {
             inv.recipes.made(index);
-            inv.bag.use_up(recipe);
+            inv.use_up(recipe);
             self.notice = Some("MADE IT!");
             return Outcome::Made(recipe.makes);
         }
@@ -799,9 +912,8 @@ impl BagMenu {
             // Cooked over the fire, outside the bag.
             return Outcome::Cook(index);
         }
-        let bag = &mut inv.bag;
-        bag.use_up(recipe);
-        if bag.stow_one(recipe.makes) {
+        inv.use_up(recipe);
+        if inv.bag.stow_one(recipe.makes) {
             inv.took(recipe.makes);
             self.notice = Some("MADE IT!");
         } else {
@@ -926,6 +1038,163 @@ impl BagMenu {
                 self.notice = None;
             }
         }
+        Outcome::Stay
+    }
+
+    /// The workbench's list: up and down through it; A opens the one at
+    /// the cursor, B closes the screen.
+    fn update_fit_out(&mut self, input: &InputState, inv: &mut Inventory, choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        let listed = self.furnishings(inv);
+        let mut choice = choice.min(listed.len().saturating_sub(1));
+        if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
+            choice = (choice as i32 + dy).clamp(0, listed.len().saturating_sub(1) as i32) as usize;
+            self.notice = None;
+        }
+        self.mode = Mode::FitOut { choice };
+        if input.pressed(Buttons::B) {
+            return Outcome::Close;
+        }
+        if let Some(&which) = listed.get(choice).filter(|_| input.pressed(Buttons::A)) {
+            inv.look_at_furnishing(which);
+            self.mode = Mode::Furnishing { which, confirming: false };
+            self.notice = None;
+        }
+        Outcome::Stay
+    }
+
+    /// One furnishing: A asks whether to make it (or says why it can't be
+    /// made), and A again sets to making it; B goes back (or, while
+    /// asking, doesn't make it).
+    fn update_furnishing(&mut self, input: &InputState, inv: &Inventory, which: Furnishing, confirming: bool) -> Outcome {
+        if confirming {
+            if input.pressed(Buttons::A) {
+                self.mode = Mode::Furnishing { which, confirming: false };
+                return match self.why_not_furnish(inv, which) {
+                    Some(why) => {
+                        self.notice = Some(why);
+                        Outcome::Stay
+                    }
+                    None => Outcome::Furnish(which),
+                };
+            }
+            if input.pressed(Buttons::B) {
+                self.mode = Mode::Furnishing { which, confirming: false };
+                self.notice = None;
+            }
+            return Outcome::Stay;
+        }
+        if input.pressed(Buttons::B) {
+            let choice = self.furnishings(inv).iter().position(|&f| f == which).unwrap_or(0);
+            self.mode = Mode::FitOut { choice };
+            self.notice = None;
+        } else if input.pressed(Buttons::A) {
+            match self.why_not_furnish(inv, which) {
+                Some(why) => self.notice = Some(why),
+                None => {
+                    self.mode = Mode::Furnishing { which, confirming: true };
+                    self.notice = None;
+                }
+            }
+        }
+        Outcome::Stay
+    }
+
+    /// The shelf's page for the bag (or `cart`, the cart's): the cursor
+    /// goes over its cells; A puts the stack under it on the shelf, Y every
+    /// one of that kind there is in it. Up off the top row goes to the
+    /// tabs; B closes the screen.
+    fn update_shelve(&mut self, input: &InputState, inv: &mut Inventory, cart: bool, step: Option<(i32, i32)>) -> Outcome {
+        let page = if cart { Page::ShelveCart } else { Page::ShelveBag };
+        let Inventory { bag, cart: load, shelf, .. } = inv;
+        let grid = if cart {
+            match load.as_mut() {
+                Some(c) => c,
+                None => {
+                    self.mode = Mode::Tabs(page);
+                    return Outcome::Stay;
+                }
+            }
+        } else {
+            bag
+        };
+        if let Some((dx, dy)) = step {
+            if self.cursor.1 + dy < 0 {
+                self.mode = Mode::Tabs(page);
+                self.notice = None;
+                return Outcome::Stay;
+            }
+            self.cursor = ((self.cursor.0 + dx).clamp(0, grid.width() - 1), (self.cursor.1 + dy).clamp(0, grid.rows() - 1));
+            self.notice = None;
+        }
+        if input.pressed(Buttons::B) {
+            return Outcome::Close;
+        }
+        let Some(i) = grid.at(self.cursor.0, self.cursor.1) else { return Outcome::Stay };
+        let kind = grid.items()[i].kind;
+        if input.pressed(Buttons::A) {
+            let p = grid.remove(i);
+            shelf.put(p.kind, p.count);
+            self.notice = Some("ON THE SHELF");
+        } else if input.pressed(Buttons::Y) {
+            let n = grid.count(kind);
+            while let Some(i) = grid.items().iter().position(|p| p.kind == kind) {
+                grid.remove(i);
+            }
+            shelf.put(kind, n);
+            self.notice = Some("ALL ON THE SHELF");
+        }
+        Outcome::Stay
+    }
+
+    /// The shelf's page of what's on it: up and down through it, left and
+    /// right a page at a time; A takes a stack's worth of the kind at the
+    /// cursor off into the bag, Y into the cart (with it at hand). Up off
+    /// the top goes to the tabs; B closes the screen.
+    fn update_shelf(&mut self, input: &InputState, inv: &mut Inventory, choice: usize, step: Option<(i32, i32)>) -> Outcome {
+        let last = inv.shelf.lines().len().saturating_sub(1) as i32;
+        let mut choice = (choice as i32).min(last).max(0) as usize;
+        match step {
+            Some((0, dy)) if dy < 0 && choice == 0 => {
+                self.mode = Mode::Tabs(Page::Shelf);
+                self.notice = None;
+                return Outcome::Stay;
+            }
+            Some((0, dy)) => choice = (choice as i32 + dy).clamp(0, last) as usize,
+            Some((dx, _)) => {
+                let page = (choice / SHELF_PER_PAGE) as i32 + dx;
+                if (0..=last / SHELF_PER_PAGE as i32).contains(&page) {
+                    choice = (page * SHELF_PER_PAGE as i32 + (choice % SHELF_PER_PAGE) as i32).min(last) as usize;
+                }
+            }
+            None => {}
+        }
+        if step.is_some() {
+            self.notice = None;
+        }
+        self.mode = Mode::Shelf { choice };
+        if input.pressed(Buttons::B) {
+            return Outcome::Close;
+        }
+        let into_cart = input.pressed(Buttons::Y) && self.cart_at_hand && inv.cart.is_some();
+        if !input.pressed(Buttons::A) && !into_cart {
+            return Outcome::Stay;
+        }
+        let Some(&(kind, n)) = inv.shelf.lines().get(choice) else { return Outcome::Stay };
+        let want = n.min(kind.max_stack());
+        let to = if into_cart { inv.cart.as_mut().expect("the cart") } else { &mut inv.bag };
+        let taken = want - to.stow(kind, want);
+        inv.shelf.take(kind, taken);
+        if !into_cart {
+            inv.took(kind);
+        }
+        self.notice = Some(match (taken, into_cart) {
+            (0, _) => "NO ROOM",
+            (t, _) if t < want => "SOME OF IT WOULDN'T FIT",
+            (_, false) => "INTO THE BAG",
+            (_, true) => "INTO THE CART",
+        });
+        let last = inv.shelf.lines().len().saturating_sub(1);
+        self.mode = Mode::Shelf { choice: choice.min(last) };
         Outcome::Stay
     }
 
@@ -1787,5 +2056,210 @@ mod tests {
         press(&mut menu, &mut inv, Buttons::B);
         let Mode::Crafting { choice } = menu.mode else { panic!("{:?}", menu.mode) };
         assert_eq!(menu.recipe_list(&inv)[choice], knife, "the stones are used up, so the knife has moved down");
+    }
+
+    // The workbench in the built mill: fitting it out.
+
+    /// The mill built (every stage up), the workbench open on it, with
+    /// every material of every furnishing had.
+    fn at_the_workbench() -> (BagMenu, Inventory) {
+        let works = MillWorks { built: super::super::mill::MILL_STAGES.len(), ..MillWorks::default() };
+        let mut inv = Inventory::default();
+        for f in Furnishing::ALL {
+            for &(k, _) in f.needs() {
+                if !inv.had.contains(&k) {
+                    inv.had.push(k);
+                }
+            }
+        }
+        (BagMenu::fitting_out(works), inv)
+    }
+
+    /// Everything `f` takes, in the bag.
+    fn ready_to_make(inv: &mut Inventory, f: Furnishing) {
+        for &(k, n) in f.needs() {
+            inv.bag.stow(k, n);
+        }
+        for &t in f.tools() {
+            inv.bag.stow_one(t);
+        }
+    }
+
+    #[test]
+    fn the_workbench_is_on_its_own_once_the_mill_is_built() {
+        let (menu, _) = at_the_workbench();
+        assert_eq!(menu.pages(), vec![Page::FitOut]);
+        assert_eq!(BagMenu::building(MillWorks::default()).pages(), vec![Page::Build]);
+    }
+
+    #[test]
+    fn furnishings_come_to_mind_at_the_workbench_from_what_has_been_had() {
+        let (menu, mut inv) = at_the_workbench();
+        assert_eq!(menu.furnishings(&inv).len(), Furnishing::ALL.len());
+        inv.had.clear();
+        assert!(menu.furnishings(&inv).is_empty());
+    }
+
+    #[test]
+    fn a_furnishing_is_fresh_at_the_workbench_until_looked_at() {
+        let (mut menu, mut inv) = at_the_workbench();
+        let listed = menu.furnishings(&inv);
+        assert!(listed.iter().all(|&f| inv.is_fresh_furnishing(f)), "none opened yet");
+        press_a(&mut menu, &mut inv);
+        assert!(!inv.is_fresh_furnishing(listed[0]), "opened, it's no longer marked");
+        assert!(inv.is_fresh_furnishing(listed[1]));
+    }
+
+    #[test]
+    fn a_furnishing_not_yet_thought_of_isnt_fresh() {
+        let (_, mut inv) = at_the_workbench();
+        inv.had.clear();
+        assert!(Furnishing::ALL.iter().all(|&f| !inv.is_fresh_furnishing(f)));
+    }
+
+    #[test]
+    fn a_furnishing_is_asked_about_before_it_is_made() {
+        let (mut menu, mut inv) = at_the_workbench();
+        let f = menu.furnishings(&inv)[0];
+        ready_to_make(&mut inv, f);
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.mode, Mode::Furnishing { which: f, confirming: false });
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.mode, Mode::Furnishing { which: f, confirming: true });
+        let mut input = InputState::default();
+        input.update(Buttons::A);
+        assert_eq!(menu.update(&input, &mut inv), Outcome::Furnish(f));
+    }
+
+    #[test]
+    fn a_furnishing_waits_for_its_materials_then_its_tools() {
+        let (menu, mut inv) = at_the_workbench();
+        let f = Furnishing::Shelf;
+        assert_eq!(menu.why_not_furnish(&inv, f), Some("NOT ENOUGH MATERIALS"));
+        for &(k, n) in f.needs() {
+            inv.bag.stow(k, n);
+        }
+        assert_eq!(menu.why_not_furnish(&inv, f), Some("MISSING A TOOL"));
+        for &t in f.tools() {
+            inv.bag.stow_one(t);
+        }
+        assert_eq!(menu.why_not_furnish(&inv, f), None);
+    }
+
+    #[test]
+    fn materials_in_the_cart_and_on_the_shelf_count_at_the_workbench() {
+        let (mut menu, mut inv) = at_the_workbench();
+        let f = Furnishing::Shelf;
+        for &t in f.tools() {
+            inv.bag.stow_one(t);
+        }
+        let mut cart = Bag::with_size(8, 6);
+        let (&(first, n), rest) = f.needs().split_first().unwrap();
+        cart.stow(first, n);
+        inv.cart = Some(cart);
+        for &(k, n) in rest {
+            inv.shelf.put(k, n);
+        }
+        inv.shelf_at_hand = true;
+        assert_eq!(menu.why_not_furnish(&inv, f), Some("NOT ENOUGH MATERIALS"), "the cart away");
+        menu.cart_at_hand = true;
+        assert_eq!(menu.why_not_furnish(&inv, f), None);
+    }
+
+    #[test]
+    fn each_furnishing_is_made_only_once() {
+        let (mut menu, mut inv) = at_the_workbench();
+        ready_to_make(&mut inv, Furnishing::Bed);
+        menu.works.as_mut().unwrap().furnish(Furnishing::Bed);
+        assert_eq!(menu.why_not_furnish(&inv, Furnishing::Bed), Some("NOT NEEDED NOW"));
+    }
+
+    #[test]
+    fn a_furnishing_waits_for_the_strength_to_see_it_through() {
+        let (mut menu, mut inv) = at_the_workbench();
+        ready_to_make(&mut inv, Furnishing::Bed);
+        menu.fit_for = vec![Furnishing::Shelf];
+        assert_eq!(menu.why_not_furnish(&inv, Furnishing::Bed), Some("TOO WEAK TO BUILD"));
+    }
+
+    // The shelf in the mill.
+
+    #[test]
+    fn the_shelf_has_pages_for_the_bag_and_itself_and_the_cart_with_it_at_hand() {
+        let mut menu = BagMenu::at_the_shelf();
+        assert_eq!(menu.pages(), vec![Page::ShelveBag, Page::Shelf]);
+        menu.cart_at_hand = true;
+        assert_eq!(menu.pages(), vec![Page::ShelveBag, Page::ShelveCart, Page::Shelf]);
+    }
+
+    #[test]
+    fn a_on_a_stack_in_the_bag_puts_it_all_on_the_shelf() {
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Rope, 3);
+        let mut menu = BagMenu::at_the_shelf();
+        press_a(&mut menu, &mut inv);
+        assert!(!inv.bag.has(ItemKind::Rope));
+        assert_eq!(inv.shelf.count(ItemKind::Rope), 3);
+    }
+
+    #[test]
+    fn y_puts_every_one_of_the_kind_on_the_shelf_and_nothing_else() {
+        let mut inv = Inventory::default();
+        inv.bag.stow(ItemKind::Rope, 12);
+        inv.bag.stow_one(ItemKind::StoneKnife);
+        let mut menu = BagMenu::at_the_shelf();
+        assert_eq!(inv.bag.items()[0].kind, ItemKind::Rope);
+        press(&mut menu, &mut inv, Buttons::Y);
+        assert!(!inv.bag.has(ItemKind::Rope));
+        assert_eq!(inv.shelf.count(ItemKind::Rope), 12);
+        assert!(inv.bag.has(ItemKind::StoneKnife), "another kind stays in the bag");
+    }
+
+    #[test]
+    fn the_carts_load_goes_on_the_shelf_from_its_page() {
+        let mut cart = Bag::with_size(8, 6);
+        cart.stow(ItemKind::LauanTimber, 2);
+        let mut inv = Inventory { cart: Some(cart), ..Inventory::default() };
+        let mut menu = BagMenu::at_the_shelf();
+        menu.cart_at_hand = true;
+        press(&mut menu, &mut inv, Buttons::R);
+        assert_eq!(menu.mode, Mode::Shelve { cart: true });
+        press(&mut menu, &mut inv, Buttons::Y);
+        assert_eq!(inv.shelf.count(ItemKind::LauanTimber), 2);
+        assert_eq!(inv.cart.as_ref().unwrap().count(ItemKind::LauanTimber), 0);
+    }
+
+    #[test]
+    fn a_on_the_shelf_takes_a_stacks_worth_into_the_bag() {
+        let mut inv = Inventory::default();
+        inv.shelf.put(ItemKind::Rope, 12);
+        let mut menu = BagMenu { mode: Mode::Shelf { choice: 0 }, ..BagMenu::at_the_shelf() };
+        press_a(&mut menu, &mut inv);
+        assert_eq!(inv.bag.count(ItemKind::Rope), ItemKind::Rope.max_stack());
+        assert_eq!(inv.shelf.count(ItemKind::Rope), 12 - ItemKind::Rope.max_stack());
+    }
+
+    #[test]
+    fn what_doesnt_fit_in_the_bag_stays_on_the_shelf() {
+        let mut inv = Inventory::default();
+        while inv.bag.stow_one(ItemKind::StoneKnife) {}
+        inv.shelf.put(ItemKind::Stone, 4);
+        let mut menu = BagMenu { mode: Mode::Shelf { choice: 0 }, ..BagMenu::at_the_shelf() };
+        press_a(&mut menu, &mut inv);
+        assert_eq!(menu.notice, Some("NO ROOM"));
+        assert_eq!(inv.shelf.count(ItemKind::Stone), 4);
+    }
+
+    #[test]
+    fn y_on_the_shelf_takes_into_the_cart_with_it_at_hand() {
+        let mut inv = Inventory { cart: Some(Bag::with_size(8, 6)), ..Inventory::default() };
+        inv.shelf.put(ItemKind::Rope, 4);
+        let mut menu = BagMenu { mode: Mode::Shelf { choice: 0 }, ..BagMenu::at_the_shelf() };
+        press(&mut menu, &mut inv, Buttons::Y);
+        assert_eq!(inv.shelf.count(ItemKind::Rope), 4, "the cart away");
+        menu.cart_at_hand = true;
+        press(&mut menu, &mut inv, Buttons::Y);
+        assert_eq!(inv.cart.as_ref().unwrap().count(ItemKind::Rope), 4);
+        assert!(!inv.bag.has(ItemKind::Rope));
     }
 }

@@ -8,9 +8,10 @@ use crate::assets::{HudTiles, SpriteIds};
 use crate::crafting::{RECIPES, RecipeOrder};
 use crate::game::bag::{BAG_W, Bag, Placed, footprint};
 use crate::game::menu::{
-    BagMenu, GearChoice, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, Spot, commands_for, gear_choices, hook_at, item_at, lies_on_hook, need_lines,
-    on_belt,
+    BagMenu, GearChoice, Mode, NEEDS_SHOWN, NeedLine, Page, RECIPES_PER_PAGE, SHELF_PER_PAGE, Spot, commands_for, gear_choices, hook_at, item_at, lies_on_hook,
+    need_lines, on_belt,
 };
+use crate::game::mill::Furnishing;
 use crate::game::state::HOOK_CELLS;
 use crate::game::state::Inventory;
 use crate::items::{ItemKind, Slot};
@@ -126,6 +127,11 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
         draw_build_page(bg3, tiles, inventory, menu);
         return;
     }
+    // So is the workbench in the built mill.
+    if menu.page() == Page::FitOut {
+        draw_fit_out_page(bg3, tiles, inventory, menu);
+        return;
+    }
     // Tabs: the page shown is lit, the others greyed; `>` marks the tab
     // under the cursor while choosing one.
     let pages = menu.pages();
@@ -152,6 +158,17 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     if menu.page() == Page::Gear {
         draw_gear_page(bg3, tiles, list, sprites, inventory, menu);
         return;
+    }
+    match menu.page() {
+        Page::ShelveBag | Page::ShelveCart => {
+            draw_shelve_page(bg3, tiles, list, sprites, inventory, menu, clock);
+            return;
+        }
+        Page::Shelf => {
+            draw_shelf_page(bg3, tiles, inventory, menu);
+            return;
+        }
+        _ => {}
     }
     let rows = bag.rows();
     let hooks = inventory.gear.hooks();
@@ -295,7 +312,24 @@ fn draw_help(bg3: &mut Bg3Layer, tiles: &HudTiles, menu: &BagMenu) {
         Mode::Build { confirming: true, .. } => "A YES   B NO",
         Mode::Build { row, .. } if menu.works.as_ref().and_then(|w| w.next()).is_some_and(|s| row < s.needs.len()) => "A PUT IN   B CLOSE",
         Mode::Build { .. } => "A BUILD   B CLOSE",
+        Mode::FitOut { .. } => "A CHOOSE   B CLOSE",
+        Mode::Furnishing { confirming: true, .. } => "A YES   B NO",
+        Mode::Furnishing { .. } => "A MAKE   B BACK",
+        Mode::Shelve { .. } => "A PUT ON SHELF   B CLOSE",
+        Mode::Shelf { .. } => "A TAKE INTO BAG   B CLOSE",
     };
+    // A second line, under the first, for what Y does (only where it
+    // does something).
+    let y_help = match menu.mode {
+        Mode::Shelve { .. } => Some("Y PUT ALL OF THIS KIND"),
+        Mode::Shelf { .. } if menu.cart_at_hand => Some("Y TAKE INTO CART"),
+        _ => None,
+    };
+    if let Some(y) = y_help {
+        text(bg3, tiles, GRID_COL, LAST_ROW - 3, help);
+        text(bg3, tiles, GRID_COL, LAST_ROW - 1, y);
+        return;
+    }
     text(bg3, tiles, GRID_COL, LAST_ROW - 1, help);
     // The list can be sorted: said at the right end, out of the way.
     if let Mode::Crafting { .. } = menu.mode {
@@ -418,6 +452,208 @@ fn draw_build_page(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, 
         text(bg3, tiles, GRID_COL, NOTICE_ROW, &fit(&ask, HUD_COLS - GRID_COL));
     } else if let Some(n) = menu.notice {
         text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// The workbench in the built mill: what can be made to fit it out (those
+/// made marked DONE, those not yet opened "!"), or one of them opened:
+/// what it is, how long it takes, and what it takes (the materials at
+/// hand counting the cart and the shelf), as a recipe shows them.
+fn draw_fit_out_page(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
+    text(bg3, tiles, GRID_COL, TAB_ROW, "FITTING OUT THE MILL");
+    match menu.mode {
+        Mode::Furnishing { which, confirming } => {
+            draw_furnishing(bg3, tiles, inventory, menu, which);
+            if confirming {
+                text(bg3, tiles, GRID_COL, NOTICE_ROW, &format!("MAKE THE {}?", which.name()));
+            } else if let Some(n) = menu.notice {
+                text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+            }
+            draw_help(bg3, tiles, menu);
+            if !confirming && menu.why_not_furnish(inventory, which).is_some() {
+                text_in(bg3, tiles, GRID_COL, LAST_ROW - 1, "A MAKE", HUD_DIM);
+            }
+        }
+        _ => {
+            let choice = match menu.mode {
+                Mode::FitOut { choice } => Some(choice),
+                _ => None,
+            };
+            for (i, f) in menu.furnishings(inventory).into_iter().enumerate() {
+                let row = GRID_ROW + i * 2;
+                if choice == Some(i) {
+                    text(bg3, tiles, GRID_COL, row, ">");
+                }
+                let ready = menu.why_not_furnish(inventory, f).is_none();
+                text_in(bg3, tiles, GRID_COL + 1, row, f.name(), if ready { HUD_TEXT } else { HUD_DIM });
+                let mut after = GRID_COL + 1 + f.name().len();
+                if inventory.is_fresh_furnishing(f) {
+                    text_in(bg3, tiles, after, row, "!", HUD_FOOD);
+                    after += 1;
+                }
+                if menu.furnished(f) {
+                    text_in(bg3, tiles, after + 1, row, "DONE", HUD_DIM);
+                }
+            }
+            if let Some(n) = menu.notice {
+                text(bg3, tiles, GRID_COL, NOTICE_ROW, n);
+            }
+            draw_help(bg3, tiles, menu);
+        }
+    }
+}
+
+/// The first row of what a furnishing takes, on its page (above where a
+/// recipe's start: a furnishing has no picture beside its description).
+const FURNISH_NEEDS_ROW: usize = DESC_ROW + 4;
+
+/// One furnishing opened at the workbench.
+fn draw_furnishing(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu, f: Furnishing) {
+    text(bg3, tiles, GRID_COL, GRID_ROW, f.name());
+    text(bg3, tiles, GRID_COL, GRID_ROW + 1, &format!("TAKES {} HOURS", f.hours()));
+    for (i, line) in wrap(f.description(), HUD_COLS - GRID_COL * 2).iter().take(3).enumerate() {
+        text(bg3, tiles, GRID_COL, DESC_ROW + i, line);
+    }
+    let mut row = FURNISH_NEEDS_ROW;
+    text(bg3, tiles, GRID_COL, row, "MATERIALS");
+    text(bg3, tiles, NEED_COL - 2, row, "NEED");
+    text(bg3, tiles, HAVE_COL - 2, row, "HAVE");
+    for &(kind, n) in f.needs() {
+        row += 1;
+        let have = menu.to_furnish_with(inventory, kind);
+        let palette = need_row(bg3, tiles, row, Supply::of(have, n));
+        text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
+        text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
+        text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", have.min(99)), palette);
+    }
+    row += 2;
+    text(bg3, tiles, GRID_COL, row, "TOOLS");
+    text(bg3, tiles, HAVE_COL - 2, row, "HAVE");
+    for &tool in f.tools() {
+        row += 1;
+        let have = Supply::from(inventory.carries(tool));
+        let palette = need_row(bg3, tiles, row, have);
+        text_in(bg3, tiles, GRID_COL + 2, row, tool.name(), palette);
+        text_in(bg3, tiles, HAVE_COL - 1, row, if have == Supply::Enough { "YES" } else { " NO" }, palette);
+    }
+}
+
+/// The row naming what's under the cursor on the shelf's pages, the row
+/// of what was just done under it, and (on the shelf's own page) the
+/// rows its lines start on, a board under each.
+const SHELF_NAME_ROW: usize = NOTICE_ROW - 2;
+const SHELF_NOTICE_ROW: usize = NOTICE_ROW - 1;
+// The help (two lines, a row apart, from `LAST_ROW - 3`) comes below.
+const _: () = assert!(SHELF_NOTICE_ROW < LAST_ROW - 3);
+const SHELF_TOP_ROW: usize = TAB_ROW + 2;
+
+/// The shelf's page for the bag or the cart: its grid, the cursor on a
+/// stack in it, and every other stack of that kind lit (what Y puts on
+/// the shelf with it); its name below, and how many are on the shelf.
+fn draw_shelve_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, sprites: &SpriteIds, inventory: &Inventory, menu: &BagMenu, clock: u32) {
+    let cart = menu.page() == Page::ShelveCart;
+    let grid = if cart {
+        match inventory.cart.as_ref() {
+            Some(c) => c,
+            None => return,
+        }
+    } else {
+        &inventory.bag
+    };
+    draw_grid(bg3, tiles, list, sprites, grid, GRID_COL, if cart { None } else { inventory.gear.hand });
+    // Brackets round a stack in the grid (top-left cell `x`, `y`, `w` by
+    // `h` cells).
+    let brackets = |list: &mut DrawList, (x, y, w, h): (i32, i32, i32, i32)| {
+        let x0 = GRID_COL as i32 * 8 + x * CELL;
+        let y0 = GRID_ROW as i32 * 8 + y * CELL;
+        let (x1, y1) = (x0 + w * CELL - 8, y0 + h * CELL - 8);
+        for (x, y, fh, fv) in [(x0 - 1, y0 - 1, false, false), (x1 + 1, y0 - 1, true, false), (x0 - 1, y1 + 1, false, true), (x1 + 1, y1 + 1, true, true)] {
+            let mut e = ObjEntry::new(x, y, sprites.bag.corner, OBJ_FX, 3).flipped(fh);
+            e.flip_v = fv;
+            list.sky(e);
+        }
+    };
+    if let Mode::Shelve { .. } = menu.mode {
+        let (cx, cy) = menu.cursor;
+        let item = grid.at(cx, cy).map(|i| grid.items()[i]);
+        if let Some(p) = item {
+            // The other stacks of the kind (what Y puts on the shelf with
+            // it): their cells lit, brackets blinking round them.
+            for other in grid.items().iter().filter(|o| o.kind == p.kind && **o != p) {
+                let (w, h) = other.size();
+                for y in 0..h as usize {
+                    for x in 0..w as usize {
+                        for q in 0..4 {
+                            let (col, row) = (GRID_COL + (other.x as usize + x) * 2 + q % 2, GRID_ROW + (other.y as usize + y) * 2 + q / 2);
+                            bg3.put(col, row, tiles.bag_cell[q], HUD_DIM);
+                        }
+                    }
+                }
+                if (clock / 16).is_multiple_of(2) {
+                    brackets(list, (other.x, other.y, w, h));
+                }
+            }
+            text(bg3, tiles, GRID_COL, SHELF_NAME_ROW, p.kind.name());
+            let on = inventory.shelf.count(p.kind).to_string();
+            text_in(bg3, tiles, TAB_R_COL - on.len() - 6, SHELF_NAME_ROW, "SHELF", HUD_DIM);
+            right_text(bg3, tiles, SHELF_NAME_ROW, &on);
+        }
+        brackets(list, item.map_or((cx, cy, 1, 1), |p| (p.x, p.y, p.size().0, p.size().1)));
+    }
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, SHELF_NOTICE_ROW, n);
+    }
+    draw_help(bg3, tiles, menu);
+}
+
+/// The shelf's own page: what's on it, a kind to a line (A to Z) with how
+/// many, a board under each line; a page of them at a time. Below, how
+/// many of the kind at the cursor are in the bag and the cart.
+fn draw_shelf_page(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: &BagMenu) {
+    let lines = inventory.shelf.lines();
+    let choice = match menu.mode {
+        Mode::Shelf { choice } => Some(choice),
+        _ => None,
+    };
+    let at = choice.unwrap_or(0);
+    let page = at / SHELF_PER_PAGE;
+    let pages = lines.len().div_ceil(SHELF_PER_PAGE);
+    for i in 0..SHELF_PER_PAGE {
+        let row = SHELF_TOP_ROW + i * 2;
+        if let Some(&(kind, n)) = lines.get(page * SHELF_PER_PAGE + i) {
+            if choice == Some(page * SHELF_PER_PAGE + i) {
+                text(bg3, tiles, GRID_COL, row, ">");
+            }
+            text(bg3, tiles, GRID_COL + 1, row, kind.name());
+            right_text(bg3, tiles, row, &n.to_string());
+        }
+        for col in GRID_COL..=TAB_R_COL {
+            bg3.put(col, row + 1, tiles.shelf_board, HUD_FOOD);
+        }
+    }
+    if lines.is_empty() {
+        text_in(bg3, tiles, GRID_COL + 1, SHELF_TOP_ROW, "NOTHING ON IT", HUD_DIM);
+    }
+    let foot = SHELF_TOP_ROW + SHELF_PER_PAGE * 2;
+    const _: () = assert!(SHELF_TOP_ROW + SHELF_PER_PAGE * 2 + 1 < LAST_ROW - 3, "the list, its foot and notice above the help");
+    if pages > 1 {
+        let label = format!("{}/{}", page + 1, pages);
+        text_in(bg3, tiles, GRID_COL + 1, foot, "<", if page > 0 { HUD_TEXT } else { HUD_DIM });
+        text(bg3, tiles, GRID_COL + 3, foot, &label);
+        text_in(bg3, tiles, GRID_COL + 4 + label.len(), foot, ">", if page + 1 < pages { HUD_TEXT } else { HUD_DIM });
+    }
+    if let Some(&(kind, _)) = lines.get(at).filter(|_| choice.is_some()) {
+        let in_bag = inventory.bag.count(kind).to_string();
+        let mut said = format!("BAG {in_bag}");
+        if menu.cart_at_hand {
+            let in_cart = inventory.cart.as_ref().map_or(0, |c| c.count(kind));
+            said = format!("{said}  CART {in_cart}");
+        }
+        right_text(bg3, tiles, foot, &said);
+    }
+    if let Some(n) = menu.notice {
+        text(bg3, tiles, GRID_COL, foot + 1, n);
     }
     draw_help(bg3, tiles, menu);
 }
@@ -643,7 +879,7 @@ fn desc_width(w: i32) -> usize {
 /// (headings and gaps ask for nothing).
 fn supply(inventory: &Inventory, menu: &BagMenu, line: NeedLine) -> Supply {
     match line {
-        NeedLine::Material(kind, n) => Supply::of(inventory.bag.count(kind), n),
+        NeedLine::Material(kind, n) => Supply::of(inventory.have(kind), n),
         NeedLine::Tool(kind) => Supply::from(inventory.carries(kind)),
         NeedLine::Fire => Supply::from(menu.near_fire),
         NeedLine::Lathe => Supply::from(menu.near_lathe),
@@ -669,7 +905,7 @@ fn draw_need(bg3: &mut Bg3Layer, tiles: &HudTiles, inventory: &Inventory, menu: 
             let palette = need_row(bg3, tiles, row, have);
             text_in(bg3, tiles, GRID_COL + 2, row, kind.name(), palette);
             text_in(bg3, tiles, NEED_COL, row, &format!("{n:>2}"), palette);
-            text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", inventory.bag.count(kind).min(99)), palette);
+            text_in(bg3, tiles, HAVE_COL, row, &format!("{:>2}", inventory.have(kind).min(99)), palette);
         }
         NeedLine::Tool(kind) => {
             let palette = need_row(bg3, tiles, row, have);

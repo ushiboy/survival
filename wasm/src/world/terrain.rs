@@ -307,6 +307,13 @@ pub enum Feature {
     /// A wall of the mill's room (`Terrain::Indoors`), or the dark round
     /// it: in the way.
     MillRoomWall,
+    /// The shelf made for the mill, against its room's north wall, three
+    /// cells wide (`0` the west end). Things are left on it. In the way.
+    Shelf(u8),
+    /// The bed made for the mill, by its room's north wall, two cells wide
+    /// and three long (`dx + 2 * dy` from its top-left cell, the head end
+    /// north). Slept in. In the way.
+    Bed(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -338,7 +345,9 @@ pub fn tile_props(terrain: Terrain, feature: Feature) -> TileProps {
         | Feature::Lathe(_)
         | Feature::SiteBench
         | Feature::MillWall
-        | Feature::MillRoomWall => true,
+        | Feature::MillRoomWall
+        | Feature::Shelf(_)
+        | Feature::Bed(_) => true,
         Feature::Marking(m) => m.stake,
         Feature::Framed(post) => post,
         _ => false,
