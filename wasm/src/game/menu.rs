@@ -332,8 +332,8 @@ fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) ->
                 return Some("YOU HAVE ONE ALREADY");
             }
         }
-        MakeLimit::Once => {
-            if inv.recipes.ever_made(recipe.makes) {
+        MakeLimit::UpTo(n) => {
+            if inv.recipes.times_made(recipe.makes) >= n {
                 return Some("NOT NEEDED NOW");
             }
         }
@@ -1191,20 +1191,33 @@ mod tests {
         (menu, inv, index)
     }
 
+    /// The things that may be made only so many times, with how many.
+    fn limited() -> impl Iterator<Item = (ItemKind, u32)> {
+        ItemKind::ALL.into_iter().filter_map(|k| match k.make_limit() {
+            MakeLimit::UpTo(n) => Some((k, n)),
+            _ => None,
+        })
+    }
+
     #[test]
-    fn a_thing_needed_only_once_is_made_the_first_time() {
-        for kind in ItemKind::ALL.into_iter().filter(|k| k.make_limit() == MakeLimit::Once) {
-            let (mut menu, mut inv, _) = at_the_recipe_for(kind);
+    fn a_limited_thing_is_made_until_as_many_as_needed_have_been() {
+        for (kind, n) in limited() {
+            let (mut menu, mut inv, index) = at_the_recipe_for(kind);
+            for _ in 1..n {
+                inv.recipes.made(index);
+            }
             press_a(&mut menu, &mut inv);
             assert!(matches!(menu.mode, Mode::Recipe { confirming: true, .. }), "{kind:?} asks to be made");
         }
     }
 
     #[test]
-    fn a_thing_needed_only_once_isnt_made_again() {
-        for kind in ItemKind::ALL.into_iter().filter(|k| k.make_limit() == MakeLimit::Once) {
+    fn a_limited_thing_isnt_made_once_as_many_as_needed_have_been() {
+        for (kind, n) in limited() {
             let (mut menu, mut inv, index) = at_the_recipe_for(kind);
-            inv.recipes.made(index);
+            for _ in 0..n {
+                inv.recipes.made(index);
+            }
             let before = inv.bag.clone();
             press_a(&mut menu, &mut inv);
             assert_eq!(menu.notice, Some("NOT NEEDED NOW"), "{kind:?}");
@@ -1226,8 +1239,15 @@ mod tests {
     #[test]
     fn the_bridge_the_ladder_the_mill_parts_and_the_stakes_are_needed_only_once() {
         for kind in [ItemKind::LogBridge, ItemKind::Ladder, ItemKind::WaterWheel, ItemKind::WoodLathe, ItemKind::MarkingStakes] {
-            assert_eq!(kind.make_limit(), MakeLimit::Once, "{kind:?}");
+            assert_eq!(kind.make_limit(), MakeLimit::UpTo(1), "{kind:?}");
         }
+    }
+
+    #[test]
+    fn spoked_wheels_are_needed_as_many_as_a_handcart_takes() {
+        let cart = RECIPES.iter().find(|r| r.makes == ItemKind::Handcart).unwrap();
+        let wheels = cart.needs.iter().find(|&&(k, _)| k == ItemKind::SpokedWheel).unwrap().1;
+        assert_eq!(ItemKind::SpokedWheel.make_limit(), MakeLimit::UpTo(wheels));
     }
 
     #[test]

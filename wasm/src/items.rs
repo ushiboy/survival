@@ -183,9 +183,10 @@ pub enum MakeLimit {
     Any,
     /// Not another while one is had (a handcart: YOU HAVE ONE ALREADY).
     OneAtATime,
-    /// Only ever one: it's set up in the one place on the island it's for,
-    /// so once made, it isn't made again (NOT NEEDED NOW).
-    Once,
+    /// No more than this many ever (NOT NEEDED NOW): as many as the island
+    /// has use for, such as one for the one place it's set up in, or the
+    /// wheels a handcart takes.
+    UpTo(u32),
 }
 
 /// What using an item does.
@@ -410,10 +411,12 @@ impl ItemKind {
 
     /// How many may be made (see `MakeLimit`). Those made only once are
     /// set up where they're used, each in a single place on this island;
-    /// look again at each if another place comes to need one.
+    /// spoked wheels go only into the handcart. Look again at each if
+    /// another place or use comes to need more.
     pub fn make_limit(self) -> MakeLimit {
         match self {
-            ItemKind::LogBridge | ItemKind::Ladder | ItemKind::WaterWheel | ItemKind::WoodLathe | ItemKind::MarkingStakes => MakeLimit::Once,
+            ItemKind::LogBridge | ItemKind::Ladder | ItemKind::WaterWheel | ItemKind::WoodLathe | ItemKind::MarkingStakes => MakeLimit::UpTo(1),
+            ItemKind::SpokedWheel => MakeLimit::UpTo(2),
             ItemKind::Handcart => MakeLimit::OneAtATime,
             _ => MakeLimit::Any,
         }

@@ -33,11 +33,11 @@ use crate::world::harvest::HarvestState;
 /// stood when the versions were started over, before the game's release
 /// (the steps from earlier layouts went with them: no one held such a
 /// save). From here on, a change to what a save holds raises the version.
-pub const SAVE_VERSION: u32 = 6;
+pub const SAVE_VERSION: u32 = 7;
 
 /// Steps bringing a save up a version: `MIGRATIONS[n]` turns a version
 /// `n + 1` save into version `n + 2`, editing the JSON in place.
-const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+const MIGRATIONS: &[fn(&mut Value)] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// Version 2 added the waist to the gear (the tool belt) and the tools on
 /// its hooks, and the handcart (on the island) and its load (carried): a
@@ -97,6 +97,25 @@ fn v5_to_v6(save: &mut Value) {
     if let Some(inventory) = save.get_mut("inventory").and_then(Value::as_object_mut) {
         inventory.insert("had".into(), serde_json::to_value(had).unwrap_or_else(|_| serde_json::json!([])));
     }
+}
+
+/// Version 7 keeps how many times each recipe has made something, not
+/// only whether it has (some things may be made only so many times). A
+/// version 6 save is taken to have made once with each recipe it has made
+/// with, but to have made the wheels its handcart took if it has one.
+fn v6_to_v7(save: &mut Value) {
+    let has_cart = save.pointer("/inventory/cart").is_some_and(|c| !c.is_null());
+    let Some(made) = save.pointer_mut("/inventory/recipes/made") else { return };
+    let names: Vec<String> = serde_json::from_value(made.clone()).unwrap_or_default();
+    let mut times: serde_json::Map<String, Value> = names.into_iter().map(|n| (n, Value::from(1))).collect();
+    if has_cart || times.contains_key("Handcart") {
+        let cart = RECIPES.iter().find(|r| r.makes == ItemKind::Handcart);
+        let wheels = cart.and_then(|c| c.needs.iter().find(|&&(k, _)| k == ItemKind::SpokedWheel)).map_or(0, |&(_, n)| n);
+        if let Some(way) = RECIPES.iter().find(|r| r.makes == ItemKind::SpokedWheel) {
+            times.insert(way.name.into(), Value::from(wheels));
+        }
+    }
+    *made = Value::Object(times);
 }
 
 fn had_by_a_version_5_save(save: &Value) -> Vec<ItemKind> {
@@ -290,6 +309,7 @@ mod tests {
         include_str!("save_samples/v4.json"),
         include_str!("save_samples/v5.json"),
         include_str!("save_samples/v6.json"),
+        include_str!("save_samples/v7.json"),
     ];
 
     fn load(version: u32) -> SaveData {
@@ -340,11 +360,13 @@ mod tests {
     }
 
     #[test]
-    fn a_version_2_save_has_no_signal_fire_and_nothing_made() {
+    fn a_version_2_save_has_no_signal_fire_and_nothing_made_but_its_handcarts_wheels() {
         let s = load(2);
         assert!(s.island.signal_fires.is_empty());
         assert_eq!((s.island.signal_day, s.island.rescue_at), (None, None));
-        assert_eq!(s.inventory.recipes.kinds_made(), 0);
+        assert!(s.inventory.cart.is_some(), "the sample has a handcart");
+        assert!(s.inventory.recipes.times_made(ItemKind::SpokedWheel) > 0, "its wheels were made (version 7)");
+        assert_eq!(s.inventory.recipes.kinds_made(), 1, "nothing else counted as made (version 3)");
     }
 
     #[test]
@@ -400,6 +422,27 @@ mod tests {
     fn the_sample_keeps_what_has_been_had() {
         let had = load(SAVE_VERSION).inventory.had;
         assert!(had.contains(&ItemKind::Crab), "had before, though no longer carried");
+    }
+
+    #[test]
+    fn a_version_6_save_has_made_once_what_it_had_made() {
+        let s = load(6);
+        assert_eq!(s.inventory.recipes.times_made(ItemKind::StoneKnife), 1);
+        assert_eq!(s.inventory.recipes.times_made(ItemKind::StoneAxe), 0);
+    }
+
+    #[test]
+    fn a_version_6_save_with_a_handcart_has_made_its_wheels() {
+        let s = load(6);
+        assert!(s.inventory.cart.is_some(), "the sample has a handcart");
+        let cart = RECIPES.iter().find(|r| r.makes == ItemKind::Handcart).unwrap();
+        let wheels = cart.needs.iter().find(|&&(k, _)| k == ItemKind::SpokedWheel).unwrap().1;
+        assert_eq!(s.inventory.recipes.times_made(ItemKind::SpokedWheel), wheels);
+    }
+
+    #[test]
+    fn the_sample_keeps_how_many_times_each_thing_was_made() {
+        assert_eq!(load(SAVE_VERSION).inventory.recipes.times_made(ItemKind::StoneKnife), 3);
     }
 
     #[test]
