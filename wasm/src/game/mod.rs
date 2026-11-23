@@ -25,7 +25,7 @@ use crate::crafting::{RECIPES, Recipe};
 use crate::entity::fish;
 use crate::entity::player::ACTOR_PRIORITY;
 use crate::entity::{Campfire, Crab, Deed, Fish, Gull, Item, Particles, Player, SignalFire, Situation, signal_fire};
-use crate::items::{ItemKind, Use};
+use crate::items::{FLASK_CUPS, ItemKind, Use};
 use crate::ppu::effects::{ColorMath, MathOp, MathSource, WindowRegion, layer};
 use crate::ppu::oam::ObjEntry;
 use crate::ppu::palette::Cgram;
@@ -224,6 +224,9 @@ pub struct Game {
     /// Asked at a signal fire, the castaway said to pour fish oil on it as
     /// it's lit (not saved: lighting it is under way).
     pour_oil: bool,
+    /// Cups in the flask being boiled over the fire (not saved: cooking is
+    /// under way).
+    boiling: u32,
     /// Dev tools: whether smoke is always (`Some(true)`) or never
     /// (`Some(false)`) seen, instead of by chance.
     rescue_luck: Option<bool>,
@@ -386,6 +389,7 @@ impl Game {
             signal_day: save.and_then(|s| s.island.signal_day),
             rescue_at: save.and_then(|s| s.island.rescue_at),
             pour_oil: false,
+            boiling: 0,
             rescue_luck: None,
             shell_day: 0,
             shell_cap: 0,
@@ -765,7 +769,7 @@ impl Game {
         let idle_before = self.player.is_idle();
         let situation = Situation {
             tool: self.inventory.gear.hand,
-            has_leaf: self.inventory.bag.has(ItemKind::Leaf),
+            has_leaf: self.inventory.bag.has(ItemKind::Leaf) || self.inventory.bag.flask_for(ItemKind::RawWater).is_some(),
             has_knife: self.inventory.bag.has(ItemKind::StoneKnife),
             item_in_reach: self.pickup_target().map(|t| self.pickup_point(t)),
             fish_near: !self.inventory.carries(ItemKind::FishingRod) && self.fish_near(self.player.cast_point()),
@@ -795,7 +799,7 @@ impl Game {
             }
             Some(Deed::Smoulder(spot)) => self.particles.ember(spot),
             Some(Deed::KickDust(feet)) => self.particles.dust(feet),
-            Some(Deed::Cooked(dish)) => self.take(dish, 1),
+            Some(Deed::Cooked(dish)) => self.take(dish, if dish.water().is_some() { self.boiling } else { 1 }),
             Some(Deed::LightFire(spot)) => self.light_fire(spot),
             Some(Deed::Cast(at)) => {
                 self.line = Some(Line::new(at));
@@ -1487,9 +1491,15 @@ impl Game {
         }
     }
 
-    /// Scoops water up in a leaf folded into a cup.
+    /// Fills a flask full (one part full of river water before an empty
+    /// one), or with every flask full, scoops water up in a leaf folded
+    /// into a cup.
     fn draw_water(&mut self) {
-        if self.inventory.bag.take_kind(ItemKind::Leaf) {
+        let bag = &mut self.inventory.bag;
+        if let Some(i) = bag.flask_for(ItemKind::RawWater) {
+            bag.fill(i, ItemKind::RawWater, FLASK_CUPS);
+            self.inventory.took(ItemKind::RawWaterFlask);
+        } else if bag.take_kind(ItemKind::Leaf) {
             self.take(ItemKind::RawWater, 1);
         }
     }
@@ -1935,7 +1945,8 @@ impl Game {
             return;
         };
         self.menu = None;
-        self.inventory.use_up(recipe);
+        // A flask is boiled whole, as many cups as are in it.
+        self.boiling = self.inventory.use_up(recipe);
         self.player.cook(recipe.needs[0].0, recipe.makes, at);
     }
 
@@ -1989,8 +2000,9 @@ impl Game {
         self.vitals.heal(kind.heals());
         if let Some((ailment, chance)) = kind.risk() {
             // The very first draw of raw water is always safe.
-            let spared = kind == ItemKind::RawWater && !self.vitals.drunk_raw_water;
-            if kind == ItemKind::RawWater {
+            let raw = kind.water().unwrap_or(kind) == ItemKind::RawWater;
+            let spared = raw && !self.vitals.drunk_raw_water;
+            if raw {
                 self.vitals.drunk_raw_water = true;
             }
             let unlucky = self.stomach_luck.map_or_else(|| self.rng.chance(chance), |lucky| !lucky);
@@ -2317,8 +2329,8 @@ impl Game {
 
     /// Dev tools: puts everything in the bag on the mill's shelf.
     pub fn debug_shelve_bag(&mut self) {
-        while !self.inventory.bag.items().is_empty() {
-            let p = self.inventory.bag.remove(0);
+        while let Some(i) = self.inventory.bag.items().iter().position(|p| p.kind.goes_on_shelf()) {
+            let p = self.inventory.bag.remove(i);
             self.inventory.shelf.put(p.kind, p.count);
         }
         self.inventory.settle_hand();

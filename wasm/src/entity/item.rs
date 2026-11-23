@@ -154,6 +154,9 @@ impl Item {
             ItemKind::WoodLathe => (32, [sprites.wood_lathe_lying; 2], sprites.shadow_lying),
             ItemKind::SpokedWheel => (16, [sprites.spoked_wheel_lying; 2], sprites.shadow_player),
             ItemKind::DiggingStick => (16, [sprites.digging_stick; 2], sprites.shadow_player),
+            ItemKind::BambooFlask => (16, [sprites.flask[0]; 2], sprites.shadow_player),
+            ItemKind::RawWaterFlask => (16, [sprites.flask[1]; 2], sprites.shadow_player),
+            ItemKind::BoiledWaterFlask => (16, [sprites.flask[2]; 2], sprites.shadow_player),
             ItemKind::BambooSpade => (32, [sprites.bamboo_spade; 2], sprites.shadow_lying),
             ItemKind::MarkingStakes => (32, [sprites.marking_stakes; 2], sprites.shadow_lying),
             ItemKind::Clay => (8, [sprites.clay; 2], sprites.shadow_coconut),
@@ -195,7 +198,10 @@ impl Item {
             | ItemKind::BambooSpade
             | ItemKind::MarkingStakes
             | ItemKind::Clay
-            | ItemKind::SignalFire => OBJ_FX,
+            | ItemKind::SignalFire
+            | ItemKind::BambooFlask
+            | ItemKind::RawWaterFlask
+            | ItemKind::BoiledWaterFlask => OBJ_FX,
             ItemKind::LauanTimber => OBJ_GULL,
             _ if night => OBJ_CRAB_NIGHT,
             _ => OBJ_CRAB,

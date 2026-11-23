@@ -513,8 +513,17 @@ impl Inventory {
     /// Takes a recipe's materials: out of the bag first, the rest off the
     /// shelf (while it's at hand). The caller has checked they can be made
     /// (`can_make`).
-    pub fn use_up(&mut self, recipe: &Recipe) {
+    /// A flask of water is taken whole (the fullest): returns the cups in
+    /// it, or 0 with none.
+    pub fn use_up(&mut self, recipe: &Recipe) -> u32 {
+        let mut cups = 0;
         for &(kind, n) in recipe.needs {
+            if kind.water().is_some() {
+                for _ in 0..n {
+                    cups += self.bag.take_flask(kind).unwrap_or(0);
+                }
+                continue;
+            }
             let mut left = n;
             while left > 0 && self.bag.take_kind(kind) {
                 left -= 1;
@@ -524,6 +533,7 @@ impl Inventory {
             }
             debug_assert_eq!(left, 0, "materials at hand");
         }
+        cups
     }
 
     /// Lets go of a tool in hand that's no longer carried.

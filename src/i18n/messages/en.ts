@@ -159,6 +159,9 @@ const en: typeof ja = {
     SignalFire: { name: 'Signal fire', reading: 'Signal fire' },
     MarkingStakes: { name: 'Marking stakes', reading: 'Marking stakes' },
     FishOil: { name: 'Fish oil', reading: 'Fish oil' },
+    BambooFlask: { name: 'Bamboo flask', reading: 'Bamboo flask' },
+    RawWaterFlask: { name: 'Raw water flask', reading: 'Raw water flask' },
+    BoiledWaterFlask: { name: 'Boiled water flask', reading: 'Boiled water flask' },
   },
 };
 

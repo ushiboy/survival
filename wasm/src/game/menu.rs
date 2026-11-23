@@ -94,6 +94,10 @@ pub enum Command {
     Equip,
     /// Put it down on the ground (or pour it away).
     Drop,
+    /// Pour the water out of a flask, keeping the flask.
+    PourOut,
+    /// Pour a pot of boiled water into a flask, freeing the pot.
+    IntoFlask,
 }
 
 impl Command {
@@ -105,6 +109,8 @@ impl Command {
             Command::Move => "MOVE",
             Command::Equip => "EQUIP",
             Command::Drop => kind.discard_words().0,
+            Command::PourOut => "POUR OUT",
+            Command::IntoFlask => "FILL FLASK",
         }
     }
 }
@@ -413,10 +419,14 @@ fn why_not(menu: &BagMenu, inv: &Inventory, recipe: &crate::crafting::Recipe) ->
 }
 
 /// Commands offered for an item, in menu order: using it, then EQUIP
-/// (gear not in its slot already: it's put there straight away).
-pub fn commands_for(kind: ItemKind, gear: &Gear) -> Vec<Command> {
-    let equip = equip_slot(gear, kind).map(|_| Command::Equip);
-    kind.usage().map(Command::Use).into_iter().chain(equip).chain([Command::Move, Command::Drop]).collect()
+/// (gear not in its slot already: it's put there straight away), pouring
+/// water out of a flask, or a pot's boiled water into one (while there's
+/// a flask it would go into).
+pub fn commands_for(kind: ItemKind, inv: &Inventory) -> Vec<Command> {
+    let equip = equip_slot(&inv.gear, kind).map(|_| Command::Equip);
+    let pour = kind.water().map(|_| Command::PourOut);
+    let into_flask = (kind == ItemKind::BoiledWater && inv.bag.flask_for(kind).is_some()).then_some(Command::IntoFlask);
+    kind.usage().map(Command::Use).into_iter().chain(equip).chain(pour).chain(into_flask).chain([Command::Move, Command::Drop]).collect()
 }
 
 impl BagMenu {
@@ -684,7 +694,7 @@ impl BagMenu {
                     Spot::Bag(i) => inv.bag.items()[i].kind,
                     Spot::Hook(h) => inv.gear.belt[h].expect("a tool on the hook"),
                 };
-                let commands = commands_for(kind, &inv.gear);
+                let commands = commands_for(kind, inv);
                 if let Some((_, dy)) = step.filter(|s| s.1 != 0) {
                     self.mode = Mode::Commands { item, choice: (choice as i32 + dy).rem_euclid(commands.len() as i32) as usize };
                 }
@@ -737,6 +747,26 @@ impl BagMenu {
                             self.cursor = (p.x, p.y);
                         }
                         self.mode = Mode::Holding(HeldItem { kind, turned, count: p.map_or(1, |p| p.count), origin: p, hook });
+                        Outcome::Stay
+                    }
+                    Command::PourOut => {
+                        if let Spot::Bag(i) = item {
+                            inv.bag.empty(i);
+                        }
+                        self.notice = Some("POURED IT OUT");
+                        Outcome::Stay
+                    }
+                    Command::IntoFlask => {
+                        if let Spot::Bag(i) = item
+                            && let Some(flask) = inv.bag.flask_for(kind)
+                        {
+                            inv.bag.fill(flask, kind, 1);
+                            let pot = &inv.bag.items()[i];
+                            let pot = Placed { kind: ItemKind::BarkContainer, ..*pot };
+                            inv.bag.remove(i);
+                            inv.bag.put(pot);
+                            self.notice = Some("POURED IT IN");
+                        }
                         Outcome::Stay
                     }
                     Command::Drop => {
@@ -1163,7 +1193,9 @@ impl BagMenu {
         }
         let Some(i) = grid.at(self.cursor.0, self.cursor.1) else { return Outcome::Stay };
         let kind = grid.items()[i].kind;
-        if input.pressed(Buttons::A) {
+        if (input.pressed(Buttons::A) || input.pressed(Buttons::Y)) && !kind.goes_on_shelf() {
+            self.notice = Some("NOT WITH WATER IN IT");
+        } else if input.pressed(Buttons::A) {
             let p = grid.remove(i);
             shelf.put(p.kind, p.count);
             self.notice = Some("ON THE SHELF");
@@ -1305,7 +1337,7 @@ impl BagMenu {
             let spot = Placed { kind: held.kind, x: self.cursor.0, y: self.cursor.1, turned: held.turned, count: held.count };
             match bag.overlapping(&spot)[..] {
                 // Onto a stack of the same: top it up, keeping any left over.
-                [other] if bag.items()[other].kind == held.kind && held.kind.max_stack() > 1 => {
+                [other] if bag.items()[other].kind == held.kind && held.kind.stacks_together() => {
                     let left = bag.add_to(other, held.count);
                     if left == 0 {
                         self.mode = Mode::Browse;
@@ -1754,6 +1786,29 @@ mod tests {
     }
 
     #[test]
+    fn boiled_water_in_a_pot_is_offered_to_pour_into_a_flask_only_with_one_it_would_go_into() {
+        let mut inv = Inventory::default();
+        inv.bag.stow_one(ItemKind::BoiledWater);
+        assert!(!commands_for(ItemKind::BoiledWater, &inv).contains(&Command::IntoFlask), "no flask");
+        inv.bag.stow(ItemKind::RawWaterFlask, 1);
+        assert!(!commands_for(ItemKind::BoiledWater, &inv).contains(&Command::IntoFlask), "not into raw water");
+        inv.bag.stow(ItemKind::BoiledWaterFlask, crate::items::FLASK_CUPS);
+        assert!(!commands_for(ItemKind::BoiledWater, &inv).contains(&Command::IntoFlask), "not into a full flask");
+        inv.bag.stow_one(ItemKind::BambooFlask);
+        assert!(commands_for(ItemKind::BoiledWater, &inv).contains(&Command::IntoFlask));
+        assert!(!commands_for(ItemKind::RawWater, &inv).contains(&Command::IntoFlask), "raw water is drawn into a flask at the river");
+    }
+
+    #[test]
+    fn only_a_flask_with_water_in_it_can_be_poured_out_and_kept() {
+        let inv = Inventory::default();
+        assert!(commands_for(ItemKind::RawWaterFlask, &inv).contains(&Command::PourOut));
+        assert!(commands_for(ItemKind::BoiledWaterFlask, &inv).contains(&Command::PourOut));
+        assert!(!commands_for(ItemKind::BambooFlask, &inv).contains(&Command::PourOut));
+        assert!(!commands_for(ItemKind::RawWater, &inv).contains(&Command::PourOut), "water in a leaf is poured away with its leaf");
+    }
+
+    #[test]
     fn a_tool_on_the_belt_can_be_taken_in_hand() {
         let choices = gear_choices(&belted(), Slot::Hand);
         assert!(choices.contains(&GearChoice::Use(ItemKind::StoneAxe)));
@@ -1780,17 +1835,17 @@ mod tests {
     #[test]
     fn equip_is_offered_while_there_is_somewhere_to_put_it() {
         let mut inv = Inventory::default();
-        assert!(commands_for(ItemKind::StoneAxe, &inv.gear).contains(&Command::Equip));
-        assert!(commands_for(ItemKind::PackFrame, &inv.gear).contains(&Command::Equip));
-        assert!(!commands_for(ItemKind::Stone, &inv.gear).contains(&Command::Equip));
+        assert!(commands_for(ItemKind::StoneAxe, &inv).contains(&Command::Equip));
+        assert!(commands_for(ItemKind::PackFrame, &inv).contains(&Command::Equip));
+        assert!(!commands_for(ItemKind::Stone, &inv).contains(&Command::Equip));
         inv.gear.hand = Some(ItemKind::StoneAxe);
-        assert!(!commands_for(ItemKind::StoneAxe, &inv.gear).contains(&Command::Equip));
+        assert!(!commands_for(ItemKind::StoneAxe, &inv).contains(&Command::Equip));
     }
 
     /// The menu with the commands open on the bag's `kind` and EQUIP chosen.
     fn on_equip(inv: &Inventory, kind: ItemKind) -> BagMenu {
         let item = inv.bag.items().iter().position(|p| p.kind == kind).unwrap();
-        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Equip).unwrap();
+        let choice = commands_for(kind, &inv).iter().position(|&c| c == Command::Equip).unwrap();
         BagMenu { mode: Mode::Commands { item: Spot::Bag(item), choice }, ..BagMenu::browse() }
     }
 
@@ -1818,7 +1873,7 @@ mod tests {
     #[test]
     fn equip_takes_a_tool_on_the_belt_in_hand() {
         let (mut menu, mut inv) = browsing((0, 0));
-        let choice = commands_for(ItemKind::StoneAxe, &inv.gear).iter().position(|&c| c == Command::Equip).unwrap();
+        let choice = commands_for(ItemKind::StoneAxe, &inv).iter().position(|&c| c == Command::Equip).unwrap();
         menu.mode = Mode::Commands { item: Spot::Hook(0), choice };
         press(&mut menu, &mut inv, Buttons::A);
         assert_eq!(inv.gear.hand, Some(ItemKind::StoneAxe));
@@ -1846,14 +1901,14 @@ mod tests {
         let (mut menu, mut inv) = browsing((1, BASE_ROWS));
         press(&mut menu, &mut inv, Buttons::A);
         assert!(matches!(menu.mode, Mode::Commands { item: Spot::Hook(0), .. }));
-        let commands = commands_for(ItemKind::StoneAxe, &inv.gear);
+        let commands = commands_for(ItemKind::StoneAxe, &inv);
         assert!(commands.contains(&Command::Equip) && commands.contains(&Command::Move) && commands.contains(&Command::Drop));
     }
 
     /// Lifts the bag's `kind` to move it (MOVE from its commands).
     fn lift(menu: &mut BagMenu, inv: &mut Inventory, kind: ItemKind) {
         let item = inv.bag.items().iter().position(|p| p.kind == kind).unwrap();
-        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Move).unwrap();
+        let choice = commands_for(kind, &inv).iter().position(|&c| c == Command::Move).unwrap();
         menu.mode = Mode::Commands { item: Spot::Bag(item), choice };
         press(menu, inv, Buttons::A);
         assert!(matches!(menu.mode, Mode::Holding(_)));
@@ -1905,7 +1960,7 @@ mod tests {
     /// Lifts the tool on hook `hook` (MOVE from its commands).
     fn lift_off_hook(menu: &mut BagMenu, inv: &mut Inventory, hook: usize) {
         let kind = inv.gear.belt[hook].unwrap();
-        let choice = commands_for(kind, &inv.gear).iter().position(|&c| c == Command::Move).unwrap();
+        let choice = commands_for(kind, &inv).iter().position(|&c| c == Command::Move).unwrap();
         menu.mode = Mode::Commands { item: Spot::Hook(hook), choice };
         press(menu, inv, Buttons::A);
     }
@@ -1940,7 +1995,7 @@ mod tests {
     #[test]
     fn a_tool_on_the_belt_can_be_put_down() {
         let (mut menu, mut inv) = browsing((0, 0));
-        let choice = commands_for(ItemKind::StoneAxe, &inv.gear).iter().position(|&c| c == Command::Drop).unwrap();
+        let choice = commands_for(ItemKind::StoneAxe, &inv).iter().position(|&c| c == Command::Drop).unwrap();
         menu.mode = Mode::Commands { item: Spot::Hook(0), choice };
         assert_eq!(press(&mut menu, &mut inv, Buttons::A), Outcome::Drop(ItemKind::StoneAxe, 1));
         assert_eq!(inv.gear.belt[0], None);

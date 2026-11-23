@@ -158,6 +158,9 @@ fn main() {
                 "soil" => ItemKind::Soil,
                 "signal fire" | "signal" => ItemKind::SignalFire,
                 "fish oil" | "oil" => ItemKind::FishOil,
+                "bamboo flask" | "flask" => ItemKind::BambooFlask,
+                "raw water flask" | "raw flask" => ItemKind::RawWaterFlask,
+                "boiled water flask" | "boiled flask" => ItemKind::BoiledWaterFlask,
                 _ => panic!("unknown item {name}"),
             };
             game.debug_give(kind);
