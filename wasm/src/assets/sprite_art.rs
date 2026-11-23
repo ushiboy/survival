@@ -1020,3 +1020,16 @@ pub fn smoke_frames() -> [PixelArt; 4] {
         puff(32, &[(16.0, 18.0, 11.0), (8.5, 13.0, 7.0), (23.5, 12.5, 7.5)], true),
     ]
 }
+
+/// A bamboo flask lying on the ground, 16x8: its open mouth (left) shows
+/// what's in it, a vine tied round its neck.
+pub fn flask_lying(holds: super::item_art::FlaskHolds) -> PixelArt {
+    use super::item_art::FlaskHolds;
+    let mouth: [&str; 3] = match holds {
+        FlaskHolds::Nothing => [".ocoGgGGGgGGGgo.", ".ocoGgGGGgGGGgo.", ".ocwGgGGGgGGGgo."],
+        FlaskHolds::RawWater => [".oclGgGGGgGGGgo.", ".ocbGgGGGgGGGgo.", ".ocbGgGGGgGGGgo."],
+        FlaskHolds::BoiledWater => [".ociGgGGGgGGGgo.", ".oclGgGGGgGGGgo.", ".oclGgGGGgGGGgo."],
+    };
+    let rows = ["................", "...ooooooooooo..", "..ochGhhhhhhhho.", mouth[0], mouth[1], mouth[2], "..ocggggggggggo.", "...ooooooooooo.."];
+    PixelArt::parse(&rows, FX_LEGEND)
+}

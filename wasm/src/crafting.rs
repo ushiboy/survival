@@ -203,6 +203,26 @@ pub const RECIPES: &[Recipe] = &[
         at_fire: true,
         at_lathe: false,
     },
+    // A length of bamboo cut between its nodes with the axe, one node bored
+    // through with the knife, stopped with a branch whittled into a peg.
+    Recipe {
+        name: "BambooFlask",
+        makes: ItemKind::BambooFlask,
+        needs: &[(ItemKind::Bamboo, 1), (ItemKind::Branch, 1)],
+        tools: &[ItemKind::StoneAxe, ItemKind::StoneKnife],
+        at_fire: false,
+        at_lathe: false,
+    },
+    // The flask's water boiled in the bark pot a potful at a time and
+    // poured back: the whole flask, however many cups are in it.
+    Recipe {
+        name: "BoiledWaterFlask",
+        makes: ItemKind::BoiledWaterFlask,
+        needs: &[(ItemKind::RawWaterFlask, 1)],
+        tools: &[ItemKind::BarkContainer],
+        at_fire: true,
+        at_lathe: false,
+    },
 ];
 
 /// The recipes the castaway has thought of. A recipe comes to mind once
@@ -671,6 +691,23 @@ mod tests {
     fn a_bamboo_spade_is_cut_with_the_axe_and_split_with_the_knife() {
         let tools = RECIPES[index(ItemKind::BambooSpade)].tools;
         assert!(tools.contains(&ItemKind::StoneAxe) && tools.contains(&ItemKind::StoneKnife));
+    }
+
+    #[test]
+    fn a_bamboo_flask_is_a_length_of_bamboo_cut_with_the_axe_bored_with_the_knife_and_stopped_with_a_whittled_branch() {
+        let recipe = RECIPES.iter().find(|r| r.makes == ItemKind::BambooFlask).expect("a recipe for it");
+        assert!(recipe.needs.contains(&(ItemKind::Bamboo, 1)) && recipe.needs.iter().any(|&(k, _)| k == ItemKind::Branch));
+        assert!(!recipe.needs.iter().any(|&(k, _)| k == ItemKind::Leaf), "the stopper is wood");
+        assert!(recipe.tools.contains(&ItemKind::StoneAxe) && recipe.tools.contains(&ItemKind::StoneKnife));
+        assert!(!recipe.at_fire, "a bamboo flask is never put on the fire");
+    }
+
+    #[test]
+    fn a_flask_of_raw_water_is_boiled_with_the_bark_pot_over_a_fire() {
+        let recipe = RECIPES.iter().find(|r| r.makes == ItemKind::BoiledWaterFlask).expect("a recipe for it");
+        assert_eq!(recipe.needs, &[(ItemKind::RawWaterFlask, 1)]);
+        assert_eq!(recipe.tools, &[ItemKind::BarkContainer], "the pot is kept");
+        assert!(recipe.at_fire);
     }
 
     #[test]

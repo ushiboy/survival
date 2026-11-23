@@ -27,6 +27,8 @@ const CELL: i32 = 16;
 /// Rows of the BG3 map the screen uses.
 const LAST_ROW: usize = 27;
 const INFO_COL: usize = 17;
+/// Characters across the ITEMS page's info column, to the screen's edge.
+const INFO_W: usize = HUD_COLS - INFO_COL;
 /// The page tabs and each one's column (its `>`; the label follows), a
 /// space apart, leaving room for CRAFT's `!`.
 const TAB_ROW: usize = 5;
@@ -272,14 +274,21 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
     let focus = held.map(|h| h.kind).or(under_cursor.map(|(_, k)| k)).filter(|_| in_grid);
     if let Some(kind) = focus {
         let (w, h) = footprint(kind, false);
-        text(bg3, tiles, INFO_COL, GRID_ROW, kind.name());
-        text(bg3, tiles, INFO_COL, GRID_ROW + 1, &format!("SIZE {w}X{h}"));
+        // A long name folds onto a second line, pushing the rest down
+        // (still above the commands).
+        let name = name_lines(kind);
+        for (i, line) in name.iter().enumerate() {
+            text(bg3, tiles, INFO_COL, GRID_ROW + i, line);
+        }
+        let below = GRID_ROW + name.len();
+        text(bg3, tiles, INFO_COL, below, &format!("SIZE {w}X{h}"));
         if in_hand(kind) {
-            text(bg3, tiles, INFO_COL, GRID_ROW + 2, "IN HAND");
+            text(bg3, tiles, INFO_COL, below + 1, "IN HAND");
         }
         let count = held.map(|h| h.count).or_else(|| bag.at(cx, cy).map(|i| bag.items()[i].count).filter(|_| !on_belt((cx, cy), bag)));
         if let Some(n) = count.filter(|_| kind.max_stack() > 1) {
-            text(bg3, tiles, INFO_COL, GRID_ROW + 2, &format!("{n} OF {}", kind.max_stack()));
+            let cups = if kind.water().is_some() { " CUPS" } else { "" };
+            text(bg3, tiles, INFO_COL, below + 1, &format!("{n} OF {}{cups}", kind.max_stack()));
         }
     }
     if let Mode::Commands { item, choice } = menu.mode {
@@ -287,7 +296,7 @@ pub fn draw(bg3: &mut Bg3Layer, list: &mut DrawList, tiles: &HudTiles, sprites: 
             Spot::Bag(i) => bag.items()[i].kind,
             Spot::Hook(h) => inventory.gear.belt[h].unwrap_or(ItemKind::Stone),
         };
-        for (i, c) in commands_for(kind, &inventory.gear).iter().enumerate() {
+        for (i, c) in commands_for(kind, inventory).iter().enumerate() {
             let row = GRID_ROW + 4 + i;
             if i == choice {
                 text(bg3, tiles, INFO_COL, row, ">");
@@ -393,7 +402,8 @@ fn draw_cart_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spr
             let row = GRID_ROW + rows * 2 + 2;
             text(bg3, tiles, GRID_COL, row, p.kind.name());
             if p.kind.max_stack() > 1 {
-                text(bg3, tiles, GRID_COL + p.kind.name().len() + 1, row, &format!("{} OF {}", p.count, p.kind.max_stack()));
+                let cups = if p.kind.water().is_some() { " CUPS" } else { "" };
+                text(bg3, tiles, GRID_COL + p.kind.name().len() + 1, row, &format!("{} OF {}{cups}", p.count, p.kind.max_stack()));
             }
         }
     }
@@ -987,6 +997,12 @@ fn need_row(bg3: &mut Bg3Layer, tiles: &HudTiles, row: usize, supply: Supply) ->
 }
 
 /// Breaks text into lines of at most `width` characters at spaces.
+/// An item's name as shown in the ITEMS page's info column: folded between
+/// words onto a second line if it's too long for one.
+fn name_lines(kind: ItemKind) -> Vec<String> {
+    wrap(kind.name(), INFO_W)
+}
+
 fn wrap(s: &str, width: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in s.split(' ') {
@@ -1095,6 +1111,38 @@ fn draw_gear_page(bg3: &mut Bg3Layer, tiles: &HudTiles, list: &mut DrawList, spr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_item_name_fits_the_items_panel_in_at_most_two_lines() {
+        for kind in ItemKind::ALL {
+            let lines = name_lines(kind);
+            assert!(lines.len() <= 2, "{kind:?} takes {} lines", lines.len());
+            assert!(lines.iter().all(|l| l.len() <= INFO_W), "{kind:?} runs off the screen");
+        }
+    }
+
+    #[test]
+    fn a_name_too_long_for_one_line_is_folded_between_words() {
+        assert_eq!(name_lines(ItemKind::BoiledWaterFlask), vec!["BOILED WATER", "FLASK"]);
+        assert_eq!(name_lines(ItemKind::RawWaterFlask), vec!["RAW WATER FLASK"]);
+    }
+
+    #[test]
+    fn every_material_name_ends_before_the_need_column() {
+        let materials = RECIPES.iter().flat_map(|r| r.needs).chain(Furnishing::ALL.iter().flat_map(|f| f.needs()));
+        for &(kind, _) in materials {
+            assert!(GRID_COL + 2 + kind.name().len() < NEED_COL, "{kind:?}");
+        }
+        let tools = RECIPES.iter().flat_map(|r| r.tools).chain(Furnishing::ALL.iter().flat_map(|f| f.tools()));
+        for &kind in tools {
+            assert!(GRID_COL + 2 + kind.name().len() < HAVE_COL - 1, "{kind:?}");
+        }
+        for stage in crate::game::mill::MILL_STAGES {
+            for &(kind, _) in stage.needs {
+                assert!(GRID_COL + 2 + kind.name().len() < BUILD_NEED_COL, "{kind:?}");
+            }
+        }
+    }
 
     #[test]
     fn every_recipe_description_ends_above_what_it_needs() {

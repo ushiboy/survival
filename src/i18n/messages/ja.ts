@@ -160,6 +160,9 @@ const ja = {
     SignalFire: { name: '狼煙台', reading: 'のろしだい' },
     MarkingStakes: { name: '縄張りの杭', reading: 'なわばりのくい' },
     FishOil: { name: '魚油', reading: 'ぎょゆ' },
+    BambooFlask: { name: '竹の水筒', reading: 'たけのすいとう' },
+    RawWaterFlask: { name: '生水の水筒', reading: 'なまみずのすいとう' },
+    BoiledWaterFlask: { name: '沸かした水の水筒', reading: 'わかしたみずのすいとう' },
   },
 };
 

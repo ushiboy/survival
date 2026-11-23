@@ -1848,3 +1848,66 @@ pub fn signal_fire_lying() -> PixelArt {
     }
     a.outlined(i('o'))
 }
+
+/// What a bamboo flask is drawn holding: the open mouth shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlaskHolds {
+    Nothing,
+    /// River water: deep blue, flecks of leaf in it.
+    RawWater,
+    /// Boiled and cooled: clear and bright.
+    BoiledWater,
+}
+
+impl FlaskHolds {
+    pub const ALL: [FlaskHolds; 3] = [FlaskHolds::Nothing, FlaskHolds::RawWater, FlaskHolds::BoiledWater];
+}
+
+/// A bamboo flask, 16x32: a short length of bamboo, its open mouth seen a
+/// little from above so what's in it shows, a vine tied round its neck, and
+/// its wooden stopper pulled out and stood at its foot.
+pub fn icon_flask(holds: FlaskHolds) -> PixelArt {
+    // The three rows inside the mouth.
+    let mouth: [&str; 3] = match holds {
+        FlaskHolds::Nothing => ["....ocooooooco..", "....ocooooooco..", "....ocwwwwwwco.."],
+        FlaskHolds::RawWater => ["....ocbllbbbco..", "....ocbbbbgbco..", "....ocbgbbbbco.."],
+        FlaskHolds::BoiledWater => ["....ociiiiiico..", "....ocliilllco..", "....ocllllilco.."],
+    };
+    // The stopper stands at the bottom left, clear of a stack's count
+    // (drawn at the bottom right).
+    let rows = [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "......oooooo....",
+        ".....occcccco...",
+        mouth[0],
+        mouth[1],
+        mouth[2],
+        "....ohccccccgo..",
+        "....ohGGGGGGgo..",
+        "....ohGGGGGGgo..",
+        "....ogGgGgGgGo..",
+        "....ohGGGGGGgo..",
+        "....ohhGGGGGgo..",
+        "....ohGGGGGGgo..",
+        "....ohGGGGGGgo..",
+        "....ohGGGGGGgo..",
+        "....ohhGGGGGgo..",
+        "....ohgggggggo..",
+        "....ohhGGGGGgo..",
+        "....ohGGGGGGgo..",
+        "..ooooGGGGGGgo..",
+        ".occccoGGGGGgo..",
+        "occWcccoGGGGgo..",
+        "oWccccWoGGGGgo..",
+        "oWWWWwwoGGGGgo..",
+        ".oWWwwoGGGGGgo..",
+        ".oWwwogggggggo..",
+        "..ooooooooooo...",
+        "................",
+    ];
+    PixelArt::parse(&rows, FX_LEGEND)
+}

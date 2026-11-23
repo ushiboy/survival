@@ -136,7 +136,18 @@ pub enum ItemKind {
     /// folded leaf. It fills the mill's lamps, and poured on a signal fire
     /// it sends up black smoke.
     FishOil,
+    /// A length of bamboo cut between its nodes with the axe, one node
+    /// bored through with the knife and stopped with a wooden peg whittled
+    /// from a branch: it carries several cups of water. Empty, as made.
+    BambooFlask,
+    /// A bamboo flask with river water in it (as many cups as its count).
+    RawWaterFlask,
+    /// A bamboo flask with boiled water in it (as many cups as its count).
+    BoiledWaterFlask,
 }
+
+/// Cups of water a bamboo flask holds: about a day's drinking, boiled.
+pub const FLASK_CUPS: u32 = 4;
 
 /// Where a piece of gear goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +224,7 @@ impl Use {
 impl ItemKind {
     /// Every kind, numbered as the debug tools give them (add new kinds
     /// here too; the page lists them by its own names for them).
-    pub const ALL: [ItemKind; 47] = [
+    pub const ALL: [ItemKind; 50] = [
         ItemKind::Coconut,
         ItemKind::OpenedCoconut,
         ItemKind::Timber,
@@ -261,6 +272,9 @@ impl ItemKind {
         ItemKind::SignalFire,
         ItemKind::MarkingStakes,
         ItemKind::FishOil,
+        ItemKind::BambooFlask,
+        ItemKind::RawWaterFlask,
+        ItemKind::BoiledWaterFlask,
     ];
 
     /// Footprint in bag cells (width, height), unturned.
@@ -295,7 +309,10 @@ impl ItemKind {
             | ItemKind::PackFrame
             | ItemKind::PalmFrond
             | ItemKind::Torch
-            | ItemKind::ToolBelt => (1, 2),
+            | ItemKind::ToolBelt
+            | ItemKind::BambooFlask
+            | ItemKind::RawWaterFlask
+            | ItemKind::BoiledWaterFlask => (1, 2),
             ItemKind::Thatch => (2, 1),
             ItemKind::WaterWheel => (3, 3),
             ItemKind::WoodSpear | ItemKind::FishingRod | ItemKind::Bamboo | ItemKind::BambooSpade | ItemKind::MarkingStakes => (1, 3),
@@ -360,6 +377,9 @@ impl ItemKind {
             ItemKind::SignalFire => "SIGNAL FIRE",
             ItemKind::MarkingStakes => "MARKING STAKES",
             ItemKind::FishOil => "FISH OIL",
+            ItemKind::BambooFlask => "BAMBOO FLASK",
+            ItemKind::RawWaterFlask => "RAW WATER FLASK",
+            ItemKind::BoiledWaterFlask => "BOILED WATER FLASK",
         }
     }
 
@@ -414,6 +434,9 @@ impl ItemKind {
             ItemKind::SignalFire => "STONES IN EARTH, WOOD STACKED ON. LIGHT A BRANCH AND A PALM FROND ON IT TO SEND UP SMOKE.",
             ItemKind::MarkingStakes => "STAKES AND A LINE TO MARK OUT GROUND FOR SOMETHING BIG.",
             ItemKind::FishOil => "OIL BOILED OUT OF FISH, IN A FOLDED LEAF. IT BURNS WITH A SMOKY FLAME.",
+            ItemKind::BambooFlask => "A STOPPERED LENGTH OF BAMBOO. IT CARRIES SEVERAL CUPS OF WATER.",
+            ItemKind::RawWaterFlask => "RIVER WATER IN A BAMBOO FLASK. A CUP EASES THIRST.",
+            ItemKind::BoiledWaterFlask => "BOILED WATER IN A BAMBOO FLASK. A CUP EASES THIRST, AND HEALS.",
         }
     }
 
@@ -433,7 +456,7 @@ impl ItemKind {
     pub fn usage(self) -> Option<Use> {
         match self {
             ItemKind::OpenedCoconut | ItemKind::Crab | ItemKind::GrilledCrab | ItemKind::Fish | ItemKind::GrilledFish => Some(Use::Eat),
-            ItemKind::RawWater | ItemKind::BoiledWater => Some(Use::Drink),
+            ItemKind::RawWater | ItemKind::BoiledWater | ItemKind::RawWaterFlask | ItemKind::BoiledWaterFlask => Some(Use::Drink),
             ItemKind::FireDrill => Some(Use::Light),
             _ => None,
         }
@@ -444,6 +467,9 @@ impl ItemKind {
     /// more food but hardly any water, and grilled it does much more; a
     /// draw of water a quarter of thirst, and a pot of boiled water more.
     pub fn nourishment(self) -> (u32, u32) {
+        if let Some(water) = self.water() {
+            return water.nourishment();
+        }
         match self {
             ItemKind::RawWater => (0, 16),
             ItemKind::BoiledWater => (0, 24),
@@ -460,6 +486,9 @@ impl ItemKind {
     /// (the riskier the rawer: water from the river least, crab most).
     /// Cooked food, boiled water and coconut are safe.
     pub fn risk(self) -> Option<(Ailment, f32)> {
+        if let Some(water) = self.water() {
+            return water.risk();
+        }
         match self {
             ItemKind::RawWater => Some((Ailment::UpsetStomach, 0.2)),
             ItemKind::Fish => Some((Ailment::UpsetStomach, 0.3)),
@@ -475,13 +504,48 @@ impl ItemKind {
             ItemKind::Husk | ItemKind::Rope | ItemKind::PalmFrond | ItemKind::SeaShell | ItemKind::PineCone | ItemKind::Bamboo => 5,
             // Heavy for their size.
             ItemKind::Clay | ItemKind::Soil => 3,
+            // Cups of water in one flask.
+            ItemKind::RawWaterFlask | ItemKind::BoiledWaterFlask => FLASK_CUPS,
             _ => 1,
         }
+    }
+
+    /// Whether more of it are piled into one stack in the bag: a flask's
+    /// count is the cups in it, never poured together with another's.
+    pub fn stacks_together(self) -> bool {
+        self.max_stack() > 1 && self.water().is_none()
+    }
+
+    /// The water a bamboo flask has in it (a cup of it is drunk at a time).
+    pub fn water(self) -> Option<ItemKind> {
+        match self {
+            ItemKind::RawWaterFlask => Some(ItemKind::RawWater),
+            ItemKind::BoiledWaterFlask => Some(ItemKind::BoiledWater),
+            _ => None,
+        }
+    }
+
+    /// A bamboo flask with this water in it.
+    pub fn flask(self) -> Option<ItemKind> {
+        match self {
+            ItemKind::RawWater => Some(ItemKind::RawWaterFlask),
+            ItemKind::BoiledWater => Some(ItemKind::BoiledWaterFlask),
+            _ => None,
+        }
+    }
+
+    /// Whether it can be left on the mill's shelf: not a flask with water
+    /// in it (water's to be kept in the mill some other way).
+    pub fn goes_on_shelf(self) -> bool {
+        self.water().is_none()
     }
 
     /// Health eating or drinking it restores, of a 64-point gauge (cooked
     /// food and boiled water are what heal, about a fifth of it).
     pub fn heals(self) -> u32 {
+        if let Some(water) = self.water() {
+            return water.heals();
+        }
         match self {
             ItemKind::GrilledCrab | ItemKind::GrilledFish | ItemKind::BoiledWater => 13,
             _ => 0,
@@ -605,6 +669,67 @@ mod tests {
         assert!(ItemKind::Bamboo.max_stack() > 1);
         for timber in [ItemKind::Timber, ItemKind::LauanTimber, ItemKind::PineTimber] {
             assert_eq!(timber.max_stack(), 1);
+        }
+    }
+
+    const FLASKS: [ItemKind; 2] = [ItemKind::RawWaterFlask, ItemKind::BoiledWaterFlask];
+
+    #[test]
+    fn a_flask_holds_cups_of_raw_or_boiled_water() {
+        assert_eq!(ItemKind::RawWater.flask(), Some(ItemKind::RawWaterFlask));
+        assert_eq!(ItemKind::BoiledWater.flask(), Some(ItemKind::BoiledWaterFlask));
+        for flask in FLASKS {
+            assert_eq!(flask.max_stack(), FLASK_CUPS, "{flask:?}");
+            assert!(FLASK_CUPS > 1, "more than one cup");
+            assert!(!flask.stacks_together(), "one flask's cups are its own");
+        }
+        assert_eq!(ItemKind::BambooFlask.water(), None);
+    }
+
+    #[test]
+    fn a_cup_from_a_flask_does_what_the_water_in_it_does() {
+        for flask in FLASKS {
+            let water = flask.water().expect("water in it");
+            assert_eq!(flask.usage(), Some(Use::Drink));
+            assert_eq!(flask.nourishment(), water.nourishment());
+            assert_eq!(flask.heals(), water.heals());
+            assert_eq!(flask.risk(), water.risk());
+            assert_eq!(flask.leaves_behind(), None, "the flask stays in the bag");
+        }
+    }
+
+    #[test]
+    fn an_empty_flask_is_one_thing_to_carry_and_a_full_one_is_bigger_than_a_pot() {
+        assert_eq!(ItemKind::BambooFlask.max_stack(), 1);
+        assert_eq!(ItemKind::BambooFlask.usage(), None);
+        for flask in FLASKS {
+            assert_eq!(flask.size(), ItemKind::BambooFlask.size());
+        }
+        let cells = |k: ItemKind| k.size().0 * k.size().1;
+        assert!(cells(ItemKind::BambooFlask) > cells(ItemKind::BarkContainer));
+        assert!(cells(ItemKind::BambooFlask) < cells(ItemKind::Bamboo), "cut from a length of bamboo");
+    }
+
+    #[test]
+    fn only_an_empty_flask_goes_on_the_shelf() {
+        assert!(ItemKind::BambooFlask.goes_on_shelf());
+        for flask in FLASKS {
+            assert!(!flask.goes_on_shelf(), "{flask:?}");
+        }
+        assert!(ItemKind::Rope.goes_on_shelf());
+    }
+
+    #[test]
+    fn a_flask_with_water_in_it_can_be_put_down_unlike_water_in_a_leaf() {
+        for flask in FLASKS {
+            assert!(flask.can_put_down(), "{flask:?}");
+        }
+    }
+
+    #[test]
+    fn things_that_stack_together_are_those_that_stack_bar_flasks() {
+        for kind in ItemKind::ALL {
+            assert_eq!(kind.stacks_together(), kind.max_stack() > 1 && kind.water().is_none(), "{kind:?}");
         }
     }
 }
